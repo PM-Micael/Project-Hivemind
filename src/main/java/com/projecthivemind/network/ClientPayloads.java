@@ -36,6 +36,10 @@ public final class ClientPayloads {
         ClientSight.update(payload.visibleMobs());
     }
 
+    public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {
+        ClientSight.updateEyes(payload.eyes());
+    }
+
     public static void onSyncActions(SyncActionsPayload payload, IPayloadContext context) {
         ClientActions.update(payload.positions(), payload.attacked());
     }

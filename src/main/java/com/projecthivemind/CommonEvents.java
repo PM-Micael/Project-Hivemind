@@ -18,10 +18,12 @@ import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
 import com.projecthivemind.network.SetScoutBehaviorPayload;
 import com.projecthivemind.network.SetWorkerBehaviorPayload;
+import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncSightPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
+import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.ServerPayloads;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
@@ -71,11 +73,13 @@ public final class CommonEvents {
         registrar.playToServer(SetScoutBehaviorPayload.TYPE, SetScoutBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetScoutBehavior);
         registrar.playToServer(SetCollectorBehaviorPayload.TYPE, SetCollectorBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetCollectorBehavior);
         registrar.playToServer(SetWorkerBehaviorPayload.TYPE, SetWorkerBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetWorkerBehavior);
+        registrar.playToClient(SyncEyesPayload.TYPE, SyncEyesPayload.STREAM_CODEC, ClientPayloads::onSyncEyes);
         registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);
         registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);
         registrar.playToClient(WeakToolPayload.TYPE, WeakToolPayload.STREAM_CODEC, ClientPayloads::onWeakTool);
         registrar.playToClient(SyncActionsPayload.TYPE, SyncActionsPayload.STREAM_CODEC, ClientPayloads::onSyncActions);
         registrar.playToServer(ToggleInventoryModePayload.TYPE, ToggleInventoryModePayload.STREAM_CODEC, ServerPayloads::onToggleInventoryMode);
+        registrar.playToServer(ReturnToHeartPayload.TYPE, ReturnToHeartPayload.STREAM_CODEC, ServerPayloads::onReturnToHeart);
         registrar.playToClient(SyncHivemindPayload.TYPE, SyncHivemindPayload.STREAM_CODEC, ClientPayloads::onSync);
     }
 

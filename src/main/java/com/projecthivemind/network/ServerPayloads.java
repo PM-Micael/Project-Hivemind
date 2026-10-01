@@ -99,6 +99,12 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onReturnToHeart(ReturnToHeartPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.returnToHeart(player);
+        }
+    }
+
     public static void onOpenHiveMenu(OpenHiveMenuPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.openMenu(player);

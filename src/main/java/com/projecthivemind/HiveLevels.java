@@ -6,8 +6,8 @@ import java.util.Map;
 public final class HiveLevels {
     private static final List<HiveLevel> LEVELS = List.of(
             // Level 1 is reached by planting the Hive Heart.
-            // Sight: 2 chunks (32 blocks) for everything but scouts, which see 12 chunks (192 blocks).
-            new HiveLevel(1, 20.0F, 27, 3, 4, 32, 192, Map.of(
+            // Sight: 2 chunks (32 blocks) for units, 8 chunks (128 blocks) for scouts. The Heart sees 1 chunk per level.
+            new HiveLevel(1, 20.0F, 27, 3, 4, 32, 128, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 1,
                     UnitKind.SOLDIER, 1,

@@ -12,6 +12,7 @@ import com.projecthivemind.UnitKind;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.HiveMenuClickPayload;
+import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
 import com.projecthivemind.network.SetScoutBehaviorPayload;
@@ -125,6 +126,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         collectorsPage = pageButton(2, "screen.projecthivemind.behavior.page_collectors", Page.COLLECTORS);
         scoutsPage = pageButton(3, "screen.projecthivemind.behavior.page_scouts", Page.SCOUTS);
 
+        // Fly the camera back to the Hive Heart.
+        addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.hive.to_heart"), button -> {
+            PacketDistributor.sendToServer(new ReturnToHeartPayload());
+            onClose();
+        }).bounds(leftPos + imageWidth - 8 - 70, topPos + 5, 70, 16).build());
+
+        // Terrain fog of war on or off.
+        addRenderableWidget(Button.builder(fogLabel(), button -> {
+            FogOfWar.setEnabled(!FogOfWar.enabled());
+            button.setMessage(fogLabel());
+        }).bounds(leftPos + imageWidth - 8 - 70 - 4 - 66, topPos + 5, 66, 16).build());
+
         // Creative players can drop out of the hive to the normal inventory, e.g. to spawn items in for testing.
         if (ClientState.canSwapInventory()) {
             addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.swap.to_normal"), button -> {
@@ -135,6 +148,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         initBehaviorWidgets();
         showTab(tab);
+    }
+
+    private static Component fogLabel() {
+        return Component.translatable(FogOfWar.enabled() ? "screen.projecthivemind.hive.fog_on" : "screen.projecthivemind.hive.fog_off");
     }
 
     private Button tabButton(int index, String key, Tab target) {

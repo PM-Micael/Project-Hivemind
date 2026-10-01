@@ -16,6 +16,7 @@ import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.menu.HiveMenu;
+import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.SyncSightPayload;
 
@@ -138,6 +139,23 @@ public final class HivemindManager {
         }
         set(player, data.withNormalInventory(!data.normalInventory()));
         refresh(player);
+    }
+
+    /** Move the camera back above the Hive Heart, keeping the player's own view angle. Hive stage only. */
+    public static void returnToHeart(ServerPlayer player) {
+        if (get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        HiveHeart heart = findHeart(player);
+        if (heart == null || !(heart.level() instanceof ServerLevel level)) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_heart"), true);
+            return;
+        }
+        float pitch = Mth.clamp(player.getXRot(), 5.0F, 88.0F);
+        double behind = START_CAMERA_HEIGHT / Math.tan(Math.toRadians(pitch));
+        float yaw = player.getYRot();
+        player.teleportTo(level, heart.getX() + Mth.sin(yaw * Mth.DEG_TO_RAD) * behind, heart.getY() + START_CAMERA_HEIGHT,
+                heart.getZ() - Mth.cos(yaw * Mth.DEG_TO_RAD) * behind, yaw, pitch);
     }
 
     public static void choose(ServerPlayer player, boolean hivemind) {
@@ -422,6 +440,14 @@ public final class HivemindManager {
         }
         ServerLevel level = (ServerLevel) heart.level();
         List<HiveSight.Eye> eyes = HiveSight.eyes(level, owner, heart);
+        // The client fogs terrain by these, so it needs them whenever a unit has moved.
+        if (!eyes.equals(heart.sightEyes())) {
+            List<SyncEyesPayload.EyePoint> points = new ArrayList<>();
+            for (HiveSight.Eye eye : eyes) {
+                points.add(new SyncEyesPayload.EyePoint(eye.position().x, eye.position().y, eye.position().z, (float) eye.radius()));
+            }
+            PacketDistributor.sendToPlayer(owner, new SyncEyesPayload(points));
+        }
         heart.setSightEyes(eyes);
 
         Set<Integer> visible = HiveSight.visibleMobs(level, eyes);

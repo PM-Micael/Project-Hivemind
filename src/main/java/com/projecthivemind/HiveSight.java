@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -49,7 +50,7 @@ public final class HiveSight {
     public static List<Eye> eyes(ServerLevel level, ServerPlayer owner, HiveHeart heart) {
         HiveLevel hiveLevel = HiveLevels.get(heart.hiveLevel());
         List<Eye> eyes = new ArrayList<>();
-        eyes.add(new Eye(heart.getBoundingBox().getCenter(), hiveLevel.sightRadius()));
+        eyes.add(new Eye(heart.getBoundingBox().getCenter(), hiveLevel.heartSightRadius()));
         for (UUID id : HivemindManager.get(owner).allUnits()) {
             if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit) {
                 eyes.add(new Eye(mob.getEyePosition(), hiveLevel.sightRadius(unit.kind())));
@@ -93,12 +94,15 @@ public final class HiveSight {
         return false;
     }
 
-    /** The entity ids of every mob the hive can see right now: within an eye's radius, and in a clear line from it. */
+    /**
+     * The entity ids of every living thing (mobs, other players, armor stands) the hive can see right now: within an
+     * eye's radius, and in a clear line from it.
+     */
     public static Set<Integer> visibleMobs(ServerLevel level, List<Eye> eyes) {
         Set<Integer> visible = new HashSet<>();
         for (Eye eye : eyes) {
             AABB around = new AABB(eye.position(), eye.position()).inflate(eye.radius());
-            for (Mob mob : level.getEntitiesOfClass(Mob.class, around, Entity::isAlive)) {
+            for (LivingEntity mob : level.getEntitiesOfClass(LivingEntity.class, around, Entity::isAlive)) {
                 Vec3 center = mob.getBoundingBox().getCenter();
                 if (!visible.contains(mob.getId()) && eye.position().distanceToSqr(center) <= eye.radius() * eye.radius()
                         && clear(level, eye.position(), center)) {

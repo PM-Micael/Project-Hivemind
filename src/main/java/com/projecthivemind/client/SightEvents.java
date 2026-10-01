@@ -6,7 +6,6 @@ import com.projecthivemind.entity.HiveUnit;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.Mob;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -23,11 +22,14 @@ public final class SightEvents {
     }
 
     /** Whether a mob should be hidden from the player right now. */
-    public static boolean isHidden(Mob mob) {
+    public static boolean isHidden(LivingEntity mob) {
         if (!ClientState.hiveMode() || mob instanceof HiveHeart) {
             return false;
         }
         Minecraft minecraft = Minecraft.getInstance();
+        if (mob == minecraft.player) {
+            return false;
+        }
         if (mob instanceof HiveUnit unit && minecraft.player != null && minecraft.player.getUUID().equals(unit.ownerId())) {
             return false;
         }
@@ -36,8 +38,7 @@ public final class SightEvents {
 
     @SubscribeEvent
     static void onRenderLiving(RenderLivingEvent.Pre<?, ?> event) {
-        LivingEntity entity = event.getEntity();
-        if (entity instanceof Mob mob && isHidden(mob)) {
+        if (isHidden(event.getEntity())) {
             event.setCanceled(true);
         }
     }
