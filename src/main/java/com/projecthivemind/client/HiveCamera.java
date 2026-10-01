@@ -72,8 +72,13 @@ public final class HiveCamera {
     }
 
     /** True while the RTS view is in control: hive stage, in a world, and no menu open. */
-    private static boolean controlling(Minecraft minecraft) {
+    static boolean controlling(Minecraft minecraft) {
         return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null;
+    }
+
+    /** True while the middle mouse button is held to rotate the view; clicks are not commands then. */
+    static boolean isRotating() {
+        return rotating;
     }
 
     private static void startRotating(Minecraft minecraft) {

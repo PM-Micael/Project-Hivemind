@@ -4,21 +4,26 @@ import java.util.Optional;
 
 import javax.annotation.Nullable;
 
+import com.mojang.datafixers.util.Pair;
+import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModMenus;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveHeart;
 
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.CraftingContainer;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.inventory.ResultContainer;
 import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.SimpleContainerData;
@@ -32,8 +37,9 @@ import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.Level;
 
 /**
- * The bodyless hivemind's inventory screen: the hive's shared storage plus a crafting grid. The hivemind has no
- * body, so nothing here touches the player's own inventory; everything goes to and from the hive.
+ * The bodyless hivemind's inventory screen: the hive's shared storage, a crafting grid, and the gear slots whose
+ * contents new soldiers are equipped with. The hivemind has no body, so nothing here touches the player's own
+ * inventory; everything goes to and from the hive.
  */
 public class HiveMenu extends AbstractContainerMenu {
     public static final int STORAGE_SLOTS = 27;
@@ -44,13 +50,20 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int RESULT_INDEX = STORAGE_START + STORAGE_SLOTS;
     private static final int GRID_START = RESULT_INDEX + 1;
     private static final int GRID_END = GRID_START + GRID_SIZE * GRID_SIZE;
+    private static final int ARMOR_START = GRID_END;
+    private static final int TOOLS_START = ARMOR_START + HiveEquipment.ARMOR_SLOTS.length;
+    private static final int TOOLS_END = TOOLS_START + HiveEquipment.TOOL_SLOTS;
 
     // Slot positions inside the panel, shared with the screen.
-    public static final int STORAGE_X = 8;
+    public static final int ARMOR_X = 8;
+    public static final int ARMOR_Y = 54;
+    public static final int STORAGE_X = 32;
     public static final int STORAGE_Y = 54;
-    public static final int GRID_X = 190;
+    public static final int TOOLS_X = 32;
+    public static final int TOOLS_Y = 116;
+    public static final int GRID_X = 214;
     public static final int GRID_Y = 54;
-    public static final int RESULT_X = 208;
+    public static final int RESULT_X = 232;
     public static final int RESULT_Y = 118;
 
     // Synced values: level, health, max health, then (count, cap) for each unit kind.
@@ -59,6 +72,13 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int DATA_MAX_HEALTH = 2;
     private static final int DATA_UNITS = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * 2;
+
+    /** Empty-slot icons, in {@link HiveEquipment#ARMOR_SLOTS} order. */
+    private static final ResourceLocation[] ARMOR_ICONS = {
+            InventoryMenu.EMPTY_ARMOR_SLOT_HELMET,
+            InventoryMenu.EMPTY_ARMOR_SLOT_CHESTPLATE,
+            InventoryMenu.EMPTY_ARMOR_SLOT_LEGGINGS,
+            InventoryMenu.EMPTY_ARMOR_SLOT_BOOTS};
 
     private final SimpleContainer storage;
     private final ContainerData data;
@@ -73,10 +93,12 @@ public class HiveMenu extends AbstractContainerMenu {
 
     /** Client constructor: the real contents arrive from the server. */
     public HiveMenu(int containerId, Inventory inventory) {
-        this(containerId, inventory, new SimpleContainer(STORAGE_SLOTS), new SimpleContainerData(DATA_COUNT), null);
+        this(containerId, inventory, new SimpleContainer(STORAGE_SLOTS), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length),
+                new SimpleContainer(HiveEquipment.TOOL_SLOTS), new SimpleContainerData(DATA_COUNT), null);
     }
 
-    private HiveMenu(int containerId, Inventory inventory, SimpleContainer storage, ContainerData data, @Nullable HiveHeart heart) {
+    private HiveMenu(int containerId, Inventory inventory, SimpleContainer storage, SimpleContainer armor, SimpleContainer tools,
+                     ContainerData data, @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         checkContainerSize(storage, STORAGE_SLOTS);
         this.storage = storage;
@@ -94,6 +116,12 @@ public class HiveMenu extends AbstractContainerMenu {
             for (int col = 0; col < GRID_SIZE; col++) {
                 this.addSlot(new HiveSlot(craftSlots, col + row * GRID_SIZE, GRID_X + col * 18, GRID_Y + row * 18));
             }
+        }
+        for (int i = 0; i < HiveEquipment.ARMOR_SLOTS.length; i++) {
+            this.addSlot(new ArmorSlot(armor, i, ARMOR_X, ARMOR_Y + i * 18, HiveEquipment.ARMOR_SLOTS[i]));
+        }
+        for (int i = 0; i < HiveEquipment.TOOL_SLOTS; i++) {
+            this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, TOOLS_Y));
         }
         this.addDataSlots(data);
     }
@@ -126,7 +154,7 @@ public class HiveMenu extends AbstractContainerMenu {
                 return DATA_COUNT;
             }
         };
-        return new HiveMenu(containerId, inventory, heart.getStorage(), data, heart);
+        return new HiveMenu(containerId, inventory, heart.getStorage(), heart.getArmorGear(), heart.getToolGear(), data, heart);
     }
 
     // ---- values for the screen ----
@@ -199,10 +227,13 @@ public class HiveMenu extends AbstractContainerMenu {
             }
             slot.onQuickCraft(stack, original);
         } else if (index >= GRID_START) {
+            // Crafting grid, armor and tool slots: back to storage.
             if (!this.moveItemStackTo(stack, STORAGE_START, RESULT_INDEX, false)) {
                 return ItemStack.EMPTY;
             }
-        } else if (!this.moveItemStackTo(stack, GRID_START, GRID_END, false)) {
+        } else if (!this.moveItemStackTo(stack, ARMOR_START, TOOLS_END, false)
+                && !this.moveItemStackTo(stack, GRID_START, GRID_END, false)) {
+            // From storage: gear slots first (each only takes what belongs there), then the crafting grid.
             return ItemStack.EMPTY;
         }
 
@@ -255,8 +286,9 @@ public class HiveMenu extends AbstractContainerMenu {
         }
     }
 
-    // ---- slots that disappear on the Quests tab ----
+    // ---- slots ----
 
+    /** Slots disappear on the Quests tab. */
     private class HiveSlot extends Slot {
         HiveSlot(Container container, int index, int x, int y) {
             super(container, index, x, y);
@@ -276,6 +308,52 @@ public class HiveMenu extends AbstractContainerMenu {
         @Override
         public boolean isActive() {
             return !questsOpen;
+        }
+    }
+
+    /** Holds one armor piece, and only of the right kind: new soldiers wear a copy of it. */
+    private class ArmorSlot extends HiveSlot {
+        private final EquipmentSlot equipmentSlot;
+        private final int position;
+
+        /** @param position index in {@link HiveEquipment#ARMOR_SLOTS}, which picks the empty-slot icon */
+        ArmorSlot(Container container, int position, int x, int y, EquipmentSlot equipmentSlot) {
+            super(container, position, x, y);
+            this.equipmentSlot = equipmentSlot;
+            this.position = position;
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return HiveEquipment.isArmorFor(stack, equipmentSlot);
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
+        }
+
+        @Nullable
+        @Override
+        public Pair<ResourceLocation, ResourceLocation> getNoItemIcon() {
+            return Pair.of(InventoryMenu.BLOCK_ATLAS, ARMOR_ICONS[position]);
+        }
+    }
+
+    /** Holds tools and weapons: new soldiers wield a copy of the one with the highest attack damage. */
+    private class ToolSlot extends HiveSlot {
+        ToolSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return HiveEquipment.isToolOrWeapon(stack);
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
         }
     }
 }

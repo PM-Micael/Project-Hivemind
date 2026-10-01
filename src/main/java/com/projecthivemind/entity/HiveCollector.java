@@ -1,12 +1,17 @@
 package com.projecthivemind.entity;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.client.ClientSelection;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
@@ -26,14 +31,34 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     private static final String HEART_TAG = "HiveHeartId";
     private static final String CARRIED_TAG = "Carried";
 
-    @Nullable
-    private UUID ownerId;
+    /** Synced so the owner's client knows which units are theirs and should be outlined. */
+    private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER =
+            SynchedEntityData.defineId(HiveCollector.class, EntityDataSerializers.OPTIONAL_UUID);
+
     @Nullable
     private UUID heartId;
     private ItemStack carried = ItemStack.EMPTY;
 
     public HiveCollector(EntityType<? extends HiveCollector> type, Level level) {
         super(type, level);
+    }
+
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(DATA_OWNER, Optional.empty());
+    }
+
+    // ---- outline: always white (collectors cannot be selected), visible through walls, for the owner only ----
+
+    @Override
+    public boolean isCurrentlyGlowing() {
+        return this.level().isClientSide ? ClientSelection.shouldGlow(ownerId()) : super.isCurrentlyGlowing();
+    }
+
+    @Override
+    public int getTeamColor() {
+        return this.level().isClientSide ? ClientSelection.outlineColor(this.getId()) : super.getTeamColor();
     }
 
     public static AttributeSupplier.Builder createCollectorAttributes() {
@@ -50,6 +75,11 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     @Override
     protected boolean shouldDespawnInPeaceful() {
         return false;
+    }
+
+    /** Units give no experience when they die. */
+    @Override
+    protected void dropExperience(@Nullable Entity killer) {
     }
 
     public void setHeartId(@Nullable UUID heartId) {
@@ -93,12 +123,12 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     @Nullable
     @Override
     public UUID ownerId() {
-        return ownerId;
+        return this.entityData.get(DATA_OWNER).orElse(null);
     }
 
     @Override
     public void setOwnerId(@Nullable UUID ownerId) {
-        this.ownerId = ownerId;
+        this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
     }
 
     @Override

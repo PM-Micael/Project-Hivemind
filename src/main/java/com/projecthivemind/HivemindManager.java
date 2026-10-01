@@ -1,5 +1,7 @@
 package com.projecthivemind;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -7,8 +9,10 @@ import javax.annotation.Nullable;
 import com.projecthivemind.client.ClientState;
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
+import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.menu.HiveMenu;
+import com.projecthivemind.network.MoveUnitsPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 
 import net.minecraft.core.BlockPos;
@@ -32,6 +36,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /** Server-side rules for the Hivemind progression. All state changes go through here. */
@@ -210,6 +215,8 @@ public final class HivemindManager {
     public static void onHeartDestroyed(ServerLevel level, HiveHeart heart) {
         BlockPos center = heart.blockPosition();
         Containers.dropContents(level, center, heart.getStorage());
+        Containers.dropContents(level, center, heart.getArmorGear());
+        Containers.dropContents(level, center, heart.getToolGear());
         HiveInfection.clear(level, center, HiveLevels.get(heart.hiveLevel()).infectionRadius());
         setHeartChunksForced(level, center, false);
 
@@ -260,16 +267,64 @@ public final class HivemindManager {
 
     // ---- units ----
 
-    /** Spawn a unit at the Hive Heart, unless the hive is already at its cap for that kind. */
+    /**
+     * The player asked for a unit. At the hive's cap for that kind this replaces the oldest unit of that kind: it is
+     * killed to make room. Collectors cannot be asked for; the Heart makes them itself.
+     */
     public static void spawnUnit(ServerPlayer player, UnitKind kind) {
-        HivemindData data = get(player);
+        if (kind == UnitKind.COLLECTOR) {
+            return;
+        }
         HiveHeart heart = findHeart(player);
-        if (data.stage() != HivemindStage.HIVE || heart == null) {
+        if (get(player).stage() != HivemindStage.HIVE || heart == null) {
             return;
         }
-        if (data.count(kind) >= HiveLevels.get(heart.hiveLevel()).cap(kind)) {
+        int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
+        if (cap <= 0) {
             return;
         }
+        if (get(player).count(kind) >= cap) {
+            killOldest(player, kind);
+            // The kill frees the slot through the normal death handling; check it did before spawning.
+            if (get(player).count(kind) >= cap) {
+                return;
+            }
+        }
+        createUnit(player, heart, kind);
+    }
+
+    /** Kill the unit of this kind that was spawned first. Units are tracked in spawn order, oldest first. */
+    private static void killOldest(ServerPlayer player, UnitKind kind) {
+        for (UUID id : get(player).units().getOrDefault(kind, List.of())) {
+            for (ServerLevel level : player.server.getAllLevels()) {
+                if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
+                    unit.kill();
+                    return;
+                }
+            }
+        }
+    }
+
+    /** How often the Heart makes a collector for itself while it has fewer than its cap. */
+    public static void tickCollectorSpawn(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null) {
+            return;
+        }
+        HivemindData data = get(owner);
+        boolean theirHeart = data.heartId().isPresent() && data.heartId().get().equals(heart.getUUID());
+        if (data.stage() != HivemindStage.HIVE || !theirHeart
+                || data.count(UnitKind.COLLECTOR) >= HiveLevels.get(heart.hiveLevel()).cap(UnitKind.COLLECTOR)) {
+            return;
+        }
+        createUnit(owner, heart, UnitKind.COLLECTOR);
+    }
+
+    /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
+    private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
         ServerLevel level = (ServerLevel) heart.level();
 
         // Stand each kind on a different side of the heart.
@@ -287,13 +342,49 @@ public final class HivemindManager {
         ((HiveUnit) unit).setOwnerId(player.getUUID());
         if (unit instanceof HiveCollector collector) {
             collector.setHeartId(heart.getUUID());
+        } else if (unit instanceof HiveSoldier soldier) {
+            // Soldiers spawn wearing and wielding copies of whatever is in the hive's gear slots right now.
+            soldier.setHeartId(heart.getUUID());
+            HiveEquipment.equipSoldier(soldier, heart);
         }
         unit.moveTo(x, heart.getY(), z, player.getYRot(), 0.0F);
         unit.setPersistenceRequired();
         level.addFreshEntity(unit);
 
-        set(player, data.withUnit(kind, unit.getUUID()));
+        set(player, get(player).withUnit(kind, unit.getUUID()));
         sync(player);
+    }
+
+    /** Spacing between units sent to the same spot, so a group fans out instead of piling up. */
+    private static final double FORMATION_SPACING = 1.1D;
+
+    /**
+     * Walk the given units to a spot. Only units that belong to this player and can be commanded move; the client's
+     * list is never trusted.
+     */
+    public static void commandMove(ServerPlayer player, List<Integer> unitIds, Vec3 target) {
+        if (get(player).stage() != HivemindStage.HIVE || unitIds.size() > MoveUnitsPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        if (!level.isInWorldBounds(BlockPos.containing(target))) {
+            return;
+        }
+
+        List<Mob> units = new ArrayList<>();
+        for (int id : unitIds) {
+            if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                    && player.getUUID().equals(unit.ownerId()) && unit.kind() != UnitKind.COLLECTOR) {
+                units.add(mob);
+            }
+        }
+
+        for (int i = 0; i < units.size(); i++) {
+            // One unit goes to the exact spot; a group spreads out on a ring around it.
+            double angle = units.size() == 1 ? 0.0D : i * (2.0D * Math.PI / units.size());
+            double radius = units.size() == 1 ? 0.0D : FORMATION_SPACING * Math.max(1.0D, units.size() / 4.0D);
+            units.get(i).getNavigation().moveTo(target.x + Math.cos(angle) * radius, target.y, target.z + Math.sin(angle) * radius, 1.0D);
+        }
     }
 
     /** A unit died: free its owner's slot so they can spawn a replacement. */

@@ -28,6 +28,8 @@ public class CollectItemsGoal extends Goal {
     @Nullable
     private ItemEntity target;
     private int repathCooldown;
+    /** The earliest tick (by the collector's tickCount) the next scan for items may happen. */
+    private int nextSearchTick;
 
     public CollectItemsGoal(HiveCollector collector) {
         this.collector = collector;
@@ -43,9 +45,12 @@ public class CollectItemsGoal extends Goal {
         if (!collector.carried().isEmpty()) {
             return true;
         }
-        if (collector.tickCount % SEARCH_INTERVAL != 0) {
+        // Do not gate on tickCount % N: the game only evaluates goals on ticks where tickCount + entityId is even, and
+        // entity ids change every time a world loads, so a modulo check can silently never line up for some entities.
+        if (collector.tickCount < nextSearchTick) {
             return false;
         }
+        nextSearchTick = collector.tickCount + SEARCH_INTERVAL;
         target = findItem(heart);
         return target != null;
     }

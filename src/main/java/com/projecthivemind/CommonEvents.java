@@ -10,6 +10,7 @@ import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.ChooseModePayload;
 import com.projecthivemind.network.ClientPayloads;
 import com.projecthivemind.network.HiveMenuClickPayload;
+import com.projecthivemind.network.MoveUnitsPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ServerPayloads;
 import com.projecthivemind.network.SpawnUnitPayload;
@@ -56,6 +57,7 @@ public final class CommonEvents {
         registrar.playToServer(SpawnUnitPayload.TYPE, SpawnUnitPayload.STREAM_CODEC, ServerPayloads::onSpawnUnit);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
+        registrar.playToServer(MoveUnitsPayload.TYPE, MoveUnitsPayload.STREAM_CODEC, ServerPayloads::onMoveUnits);
         registrar.playToServer(ToggleInventoryModePayload.TYPE, ToggleInventoryModePayload.STREAM_CODEC, ServerPayloads::onToggleInventoryMode);
         registrar.playToClient(SyncHivemindPayload.TYPE, SyncHivemindPayload.STREAM_CODEC, ClientPayloads::onSync);
     }

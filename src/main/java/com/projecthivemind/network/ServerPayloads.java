@@ -5,6 +5,7 @@ import com.projecthivemind.menu.HiveMenu;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /** Handlers that run on the server. Every request is re-validated by {@link HivemindManager}; never trust the client. */
@@ -48,6 +49,12 @@ public final class ServerPayloads {
     }
 
     private static final int OUTSIDE_SLOT = -999;
+
+    public static void onMoveUnits(MoveUnitsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.commandMove(player, payload.unitIds(), new Vec3(payload.x(), payload.y(), payload.z()));
+        }
+    }
 
     public static void onToggleInventoryMode(ToggleInventoryModePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
