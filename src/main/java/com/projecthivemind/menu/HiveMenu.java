@@ -66,12 +66,20 @@ public class HiveMenu extends AbstractContainerMenu {
     public static final int RESULT_X = 232;
     public static final int RESULT_Y = 118;
 
-    // Synced values: level, health, max health, then (count, cap) for each unit kind.
+    // Synced values: level, health, max health, ticks until the next spawning interval, then for each unit kind its
+    // count, its cap, and what the next interval will do for it.
     private static final int DATA_LEVEL = 0;
     private static final int DATA_HEALTH = 1;
     private static final int DATA_MAX_HEALTH = 2;
-    private static final int DATA_UNITS = 3;
-    public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * 2;
+    private static final int DATA_TIMER = 3;
+    private static final int DATA_UNITS = 4;
+    private static final int VALUES_PER_UNIT = 3;
+    public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
+
+    /** What the next spawning interval will do for a kind of unit. */
+    public static final int STATUS_IDLE = 0;
+    public static final int STATUS_SPAWNING = 1;
+    public static final int STATUS_REFRESHING = 2;
 
     /** Empty-slot icons, in {@link HiveEquipment#ARMOR_SLOTS} order. */
     private static final ResourceLocation[] ARMOR_ICONS = {
@@ -140,9 +148,15 @@ public class HiveMenu extends AbstractContainerMenu {
                 if (index == DATA_MAX_HEALTH) {
                     return (int) heart.getMaxHealth();
                 }
-                UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / 2];
-                boolean isCount = (index - DATA_UNITS) % 2 == 0;
-                return isCount ? HivemindManager.get(player).count(kind) : HiveLevels.get(heart.hiveLevel()).cap(kind);
+                if (index == DATA_TIMER) {
+                    return heart.ticksUntilSpawn();
+                }
+                UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
+                return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
+                    case 0 -> HivemindManager.get(player).count(kind);
+                    case 1 -> HiveLevels.get(heart.hiveLevel()).cap(kind);
+                    default -> HivemindManager.spawnStatus(player, heart, kind);
+                };
             }
 
             @Override
@@ -172,11 +186,21 @@ public class HiveMenu extends AbstractContainerMenu {
     }
 
     public int unitCount(UnitKind kind) {
-        return data.get(DATA_UNITS + kind.ordinal() * 2);
+        return data.get(DATA_UNITS + kind.ordinal() * VALUES_PER_UNIT);
     }
 
     public int unitCap(UnitKind kind) {
-        return data.get(DATA_UNITS + kind.ordinal() * 2 + 1);
+        return data.get(DATA_UNITS + kind.ordinal() * VALUES_PER_UNIT + 1);
+    }
+
+    /** What the next spawning interval will do for this kind: one of the STATUS constants. */
+    public int unitStatus(UnitKind kind) {
+        return data.get(DATA_UNITS + kind.ordinal() * VALUES_PER_UNIT + 2);
+    }
+
+    /** Whole seconds until the next spawning interval, rounded up so it never shows 0 before it fires. */
+    public int secondsUntilSpawn() {
+        return (data.get(DATA_TIMER) + 19) / 20;
     }
 
     // ---- crafting ----

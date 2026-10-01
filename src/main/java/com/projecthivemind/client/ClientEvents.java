@@ -12,6 +12,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.HuskRenderer;
 import net.minecraft.client.renderer.entity.SilverfishRenderer;
 import net.minecraft.client.renderer.entity.SkeletonRenderer;
 import net.minecraft.client.renderer.entity.ZombieRenderer;
@@ -47,6 +48,7 @@ public final class ClientEvents {
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         // Units look exactly like their vanilla counterparts for now.
         event.registerEntityRenderer(ModEntities.HIVE_HEART.get(), HiveHeartRenderer::new);
+        event.registerEntityRenderer(ModEntities.HIVE_SCOUT.get(), HuskRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_WORKER.get(), SkeletonRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_SOLDIER.get(), ZombieRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_COLLECTOR.get(), SilverfishRenderer::new);
@@ -60,6 +62,7 @@ public final class ClientEvents {
     @SubscribeEvent
     static void registerGuiLayers(RegisterGuiLayersEvent event) {
         event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);
+        event.registerAboveAll(ProjectHivemind.id("command_bar"), CommandBar::render);
     }
 
     // ---- game bus ----

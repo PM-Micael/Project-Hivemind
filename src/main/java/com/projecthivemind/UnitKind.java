@@ -5,6 +5,8 @@ import com.mojang.serialization.Codec;
 import net.minecraft.util.StringRepresentable;
 
 public enum UnitKind implements StringRepresentable {
+    /** Looks like a husk. Selectable and able to walk; its real job is still to come. */
+    SCOUT("scout"),
     WORKER("worker"),
     SOLDIER("soldier"),
     /** Autonomous: fetches dropped items and delivers them to the Hive Heart. Cannot be commanded. */

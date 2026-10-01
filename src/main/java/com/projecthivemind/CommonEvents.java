@@ -4,6 +4,7 @@ import java.util.Set;
 
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
+import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.entity.HiveUnit;
@@ -69,6 +70,7 @@ public final class CommonEvents {
     @SubscribeEvent
     static void registerAttributes(EntityAttributeCreationEvent event) {
         event.put(ModEntities.HIVE_HEART.get(), HiveHeart.createHeartAttributes().build());
+        event.put(ModEntities.HIVE_SCOUT.get(), HiveScout.createScoutAttributes().build());
         event.put(ModEntities.HIVE_WORKER.get(), Skeleton.createAttributes().build());
         event.put(ModEntities.HIVE_SOLDIER.get(), HiveSoldier.createHiveAttributes().build());
         event.put(ModEntities.HIVE_COLLECTOR.get(), HiveCollector.createCollectorAttributes().build());

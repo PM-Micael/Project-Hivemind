@@ -9,6 +9,7 @@ import javax.annotation.Nullable;
 import com.projecthivemind.client.ClientState;
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
+import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.entity.HiveWorker;
@@ -302,19 +303,43 @@ public final class HivemindManager {
             createUnit(owner, heart, kind);
             return;
         }
-        // At the cap. Units are tracked oldest first, and the oldest is the most out of date.
-        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
-        if (kind == UnitKind.COLLECTOR || units.isEmpty()) {
-            return;
-        }
-        Mob oldest = findUnit(owner, units.get(0));
-        if (oldest instanceof HiveUnit unit && unit.gearVersion() < heart.gearVersionFor(kind)) {
+        // At the cap: replace the oldest unit if it is out of date.
+        Mob oldest = oldestOutOfDate(owner, heart, kind);
+        if (oldest != null) {
             oldest.kill();
             // The kill frees the slot through the normal death handling; only replace it if that happened.
             if (get(owner).count(kind) < cap) {
                 createUnit(owner, heart, kind);
             }
         }
+    }
+
+    /**
+     * The oldest unit of this kind, if it was made before the gear last changed. Units are tracked oldest first, and
+     * the oldest is the most out of date. Collectors use no gear and are never out of date.
+     */
+    @Nullable
+    private static Mob oldestOutOfDate(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
+        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
+        if (kind == UnitKind.COLLECTOR || units.isEmpty()) {
+            return null;
+        }
+        Mob oldest = findUnit(owner, units.get(0));
+        return oldest instanceof HiveUnit unit && unit.gearVersion() < heart.gearVersionFor(kind) ? oldest : null;
+    }
+
+    /**
+     * What the next interval will do for this kind of unit, for the hive menu to show: {@link HiveMenu#STATUS_SPAWNING}
+     * below the cap; {@link HiveMenu#STATUS_REFRESHING} at the cap when a gear change is waiting to be noticed or the
+     * oldest unit is already out of date; otherwise {@link HiveMenu#STATUS_IDLE}.
+     */
+    public static int spawnStatus(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
+        int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
+        if (get(owner).count(kind) < cap) {
+            return HiveMenu.STATUS_SPAWNING;
+        }
+        boolean refreshing = heart.gearChangePending(kind) || oldestOutOfDate(owner, heart, kind) != null;
+        return refreshing ? HiveMenu.STATUS_REFRESHING : HiveMenu.STATUS_IDLE;
     }
 
     @Nullable
@@ -333,9 +358,10 @@ public final class HivemindManager {
 
         // Stand each kind on a different side of the heart.
         double x = heart.getX() + (kind == UnitKind.WORKER ? 1.5D : kind == UnitKind.SOLDIER ? -1.5D : 0.0D);
-        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? 1.5D : 0.0D);
+        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? 1.5D : kind == UnitKind.SCOUT ? -1.5D : 0.0D);
 
         Mob unit = switch (kind) {
+            case SCOUT -> ModEntities.HIVE_SCOUT.get().create(level);
             case WORKER -> ModEntities.HIVE_WORKER.get().create(level);
             case SOLDIER -> ModEntities.HIVE_SOLDIER.get().create(level);
             case COLLECTOR -> ModEntities.HIVE_COLLECTOR.get().create(level);
@@ -354,6 +380,8 @@ public final class HivemindManager {
         } else if (unit instanceof HiveWorker worker) {
             // Workers pick a tool from the hive's slots when they have a job to do.
             worker.setHeartId(heart.getUUID());
+        } else if (unit instanceof HiveScout scout) {
+            scout.setHeartId(heart.getUUID());
         }
         unit.moveTo(x, heart.getY(), z, player.getYRot(), 0.0F);
         unit.setPersistenceRequired();

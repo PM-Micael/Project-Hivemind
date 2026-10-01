@@ -72,6 +72,28 @@ public class HiveHeart extends Mob {
     @Nullable
     private List<ItemStack> lastToolSignature;
 
+    /** Ticks until the next spawning interval, which tops up units and refreshes out-of-date ones. */
+    public int ticksUntilSpawn() {
+        return Math.max(0, SPAWN_INTERVAL_TICKS - spawnTimer);
+    }
+
+    /**
+     * True if the gear slots have been changed in a way that matters to this kind of unit since the last interval, so
+     * the next interval will count it as a change. (Soldiers care about armor and tools, workers only about tools.)
+     */
+    public boolean gearChangePending(UnitKind kind) {
+        if (lastArmorSignature == null || lastToolSignature == null) {
+            return false;
+        }
+        boolean tools = !sameSignature(signature(toolSlots), lastToolSignature);
+        boolean armor = !sameSignature(signature(armorSlots), lastArmorSignature);
+        return switch (kind) {
+            case SOLDIER -> armor || tools;
+            case WORKER -> tools;
+            case SCOUT, COLLECTOR -> false;
+        };
+    }
+
     /**
      * The gear version a unit of this kind is made with. Soldiers care about armor and tools, workers only about
      * tools, and collectors use no gear. A unit made at an older version than this is out of date.
@@ -80,7 +102,7 @@ public class HiveHeart extends Mob {
         return switch (kind) {
             case SOLDIER -> armorVersion + toolVersion;
             case WORKER -> toolVersion;
-            case COLLECTOR -> 0;
+            case SCOUT, COLLECTOR -> 0;
         };
     }
 
@@ -174,12 +196,12 @@ public class HiveHeart extends Mob {
     }
 
     /** 10 seconds. */
-    private static final int COLLECTOR_INTERVAL_TICKS = 200;
+    private static final int SPAWN_INTERVAL_TICKS = 200;
 
     /** 1 second: how often the owner is told which blocks have units working on them. */
     private static final int ACTION_SYNC_INTERVAL_TICKS = 20;
 
-    private int collectorTimer;
+    private int spawnTimer;
 
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
         super(type, level);
@@ -192,8 +214,8 @@ public class HiveHeart extends Mob {
             return;
         }
         // The Heart makes its own units: every interval it tops up what is below the cap and refreshes out-of-date gear.
-        if (++collectorTimer >= COLLECTOR_INTERVAL_TICKS) {
-            collectorTimer = 0;
+        if (++spawnTimer >= SPAWN_INTERVAL_TICKS) {
+            spawnTimer = 0;
             HivemindManager.tickUnitSpawning(this);
         }
         if (this.tickCount % ACTION_SYNC_INTERVAL_TICKS == 0) {

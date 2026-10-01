@@ -30,14 +30,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     /** Where the row of unit counts sits, and how far apart its three entries are. */
     private static final int COUNTS_Y = 148;
-    private static final int COUNTS_SPACING = 90;
+    private static final int COUNTS_SPACING = 72;
 
     private Button hiveTab;
     private Button questsTab;
 
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
-        this.imageWidth = 280;
+        this.imageWidth = 300;
         this.imageHeight = 168;
         this.titleLabelX = 8;
         this.titleLabelY = 8;
@@ -110,9 +110,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (menu.questsOpen) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.no_quests"), 8, 58, 0xA0A0A0, false);
         } else {
-            drawUnitCount(graphics, 0, "screen.projecthivemind.hive.workers", UnitKind.WORKER);
+            // Same order as the command bar's keys: scouts, soldiers, workers; then the collectors, which you do not command.
+            drawUnitCount(graphics, 0, "screen.projecthivemind.hive.scouts", UnitKind.SCOUT);
             drawUnitCount(graphics, 1, "screen.projecthivemind.hive.soldiers", UnitKind.SOLDIER);
-            drawUnitCount(graphics, 2, "screen.projecthivemind.hive.collectors", UnitKind.COLLECTOR);
+            drawUnitCount(graphics, 2, "screen.projecthivemind.hive.workers", UnitKind.WORKER);
+            drawUnitCount(graphics, 3, "screen.projecthivemind.hive.collectors", UnitKind.COLLECTOR);
 
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, 44, 0xA0A0A0, false);
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, 44, 0xA0A0A0, false);
@@ -122,11 +124,34 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    /** "Workers 1/1": units out now, out of the most the hive allows. Orange when at the limit. */
+    /**
+     * "Workers 1/1": units out now, out of the most the hive allows (orange at the limit). Underneath, what the hive's
+     * next 10-second interval will do for them, with the countdown.
+     */
     private void drawUnitCount(GuiGraphics graphics, int column, String labelKey, UnitKind kind) {
+        int x = HiveMenu.STORAGE_X + column * COUNTS_SPACING;
         boolean atLimit = menu.unitCount(kind) >= menu.unitCap(kind);
         graphics.drawString(font, Component.translatable(labelKey, menu.unitCount(kind), menu.unitCap(kind)),
-                HiveMenu.STORAGE_X + column * COUNTS_SPACING, COUNTS_Y, atLimit ? 0xFFAA00 : 0xFFFFFF, false);
+                x, COUNTS_Y, atLimit ? 0xFFAA00 : 0xFFFFFF, false);
+
+        int seconds = menu.secondsUntilSpawn();
+        Component status;
+        int colour;
+        switch (menu.unitStatus(kind)) {
+            case HiveMenu.STATUS_SPAWNING -> {
+                status = Component.translatable("screen.projecthivemind.hive.status.spawning", seconds);
+                colour = 0x77DD77;
+            }
+            case HiveMenu.STATUS_REFRESHING -> {
+                status = Component.translatable("screen.projecthivemind.hive.status.refreshing", seconds);
+                colour = 0xFFDD55;
+            }
+            default -> {
+                status = Component.translatable("screen.projecthivemind.hive.status.idle");
+                colour = 0x808080;
+            }
+        }
+        graphics.drawString(font, status, x, COUNTS_Y + 10, colour, false);
     }
 
     /** Health points as hearts: 2 points per heart, dropping a trailing ".0". */

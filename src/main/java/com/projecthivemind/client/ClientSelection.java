@@ -46,6 +46,14 @@ public final class ClientSelection {
         }
     }
 
+    public static void select(int entityId) {
+        SELECTED.add(entityId);
+    }
+
+    public static void deselect(int entityId) {
+        SELECTED.remove(entityId);
+    }
+
     public static Set<Integer> selected() {
         return Set.copyOf(SELECTED);
     }

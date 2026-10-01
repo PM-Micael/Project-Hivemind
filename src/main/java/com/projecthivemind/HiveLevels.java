@@ -7,6 +7,7 @@ public final class HiveLevels {
     private static final List<HiveLevel> LEVELS = List.of(
             // Level 1 is reached by planting the Hive Heart.
             new HiveLevel(1, 20.0F, 27, 3, 4, Map.of(
+                    UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 1,
                     UnitKind.SOLDIER, 1,
                     UnitKind.COLLECTOR, 1)));
