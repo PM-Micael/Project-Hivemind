@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 
 import net.minecraft.nbt.CompoundTag;
@@ -18,6 +19,16 @@ public interface HiveUnit {
     UUID ownerId();
 
     void setOwnerId(@Nullable UUID ownerId);
+
+    /** The loaded Hive Heart this unit belongs to, or null. */
+    @Nullable
+    HiveHeart findHeart();
+
+    /** What this unit is currently doing to a block, or null if idle. Units that cannot be commanded always say null. */
+    @Nullable
+    UnitAction action();
+
+    void setAction(@Nullable UnitAction action);
 
     default void saveOwner(CompoundTag tag) {
         UUID owner = ownerId();

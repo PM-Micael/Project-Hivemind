@@ -26,6 +26,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
@@ -54,6 +55,11 @@ public final class ClientEvents {
     @SubscribeEvent
     static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(ModMenus.HIVE.get(), HiveScreen::new);
+    }
+
+    @SubscribeEvent
+    static void registerGuiLayers(RegisterGuiLayersEvent event) {
+        event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);
     }
 
     // ---- game bus ----

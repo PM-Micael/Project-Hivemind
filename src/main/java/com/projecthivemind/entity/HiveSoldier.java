@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
@@ -17,12 +17,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.monster.Zombie;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 /**
@@ -33,71 +31,16 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     /** Synced so the owner's client knows which units are theirs and should be outlined. */
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER =
             SynchedEntityData.defineId(HiveSoldier.class, EntityDataSerializers.OPTIONAL_UUID);
-
     private static final String HEART_TAG = "HiveHeartId";
 
     @Nullable
     private UUID heartId;
-
-    // What each equipment slot held last tick, to notice durability the soldier loses. Not saved: after a reload the
-    // current state is simply taken as the new baseline.
-    private final UUID[] linkOf = new UUID[EquipmentSlot.values().length];
-    private final int[] damageOf = new int[EquipmentSlot.values().length];
-    private final int[] maxDamageOf = new int[EquipmentSlot.values().length];
+    @Nullable
+    private UnitAction action;
+    private final GearMirror gearMirror = new GearMirror();
 
     public HiveSoldier(EntityType<? extends HiveSoldier> type, Level level) {
         super(type, level);
-    }
-
-    public void setHeartId(@Nullable UUID heartId) {
-        this.heartId = heartId;
-    }
-
-    @Override
-    public void tick() {
-        super.tick();
-        if (!this.level().isClientSide) {
-            mirrorDurability();
-        }
-    }
-
-    /**
-     * The gear on this soldier is a copy of pieces in the Hive Heart. Whenever a copy loses durability, whether from
-     * damage taken or anything else that wears it, the same amount is charged to the original in the hive.
-     */
-    private void mirrorDurability() {
-        HiveHeart heart = HiveHeart.find(this.level(), heartId);
-        if (heart == null) {
-            return;
-        }
-        for (EquipmentSlot slot : EquipmentSlot.values()) {
-            int i = slot.ordinal();
-            ItemStack stack = this.getItemBySlot(slot);
-            UUID link = HiveEquipment.link(stack);
-
-            if (link != null && link.equals(linkOf[i])) {
-                int lost = stack.getDamageValue() - damageOf[i];
-                if (lost > 0) {
-                    heart.damageLinked(link, lost);
-                }
-                damageOf[i] = stack.getDamageValue();
-            } else {
-                if (linkOf[i] != null && stack.isEmpty()) {
-                    // The piece broke: the original gets whatever durability the copy still had.
-                    heart.damageLinked(linkOf[i], maxDamageOf[i] - damageOf[i]);
-                }
-                linkOf[i] = link;
-                if (link != null) {
-                    damageOf[i] = stack.getDamageValue();
-                    maxDamageOf[i] = stack.getMaxDamage();
-                }
-            }
-        }
-    }
-
-    /** Soldiers never drop their gear: it is a copy, and the original stays in the hive. */
-    @Override
-    protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean recentlyHit) {
     }
 
     public static AttributeSupplier.Builder createHiveAttributes() {
@@ -113,7 +56,38 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     @Override
     protected void registerGoals() {
         // Deliberately not calling super: zombie goals hunt players, villagers and turtle eggs.
+        // Soldiers only walk where told. Digging and interacting with blocks is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+    }
+
+    public void setHeartId(@Nullable UUID heartId) {
+        this.heartId = heartId;
+    }
+
+    @Nullable
+    @Override
+    public HiveHeart findHeart() {
+        return HiveHeart.find(this.level(), heartId);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!this.level().isClientSide) {
+            HiveHeart heart = findHeart();
+            if (heart != null) {
+                // The gear on this soldier is a copy of pieces in the hive: wear on it is charged to the original.
+                gearMirror.tick(this, heart);
+            }
+            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+                action = null;
+            }
+        }
+    }
+
+    /** Soldiers never drop their gear: it is a copy, and the original stays in the hive. */
+    @Override
+    protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean recentlyHit) {
     }
 
     @Override
@@ -167,6 +141,17 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     @Override
     public void setOwnerId(@Nullable UUID ownerId) {
         this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
+    }
+
+    @Nullable
+    @Override
+    public UnitAction action() {
+        return action;
+    }
+
+    @Override
+    public void setAction(@Nullable UnitAction action) {
+        this.action = action;
     }
 
     @Override

@@ -11,8 +11,8 @@ import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
+import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.menu.HiveMenu;
-import com.projecthivemind.network.MoveUnitsPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 
 import net.minecraft.core.BlockPos;
@@ -190,7 +190,7 @@ public final class HivemindManager {
 
         setHeartChunksForced(level, target, true);
         level.addFreshEntity(heart);
-        HiveInfection.spread(level, target, hiveLevel.infectionRadius());
+        HiveInfection.spread(level, heart);
         level.playSound(null, target, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 1.0F, 0.8F);
 
         set(player, data.withStage(HivemindStage.HIVE)
@@ -217,7 +217,7 @@ public final class HivemindManager {
         Containers.dropContents(level, center, heart.getStorage());
         Containers.dropContents(level, center, heart.getArmorGear());
         Containers.dropContents(level, center, heart.getToolGear());
-        HiveInfection.clear(level, center, HiveLevels.get(heart.hiveLevel()).infectionRadius());
+        HiveInfection.clear(level, heart);
         setHeartChunksForced(level, center, false);
 
         UUID ownerId = heart.ownerId();
@@ -346,6 +346,9 @@ public final class HivemindManager {
             // Soldiers spawn wearing and wielding copies of whatever is in the hive's gear slots right now.
             soldier.setHeartId(heart.getUUID());
             HiveEquipment.equipSoldier(soldier, heart);
+        } else if (unit instanceof HiveWorker worker) {
+            // Workers pick a tool from the hive's slots when they have a job to do.
+            worker.setHeartId(heart.getUUID());
         }
         unit.moveTo(x, heart.getY(), z, player.getYRot(), 0.0F);
         unit.setPersistenceRequired();
@@ -355,35 +358,14 @@ public final class HivemindManager {
         sync(player);
     }
 
-    /** Spacing between units sent to the same spot, so a group fans out instead of piling up. */
-    private static final double FORMATION_SPACING = 1.1D;
-
-    /**
-     * Walk the given units to a spot. Only units that belong to this player and can be commanded move; the client's
-     * list is never trusted.
-     */
-    public static void commandMove(ServerPlayer player, List<Integer> unitIds, Vec3 target) {
-        if (get(player).stage() != HivemindStage.HIVE || unitIds.size() > MoveUnitsPayload.MAX_UNITS) {
+    /** Once a second, from the Heart: keep the owner's client told which blocks have units working on them. */
+    public static void tickActionSync(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null) {
             return;
         }
-        ServerLevel level = player.serverLevel();
-        if (!level.isInWorldBounds(BlockPos.containing(target))) {
-            return;
-        }
-
-        List<Mob> units = new ArrayList<>();
-        for (int id : unitIds) {
-            if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
-                    && player.getUUID().equals(unit.ownerId()) && unit.kind() != UnitKind.COLLECTOR) {
-                units.add(mob);
-            }
-        }
-
-        for (int i = 0; i < units.size(); i++) {
-            // One unit goes to the exact spot; a group spreads out on a ring around it.
-            double angle = units.size() == 1 ? 0.0D : i * (2.0D * Math.PI / units.size());
-            double radius = units.size() == 1 ? 0.0D : FORMATION_SPACING * Math.max(1.0D, units.size() / 4.0D);
-            units.get(i).getNavigation().moveTo(target.x + Math.cos(angle) * radius, target.y, target.z + Math.sin(angle) * radius, 1.0D);
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner != null && get(owner).stage() == HivemindStage.HIVE) {
+            HiveActions.syncActions(owner, heart);
         }
     }
 

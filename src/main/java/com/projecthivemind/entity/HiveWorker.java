@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
@@ -19,13 +20,20 @@ import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.level.Level;
 
 /**
- * Worker unit. Looks like a skeleton but is a passive unit that only does what its owner commands:
- * no sunburn, no combat AI, never despawns.
+ * Worker unit. Looks like a skeleton but is a passive unit that only does what its owner commands: it walks where it
+ * is sent, digs blocks with tools from the hive, and interacts with blocks. No sunburn, no combat AI, never despawns.
  */
 public class HiveWorker extends Skeleton implements HiveUnit {
     /** Synced so the owner's client knows which units are theirs and should be outlined. */
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER =
             SynchedEntityData.defineId(HiveWorker.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final String HEART_TAG = "HiveHeartId";
+
+    @Nullable
+    private UUID heartId;
+    @Nullable
+    private UnitAction action;
+    private final GearMirror gearMirror = new GearMirror();
 
     public HiveWorker(EntityType<? extends HiveWorker> type, Level level) {
         super(type, level);
@@ -41,6 +49,38 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: skeleton goals flee the sun and shoot players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new WorkerDigGoal(this));
+        this.goalSelector.addGoal(1, new InteractBlockGoal(this));
+    }
+
+    public void setHeartId(@Nullable UUID heartId) {
+        this.heartId = heartId;
+    }
+
+    @Nullable
+    @Override
+    public HiveHeart findHeart() {
+        return HiveHeart.find(this.level(), heartId);
+    }
+
+    /** Call just before deliberately changing this worker's gear, so the swap is not read as damage or breakage. */
+    public void resetGearMirror() {
+        gearMirror.reset();
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!this.level().isClientSide) {
+            HiveHeart heart = findHeart();
+            if (heart != null) {
+                // The tool in hand is a copy of one in the hive: wear on it is charged to the original.
+                gearMirror.tick(this, heart);
+            }
+            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+                action = null;
+            }
+        }
     }
 
     @Override
@@ -86,15 +126,32 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
     }
 
+    @Nullable
+    @Override
+    public UnitAction action() {
+        return action;
+    }
+
+    @Override
+    public void setAction(@Nullable UnitAction action) {
+        this.action = action;
+    }
+
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
+        if (heartId != null) {
+            tag.putUUID(HEART_TAG, heartId);
+        }
     }
 
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
+        if (tag.hasUUID(HEART_TAG)) {
+            heartId = tag.getUUID(HEART_TAG);
+        }
     }
 }

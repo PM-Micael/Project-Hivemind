@@ -1,10 +1,15 @@
 package com.projecthivemind.network;
 
+import com.projecthivemind.BlockAction;
 import com.projecthivemind.HivemindStage;
 import com.projecthivemind.client.ChooseModeScreen;
+import com.projecthivemind.client.ClientActions;
 import com.projecthivemind.client.ClientState;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.network.chat.Component;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /** Handlers that run on the client. Kept in their own class so dedicated servers never load client code. */
@@ -24,5 +29,25 @@ public final class ClientPayloads {
         if (wasHiveMode && !ClientState.hiveMode() && minecraft.screen == null) {
             minecraft.mouseHandler.grabMouse();
         }
+    }
+
+    public static void onSyncActions(SyncActionsPayload payload, IPayloadContext context) {
+        ClientActions.update(payload.positions());
+    }
+
+    /** The hive's tools cannot harvest the block: let the player choose whether to dig it anyway. */
+    public static void onWeakTool(WeakToolPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new ConfirmScreen(
+                dig -> {
+                    minecraft.setScreen(null);
+                    if (dig) {
+                        PacketDistributor.sendToServer(new BlockActionPayload(payload.unitIds(), payload.pos(), BlockAction.DIG, true));
+                    }
+                },
+                Component.translatable("screen.projecthivemind.weak_tool.title"),
+                Component.translatable("screen.projecthivemind.weak_tool.message"),
+                Component.translatable("screen.projecthivemind.weak_tool.continue"),
+                Component.translatable("screen.projecthivemind.weak_tool.cancel")));
     }
 }

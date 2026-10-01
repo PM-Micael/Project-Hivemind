@@ -20,6 +20,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 
 /**
@@ -62,6 +63,8 @@ public final class HiveCamera {
             VanillaGuiLayers.EXPERIENCE_LEVEL);
 
     private static long lastFrameNanos;
+    /** Where the cursor was (window coordinates) when a screen last opened over the RTS view, or null. */
+    private static double[] cursorBeforeScreen;
 
     /** True while the middle mouse button is held and the mouse is captured for rotating. */
     private static boolean rotating;
@@ -113,6 +116,23 @@ public final class HiveCamera {
         }
         if (controlling(minecraft) && minecraft.mouseHandler.isMouseGrabbed()) {
             minecraft.mouseHandler.releaseMouse();
+            // Closing a screen recentres the cursor; put it back where it was when the screen opened.
+            if (cursorBeforeScreen != null) {
+                GLFW.glfwSetCursorPos(minecraft.getWindow().getWindow(), cursorBeforeScreen[0], cursorBeforeScreen[1]);
+                cursorBeforeScreen = null;
+            }
+        }
+    }
+
+    /** Remember where the cursor is as a screen opens over the RTS view, so it can go back there afterwards. */
+    @SubscribeEvent
+    static void onScreenOpening(ScreenEvent.Opening event) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (ClientState.hiveMode() && minecraft.screen == null && !minecraft.mouseHandler.isMouseGrabbed()) {
+            double[] x = new double[1];
+            double[] y = new double[1];
+            GLFW.glfwGetCursorPos(minecraft.getWindow().getWindow(), x, y);
+            cursorBeforeScreen = new double[]{x[0], y[0]};
         }
     }
 

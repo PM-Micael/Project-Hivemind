@@ -1,5 +1,6 @@
 package com.projecthivemind.client;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -9,13 +10,16 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
+import com.projecthivemind.BlockAction;
 import com.projecthivemind.ProjectHivemind;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveUnit;
-import com.projecthivemind.network.MoveUnitsPayload;
+import com.projecthivemind.network.BlockActionPayload;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
@@ -33,8 +37,8 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * RTS unit control with the free cursor: left click a unit to select it (again to deselect it), right click the
- * ground to send the selected units there.
+ * RTS unit control with the free cursor: left click a unit to select it (again to deselect it), right click a block
+ * to open its context menu of things the selected units can do to it.
  *
  * <p>The cursor position is turned into a ray through the world using the same projection and view matrices the
  * game rendered the last frame with, so the ray matches exactly what is under the cursor.
@@ -77,6 +81,11 @@ public final class HiveSelection {
         }
         ClientSelection.setLocalPlayer(minecraft.player.getUUID());
 
+        // Any screen, or leaving hive mode, dismisses the context menu.
+        if (ContextMenu.isOpen() && !HiveCamera.controlling(minecraft)) {
+            ContextMenu.close();
+        }
+
         Set<Integer> alive = new HashSet<>();
         for (int id : ClientSelection.selected()) {
             Entity entity = minecraft.level.getEntity(id);
@@ -90,6 +99,8 @@ public final class HiveSelection {
     @SubscribeEvent
     static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientSelection.reset();
+        ClientActions.reset();
+        ContextMenu.close();
         haveCamera = false;
     }
 
@@ -103,10 +114,25 @@ public final class HiveSelection {
         if (!HiveCamera.controlling(minecraft) || HiveCamera.isRotating() || event.getAction() != GLFW.GLFW_PRESS) {
             return;
         }
-        if (event.getButton() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+        int button = event.getButton();
+
+        // While the context menu is up, a click is for the menu: left picks an option, anything else dismisses it.
+        // A right click elsewhere carries on below, so it opens a fresh menu where the cursor now is.
+        if (ContextMenu.isOpen()) {
+            if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                ContextMenu.click(minecraft);
+                return;
+            }
+            ContextMenu.close();
+            if (button != GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                return;
+            }
+        }
+
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             selectUnderCursor(minecraft);
-        } else if (event.getButton() == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            moveSelectedToCursor(minecraft);
+        } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            openMenuUnderCursor(minecraft);
         }
     }
 
@@ -142,22 +168,67 @@ public final class HiveSelection {
 
     // ---- commanding ----
 
-    private static void moveSelectedToCursor(Minecraft minecraft) {
-        Set<Integer> selected = ClientSelection.selected();
+    /**
+     * Right click a block: open its context menu. The options depend on what is there and what is going on: the
+     * actions need selected units, and "Cancel actions" appears on a block that units are working on.
+     */
+    private static void openMenuUnderCursor(Minecraft minecraft) {
         Optional<Ray> ray = cursorRay(minecraft);
-        if (selected.isEmpty() || ray.isEmpty()) {
+        if (ray.isEmpty()) {
             return;
         }
+        // OUTLINE, not COLLIDER: thin things like flowers and tall grass can be picked too.
         BlockHitResult hit = minecraft.level.clip(new ClipContext(ray.get().from(), ray.get().to(),
-                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, minecraft.player));
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
         if (hit.getType() == HitResult.Type.MISS) {
             return;
         }
-        // Stand in the space just outside the face that was clicked: on top of the ground, or beside a wall.
-        Vec3 target = Vec3.atBottomCenterOf(hit.getBlockPos().relative(hit.getDirection()));
-        PacketDistributor.sendToServer(new MoveUnitsPayload(List.copyOf(selected), target.x, target.y, target.z));
+        BlockPos pos = hit.getBlockPos();
+        List<Integer> selected = List.copyOf(ClientSelection.selected());
+        boolean working = ClientActions.isActive(pos);
+        if (selected.isEmpty() && !working) {
+            minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.select_units_first"), false);
+            return;
+        }
 
-        // A little puff where they are headed, so the command is visibly received.
+        List<ContextMenu.Option> options = new ArrayList<>();
+        if (!selected.isEmpty()) {
+            options.add(option("action.projecthivemind.walk_to", selected, pos, BlockAction.WALK_TO));
+            // Digging and interacting are worker jobs: only offer them if a worker is part of the selection.
+            if (selectionHasWorker(minecraft, selected)) {
+                options.add(option("action.projecthivemind.dig", selected, pos, BlockAction.DIG));
+                options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));
+            }
+        }
+        if (working) {
+            options.add(option("action.projecthivemind.cancel", List.of(), pos, BlockAction.CANCEL));
+        }
+        int[] cursor = ContextMenu.cursor(minecraft);
+        ContextMenu.open(minecraft, cursor[0], cursor[1], options);
+    }
+
+    private static boolean selectionHasWorker(Minecraft minecraft, List<Integer> selected) {
+        for (int id : selected) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit unit && unit.kind() == UnitKind.WORKER) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ContextMenu.Option option(String labelKey, List<Integer> units, BlockPos pos, BlockAction action) {
+        return new ContextMenu.Option(Component.translatable(labelKey), () -> {
+            PacketDistributor.sendToServer(new BlockActionPayload(units, pos, action, false));
+            if (action == BlockAction.WALK_TO) {
+                puffAbove(pos);
+            }
+        });
+    }
+
+    /** A little puff where the units are headed, so the command is visibly received. */
+    private static void puffAbove(BlockPos pos) {
+        Minecraft minecraft = Minecraft.getInstance();
+        Vec3 target = Vec3.atBottomCenterOf(pos.above());
         for (int i = 0; i < 8; i++) {
             double angle = i * (Math.PI / 4.0D);
             minecraft.level.addParticle(ParticleTypes.HAPPY_VILLAGER, target.x + Math.cos(angle) * 0.4D, target.y + 0.1D,

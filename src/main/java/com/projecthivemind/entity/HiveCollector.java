@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
@@ -86,8 +87,20 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         this.heartId = heartId;
     }
 
+    /** Collectors cannot be commanded: they never have an action. */
+    @Nullable
+    @Override
+    public UnitAction action() {
+        return null;
+    }
+
+    @Override
+    public void setAction(@Nullable UnitAction action) {
+    }
+
     /** The Hive Heart this collector works for, or null if it is gone or not loaded. */
     @Nullable
+    @Override
     public HiveHeart findHeart() {
         if (heartId != null && this.level() instanceof ServerLevel serverLevel) {
             Entity entity = serverLevel.getEntity(heartId);

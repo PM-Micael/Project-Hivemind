@@ -6,6 +6,7 @@ import javax.annotation.Nullable;
 
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveSoldier;
+import com.projecthivemind.entity.HiveWorker;
 
 import net.minecraft.core.Holder;
 import net.minecraft.world.SimpleContainer;
@@ -17,6 +18,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.DiggerItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ShearsItem;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * What the hive can equip its soldiers with. The Heart holds armor (one piece per slot) and five tool/weapon slots.
@@ -106,6 +108,32 @@ public final class HiveEquipment {
         }
         // A full copy: same enchantments, name, trim, durability, everything.
         return original.copy();
+    }
+
+    /**
+     * Put a copy of the hive's best tool for this block into a worker's hand. A tool that can harvest the block (so it
+     * drops its items) beats one that cannot; among those, the fastest wins. With no tools in the hive the hand is empty.
+     */
+    public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state) {
+        int best = -1;
+        boolean bestCorrect = false;
+        float bestSpeed = 0.0F;
+        for (int i = 0; i < TOOL_SLOTS; i++) {
+            ItemStack tool = heart.getToolGear().getItem(i);
+            if (tool.isEmpty()) {
+                continue;
+            }
+            boolean correct = tool.isCorrectToolForDrops(state);
+            float speed = tool.getDestroySpeed(state);
+            if (best == -1 || (correct && !bestCorrect) || (correct == bestCorrect && speed > bestSpeed)) {
+                best = i;
+                bestCorrect = correct;
+                bestSpeed = speed;
+            }
+        }
+        // Tell the durability mirror the swap is deliberate, or it would read it as the old tool breaking.
+        worker.resetGearMirror();
+        worker.setItemSlot(EquipmentSlot.MAINHAND, best >= 0 ? linkedCopy(heart.getToolGear(), best) : ItemStack.EMPTY);
     }
 
     /**

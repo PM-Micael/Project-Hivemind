@@ -1,5 +1,9 @@
 package com.projecthivemind.entity;
 
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -9,7 +13,12 @@ import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
@@ -23,6 +32,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * The Hive Heart: a stationary entity that is the hive. It has health, owns the hive's shared inventory and
@@ -34,6 +44,7 @@ public class HiveHeart extends Mob {
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
+    private static final String CONSUMED_TAG = "ConsumedGround";
 
     @Nullable
     private UUID ownerId;
@@ -43,6 +54,39 @@ public class HiveHeart extends Mob {
     private final SimpleContainer armorSlots = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
     private final SimpleContainer toolSlots = new SimpleContainer(HiveEquipment.TOOL_SLOTS);
+
+    /** How far along each block being dug is, from 0 to 1. Shared by every worker digging it. Not saved. */
+    private final Map<BlockPos, Float> digProgress = new HashMap<>();
+    /** The block positions with a unit action on them that the owner's client was last told about. Not saved. */
+    private Set<BlockPos> syncedActions = Set.of();
+
+    /** Add to a block's dig progress and return the new total. */
+    public float addDigProgress(BlockPos pos, float amount) {
+        return digProgress.merge(pos.immutable(), amount, Float::sum);
+    }
+
+    public void clearDigProgress(BlockPos pos) {
+        digProgress.remove(pos);
+    }
+
+    public Set<BlockPos> syncedActions() {
+        return syncedActions;
+    }
+
+    public void setSyncedActions(Set<BlockPos> positions) {
+        this.syncedActions = positions;
+    }
+
+    /** The ground the hive's creep has consumed, by position, so destroying the Heart can put it back. */
+    private final Map<BlockPos, BlockState> consumedBlocks = new LinkedHashMap<>();
+
+    public Map<BlockPos, BlockState> consumedBlocks() {
+        return consumedBlocks;
+    }
+
+    public void recordConsumed(BlockPos pos, BlockState original) {
+        consumedBlocks.put(pos.immutable(), original);
+    }
 
     /** The loaded Hive Heart with this id, or null. */
     @Nullable
@@ -57,6 +101,9 @@ public class HiveHeart extends Mob {
     /** 10 seconds. */
     private static final int COLLECTOR_INTERVAL_TICKS = 200;
 
+    /** 1 second: how often the owner is told which blocks have units working on them. */
+    private static final int ACTION_SYNC_INTERVAL_TICKS = 20;
+
     private int collectorTimer;
 
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
@@ -66,10 +113,16 @@ public class HiveHeart extends Mob {
     @Override
     public void tick() {
         super.tick();
+        if (this.level().isClientSide) {
+            return;
+        }
         // The Heart grows its own collectors: one every interval while the hive has fewer than its cap.
-        if (!this.level().isClientSide && ++collectorTimer >= COLLECTOR_INTERVAL_TICKS) {
+        if (++collectorTimer >= COLLECTOR_INTERVAL_TICKS) {
             collectorTimer = 0;
             HivemindManager.tickCollectorSpawn(this);
+        }
+        if (this.tickCount % ACTION_SYNC_INTERVAL_TICKS == 0) {
+            HivemindManager.tickActionSync(this);
         }
     }
 
@@ -196,6 +249,15 @@ public class HiveHeart extends Mob {
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
+
+        ListTag consumed = new ListTag();
+        consumedBlocks.forEach((pos, state) -> {
+            CompoundTag entry = new CompoundTag();
+            entry.putLong("Pos", pos.asLong());
+            entry.put("State", NbtUtils.writeBlockState(state));
+            consumed.add(entry);
+        });
+        tag.put(CONSUMED_TAG, consumed);
     }
 
     @Override
@@ -216,6 +278,12 @@ public class HiveHeart extends Mob {
         }
         if (tag.contains(TOOLS_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(TOOLS_TAG), toolSlots.getItems(), registryAccess());
+        }
+        consumedBlocks.clear();
+        for (Tag entry : tag.getList(CONSUMED_TAG, Tag.TAG_COMPOUND)) {
+            CompoundTag consumed = (CompoundTag) entry;
+            consumedBlocks.put(BlockPos.of(consumed.getLong("Pos")),
+                    NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), consumed.getCompound("State")));
         }
     }
 }
