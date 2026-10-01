@@ -71,6 +71,11 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         gearMirror.reset();
     }
 
+    /** Ticks between looks for work. Looking is the expensive part, so an idle worker does it every couple of seconds. */
+    private static final int JOB_SCAN_INTERVAL = 40;
+
+    private int nextJobScan;
+
     @Override
     public void tick() {
         super.tick();
@@ -83,6 +88,22 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
                 action = null;
             }
+            // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
+            if (action == null && heart != null && this.tickCount >= nextJobScan) {
+                nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
+                findOwnWork(heart);
+            }
+        }
+    }
+
+    /** With no orders and not selected, look for work the hive's worker settings allow. */
+    private void findOwnWork(HiveHeart heart) {
+        if (heart.isUnitSelected(this.getId()) || !heart.workerBehavior().any()) {
+            return;
+        }
+        UnitAction job = WorkerAutoJobs.findJob(this, heart);
+        if (job != null) {
+            action = job;
         }
     }
 

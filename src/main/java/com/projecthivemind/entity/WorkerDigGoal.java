@@ -11,11 +11,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -25,7 +27,12 @@ import net.minecraft.world.phys.Vec3;
  * its items if the tool is the right kind for it, exactly as for a player.
  */
 public class WorkerDigGoal extends Goal {
-    private static final double REACH_SQR = 4.0D * 4.0D;
+    /**
+     * How far a worker can dig, in blocks, measured like a player's reach: from its eyes to the nearest point of the
+     * block. (Measured from its feet to the block's centre, as it once was, a worker could not reach more than about
+     * 3 blocks up, so the upper logs of a tree were out of reach.) This is a little over a survival player's 4.5.
+     */
+    public static final double DIG_REACH = 5.0D;
     private static final double SPEED = 1.0D;
     private static final int REPATH_INTERVAL = 10;
     /** Ticks a worker may spend unable to get within reach before it gives up on the block. */
@@ -50,6 +57,11 @@ public class WorkerDigGoal extends Goal {
     public WorkerDigGoal(HiveWorker worker) {
         this.worker = worker;
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
+    }
+
+    /** True if the block is close enough to dig from where the mob stands. */
+    public static boolean inDigReach(Mob digger, BlockPos pos) {
+        return new AABB(pos).distanceToSqr(digger.getEyePosition()) <= DIG_REACH * DIG_REACH;
     }
 
     @Nullable
@@ -116,7 +128,7 @@ public class WorkerDigGoal extends Goal {
         }
 
         Vec3 center = Vec3.atCenterOf(pos);
-        if (worker.distanceToSqr(center) > REACH_SQR) {
+        if (!inDigReach(worker, pos)) {
             if (++stuckTicks > GIVE_UP_TICKS) {
                 worker.setAction(null);
             } else if (--repathCooldown <= 0) {

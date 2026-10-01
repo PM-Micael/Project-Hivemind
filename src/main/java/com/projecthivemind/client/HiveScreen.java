@@ -1,17 +1,23 @@
 package com.projecthivemind.client;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import javax.annotation.Nullable;
 
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.SetBehaviorPayload;
+import com.projecthivemind.network.SetCollectorBehaviorPayload;
+import com.projecthivemind.network.SetWorkerBehaviorPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
 
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.EditBox;
@@ -25,7 +31,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
  * The hive menu. Three tabs: Hive (shared storage, crafting, gear slots, unit counts), Quests, and Behavior (what
- * the hive's units do on their own). Drawn with plain rectangles until there is real art.
+ * the hive's units do on their own, with a page each for soldiers and workers). Drawn with plain rectangles until
+ * there is real art.
  */
 public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int PANEL = 0xF0201414;
@@ -38,27 +45,53 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int COUNTS_SPACING = 72;
 
     // Behavior tab layout, relative to the panel.
+    private static final int PAGE_BUTTONS_Y = 50;
     private static final int BEHAVIOR_X = 12;
-    private static final int BEHAVIOR_TOP = 58;
+    private static final int BEHAVIOR_TOP = 74;
     private static final int BEHAVIOR_ROW = 18;
 
     private enum Tab {
         HIVE, QUESTS, BEHAVIOR
     }
 
+    /** Which unit's behaviour the Behavior tab is showing. */
+    private enum Page {
+        SOLDIERS, WORKERS, COLLECTORS
+    }
+
     private Tab tab = Tab.HIVE;
+    private Page page = Page.SOLDIERS;
     private Button hiveTab;
     private Button questsTab;
     private Button behaviorTab;
+    private Button soldiersPage;
+    private Button workersPage;
+    private Button collectorsPage;
 
+    // Soldier settings.
+    private EditBox soldierAreaBox;
     private Checkbox allInHiveArea;
     private Checkbox hostileInHiveArea;
-    private EditBox unitAreaBox;
     private Checkbox allInUnitArea;
     private Checkbox hostileInUnitArea;
     private Checkbox threats;
-    /** The last valid radius typed, used while the box is empty or being edited. */
-    private int unitAreaRadius;
+    private int soldierRadius;
+
+    // Worker settings.
+    private EditBox workerAreaBox;
+    private Checkbox mineOre;
+    private Checkbox chopLogs;
+    private Checkbox digThrough;
+    private int workerRadius;
+
+    // Collector setting: just the one.
+    private EditBox collectorRangeBox;
+    private int collectorRange;
+
+    private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
+    private final List<AbstractWidget> workerWidgets = new ArrayList<>();
+    private final List<AbstractWidget> collectorWidgets = new ArrayList<>();
+
     /** True while the widgets are being filled from the server's values, so that does not count as the player editing. */
     private boolean filling;
     /** The widgets show the server's real settings. Until then they are disabled, so nothing wrong can be sent back. */
@@ -67,7 +100,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 300;
-        this.imageHeight = 168;
+        this.imageHeight = 186;
         this.titleLabelX = 8;
         this.titleLabelY = 8;
     }
@@ -78,6 +111,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         hiveTab = tabButton(0, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
         questsTab = tabButton(1, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
         behaviorTab = tabButton(2, "screen.projecthivemind.hive.tab_behavior", Tab.BEHAVIOR);
+
+        soldiersPage = pageButton(0, "screen.projecthivemind.behavior.page_soldiers", Page.SOLDIERS);
+        workersPage = pageButton(1, "screen.projecthivemind.behavior.page_workers", Page.WORKERS);
+        collectorsPage = pageButton(2, "screen.projecthivemind.behavior.page_collectors", Page.COLLECTORS);
 
         // Creative players can drop out of the hive to the normal inventory, e.g. to spawn items in for testing.
         if (ClientState.canSwapInventory()) {
@@ -96,6 +133,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 .bounds(leftPos + 8 + index * 62, topPos + 28, 58, 18).build());
     }
 
+    private Button pageButton(int index, String key, Page target) {
+        return addRenderableWidget(Button.builder(Component.translatable(key), button -> {
+            page = target;
+            showTab(Tab.BEHAVIOR);
+        }).bounds(leftPos + 8 + index * 70, topPos + PAGE_BUTTONS_Y, 66, 16).build());
+    }
+
     private void showTab(Tab newTab) {
         tab = newTab;
         // Only the Hive tab shows the slots; on the others they are hidden and cannot be clicked.
@@ -105,75 +149,127 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         behaviorTab.active = newTab != Tab.BEHAVIOR;
 
         boolean behavior = newTab == Tab.BEHAVIOR;
-        allInHiveArea.visible = behavior;
-        hostileInHiveArea.visible = behavior;
-        unitAreaBox.visible = behavior;
-        allInUnitArea.visible = behavior;
-        hostileInUnitArea.visible = behavior;
-        threats.visible = behavior;
+        soldiersPage.visible = behavior;
+        workersPage.visible = behavior;
+        collectorsPage.visible = behavior;
+        soldiersPage.active = page != Page.SOLDIERS;
+        workersPage.active = page != Page.WORKERS;
+        collectorsPage.active = page != Page.COLLECTORS;
+        soldierWidgets.forEach(widget -> widget.visible = behavior && page == Page.SOLDIERS);
+        workerWidgets.forEach(widget -> widget.visible = behavior && page == Page.WORKERS);
+        collectorWidgets.forEach(widget -> widget.visible = behavior && page == Page.COLLECTORS);
     }
 
     // ---- the Behavior tab ----
 
     /**
-     * Build the checkboxes and the radius field, disabled and empty. They are filled in, and enabled, by
+     * Build the checkboxes and the radius fields, disabled and empty. They are filled in, and enabled, by
      * {@link #loadBehavior()} once the server's real settings have reached the client: a menu that has just opened
      * does not have them yet, and showing placeholders would hide the real settings and let them be overwritten.
      */
     private void initBehaviorWidgets() {
         behaviorLoaded = false;
         filling = true;
-        // The unit area radius comes first: it limits every option below except the last.
-        unitAreaBox = addRenderableWidget(new EditBox(font, leftPos + BEHAVIOR_X + 132, topPos + BEHAVIOR_TOP,
-                32, 16, Component.translatable("screen.projecthivemind.behavior.unit_area")));
-        unitAreaBox.setMaxLength(2);
-        unitAreaBox.setFilter(text -> text.matches("\\d*"));
-        unitAreaBox.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.behavior.unit_area.tooltip")));
-        unitAreaBox.setResponder(text -> {
-            if (!text.isEmpty()) {
-                unitAreaRadius = Integer.parseInt(text);
-            }
-            sendBehavior();
+        soldierWidgets.clear();
+        workerWidgets.clear();
+        collectorWidgets.clear();
+
+        // Soldiers: the radius first, since it limits every option below except the last.
+        soldierAreaBox = areaBox(soldierWidgets, "screen.projecthivemind.behavior.unit_area",
+                "screen.projecthivemind.behavior.soldier_area.tooltip", text -> {
+            soldierRadius = Integer.parseInt(text);
+            sendSoldierBehavior();
+        });
+        allInHiveArea = behaviorBox(soldierWidgets, 1, "screen.projecthivemind.behavior.all_in_hive", this::sendSoldierBehavior);
+        hostileInHiveArea = behaviorBox(soldierWidgets, 2, "screen.projecthivemind.behavior.hostile_in_hive", this::sendSoldierBehavior);
+        allInUnitArea = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.all_in_unit", this::sendSoldierBehavior);
+        hostileInUnitArea = behaviorBox(soldierWidgets, 4, "screen.projecthivemind.behavior.hostile_in_unit", this::sendSoldierBehavior);
+        threats = behaviorBox(soldierWidgets, 5, "screen.projecthivemind.behavior.threats", this::sendSoldierBehavior);
+
+        // Workers: the radius first again, then what to work on.
+        workerAreaBox = areaBox(workerWidgets, "screen.projecthivemind.behavior.unit_area",
+                "screen.projecthivemind.behavior.worker_area.tooltip", text -> {
+            workerRadius = Integer.parseInt(text);
+            sendWorkerBehavior();
+        });
+        mineOre = behaviorBox(workerWidgets, 1, "screen.projecthivemind.behavior.mine_ore", this::sendWorkerBehavior);
+        chopLogs = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.chop_logs", this::sendWorkerBehavior);
+        digThrough = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
+
+        // Collectors: just how far past the hive area they may reach for items.
+        collectorRangeBox = areaBox(collectorWidgets, "screen.projecthivemind.behavior.collector_range",
+                "screen.projecthivemind.behavior.collector_range.tooltip", text -> {
+            collectorRange = Integer.parseInt(text);
+            sendCollectorBehavior();
         });
 
-        allInHiveArea = behaviorBox(1, "screen.projecthivemind.behavior.all_in_hive");
-        hostileInHiveArea = behaviorBox(2, "screen.projecthivemind.behavior.hostile_in_hive");
-        allInUnitArea = behaviorBox(3, "screen.projecthivemind.behavior.all_in_unit");
-        hostileInUnitArea = behaviorBox(4, "screen.projecthivemind.behavior.hostile_in_unit");
-        threats = behaviorBox(5, "screen.projecthivemind.behavior.threats");
         setBehaviorEnabled(false);
         filling = false;
     }
 
-    private Checkbox behaviorBox(int row, String key) {
+    /**
+     * The number field at the top of a page, placed just after its label so it never overlaps it, whatever the
+     * label's length. Reports each valid number the player types.
+     */
+    private EditBox areaBox(List<AbstractWidget> group, String labelKey, String tooltipKey, java.util.function.Consumer<String> onNumber) {
+        Component label = Component.translatable(labelKey);
+        int fieldX = leftPos + BEHAVIOR_X + 4 + font.width(label) + 8;
+        EditBox box = addRenderableWidget(new EditBox(font, fieldX, topPos + BEHAVIOR_TOP, 32, 16, label));
+        box.setMaxLength(2);
+        box.setFilter(text -> text.matches("\\d*"));
+        box.setTooltip(Tooltip.create(Component.translatable(tooltipKey)));
+        box.setResponder(text -> {
+            if (!text.isEmpty() && !filling && behaviorLoaded) {
+                onNumber.accept(text);
+            }
+        });
+        group.add(box);
+        return box;
+    }
+
+    private Checkbox behaviorBox(List<AbstractWidget> group, int row, String key, Runnable onChange) {
         Checkbox box = Checkbox.builder(Component.translatable(key), font)
                 .maxWidth(imageWidth - 2 * BEHAVIOR_X)
-                .onValueChange((checkbox, value) -> sendBehavior())
+                .onValueChange((checkbox, value) -> onChange.run())
                 .build();
         box.setPosition(leftPos + BEHAVIOR_X, topPos + BEHAVIOR_TOP + row * BEHAVIOR_ROW);
+        group.add(box);
         return addRenderableWidget(box);
     }
 
     private void setBehaviorEnabled(boolean enabled) {
-        allInHiveArea.active = enabled;
-        hostileInHiveArea.active = enabled;
-        unitAreaBox.setEditable(enabled);
-        allInUnitArea.active = enabled;
-        hostileInUnitArea.active = enabled;
-        threats.active = enabled;
+        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets)) {
+            for (AbstractWidget widget : group) {
+                if (widget instanceof EditBox editBox) {
+                    editBox.setEditable(enabled);
+                } else {
+                    widget.active = enabled;
+                }
+            }
+        }
     }
 
     /** Fill the widgets from the server's real settings, once, and let the player edit them. */
     private void loadBehavior() {
-        SoldierBehavior current = SoldierBehavior.fromFlags(menu.behaviorFlags(), menu.unitAreaRadius());
+        SoldierBehavior soldiers = SoldierBehavior.fromFlags(menu.behaviorFlags(), menu.unitAreaRadius());
+        WorkerBehavior workers = WorkerBehavior.fromFlags(menu.workerFlags(), menu.workerAreaRadius());
         filling = true;
-        unitAreaRadius = current.unitAreaRadius();
-        setChecked(allInHiveArea, current.allInHiveArea());
-        setChecked(hostileInHiveArea, current.hostileInHiveArea());
-        unitAreaBox.setValue(String.valueOf(current.unitAreaRadius()));
-        setChecked(allInUnitArea, current.allInUnitArea());
-        setChecked(hostileInUnitArea, current.hostileInUnitArea());
-        setChecked(threats, current.threats());
+        soldierRadius = soldiers.unitAreaRadius();
+        soldierAreaBox.setValue(String.valueOf(soldierRadius));
+        setChecked(allInHiveArea, soldiers.allInHiveArea());
+        setChecked(hostileInHiveArea, soldiers.hostileInHiveArea());
+        setChecked(allInUnitArea, soldiers.allInUnitArea());
+        setChecked(hostileInUnitArea, soldiers.hostileInUnitArea());
+        setChecked(threats, soldiers.threats());
+
+        workerRadius = workers.unitAreaRadius();
+        workerAreaBox.setValue(String.valueOf(workerRadius));
+        setChecked(mineOre, workers.mineOre());
+        setChecked(chopLogs, workers.chopLogs());
+        setChecked(digThrough, workers.digThrough());
+
+        collectorRange = menu.collectorRange();
+        collectorRangeBox.setValue(String.valueOf(collectorRange));
         filling = false;
         behaviorLoaded = true;
         setBehaviorEnabled(true);
@@ -194,14 +290,31 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    /** Send the whole set of settings to the server whenever the player changes one. */
-    private void sendBehavior() {
+    /** Send the whole set of soldier settings to the server whenever the player changes one. */
+    private void sendSoldierBehavior() {
         if (filling || !behaviorLoaded) {
             return;
         }
-        int flags = new SoldierBehavior(allInHiveArea.selected(), hostileInHiveArea.selected(), unitAreaRadius,
+        int flags = new SoldierBehavior(allInHiveArea.selected(), hostileInHiveArea.selected(), soldierRadius,
                 allInUnitArea.selected(), hostileInUnitArea.selected(), threats.selected()).flags();
-        PacketDistributor.sendToServer(new SetBehaviorPayload(flags, unitAreaRadius));
+        PacketDistributor.sendToServer(new SetBehaviorPayload(flags, soldierRadius));
+    }
+
+    /** Send the whole set of worker settings to the server whenever the player changes one. */
+    private void sendWorkerBehavior() {
+        if (filling || !behaviorLoaded) {
+            return;
+        }
+        int flags = new WorkerBehavior(workerRadius, mineOre.selected(), chopLogs.selected(), digThrough.selected()).flags();
+        PacketDistributor.sendToServer(new SetWorkerBehaviorPayload(flags, workerRadius));
+    }
+
+    /** Send the collector range to the server whenever the player changes it. */
+    private void sendCollectorBehavior() {
+        if (filling || !behaviorLoaded) {
+            return;
+        }
+        PacketDistributor.sendToServer(new SetCollectorBehaviorPayload(collectorRange));
     }
 
     // ---- clicks and drawing ----
@@ -254,9 +367,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void renderBehaviorLabels(GuiGraphics graphics) {
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.soldiers"), BEHAVIOR_X, 48, 0xFFFFFF, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.unit_area"),
-                BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0xE0E0E0, false);
+        String labelKey = page == Page.COLLECTORS ? "screen.projecthivemind.behavior.collector_range" : "screen.projecthivemind.behavior.unit_area";
+        graphics.drawString(font, Component.translatable(labelKey), BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0xE0E0E0, false);
+        if (page == Page.COLLECTORS) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.collector_note"),
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + BEHAVIOR_ROW + 4, 0x909090, false);
+        }
+        if (page == Page.WORKERS) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 4 * BEHAVIOR_ROW + 4, 0x909090, false);
+        }
     }
 
     private void renderHiveLabels(GuiGraphics graphics) {

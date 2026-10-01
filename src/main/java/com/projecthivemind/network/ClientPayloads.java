@@ -4,6 +4,7 @@ import com.projecthivemind.BlockAction;
 import com.projecthivemind.HivemindStage;
 import com.projecthivemind.client.ChooseModeScreen;
 import com.projecthivemind.client.ClientActions;
+import com.projecthivemind.client.ClientSight;
 import com.projecthivemind.client.ClientState;
 
 import net.minecraft.client.Minecraft;
@@ -29,6 +30,10 @@ public final class ClientPayloads {
         if (wasHiveMode && !ClientState.hiveMode() && minecraft.screen == null) {
             minecraft.mouseHandler.grabMouse();
         }
+    }
+
+    public static void onSyncSight(SyncSightPayload payload, IPayloadContext context) {
+        ClientSight.update(payload.visibleMobs());
     }
 
     public static void onSyncActions(SyncActionsPayload payload, IPayloadContext context) {

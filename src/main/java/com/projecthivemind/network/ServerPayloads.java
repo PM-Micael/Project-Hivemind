@@ -1,8 +1,10 @@
 package com.projecthivemind.network;
 
+import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.SoldierBehavior;
+import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 
 import net.minecraft.server.level.ServerPlayer;
@@ -55,6 +57,20 @@ public final class ServerPayloads {
         if (context.player() instanceof ServerPlayer player) {
             // The constructor clamps the radius, so a bad client cannot set a silly one.
             HivemindManager.setSoldierBehavior(player, SoldierBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
+        }
+    }
+
+    public static void onSetWorkerBehavior(SetWorkerBehaviorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            // The constructor clamps the radius, so a bad client cannot set a silly one.
+            HivemindManager.setWorkerBehavior(player, WorkerBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
+        }
+    }
+
+    public static void onSetCollectorBehavior(SetCollectorBehaviorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            // The constructor clamps the range, so a bad client cannot set a silly one.
+            HivemindManager.setCollectorBehavior(player, new CollectorBehavior(payload.extraRange()));
         }
     }
 

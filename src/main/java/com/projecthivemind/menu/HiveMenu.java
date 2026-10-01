@@ -74,7 +74,10 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int DATA_TIMER = 3;
     private static final int DATA_BEHAVIOR_FLAGS = 4;
     private static final int DATA_UNIT_AREA = 5;
-    private static final int DATA_UNITS = 6;
+    private static final int DATA_WORKER_FLAGS = 6;
+    private static final int DATA_WORKER_AREA = 7;
+    private static final int DATA_COLLECTOR_RANGE = 8;
+    private static final int DATA_UNITS = 9;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -160,6 +163,15 @@ public class HiveMenu extends AbstractContainerMenu {
                 if (index == DATA_UNIT_AREA) {
                     return heart.soldierBehavior().unitAreaRadius() + 1;
                 }
+                if (index == DATA_WORKER_FLAGS) {
+                    return heart.workerBehavior().flags() + 1;
+                }
+                if (index == DATA_WORKER_AREA) {
+                    return heart.workerBehavior().unitAreaRadius() + 1;
+                }
+                if (index == DATA_COLLECTOR_RANGE) {
+                    return heart.collectorBehavior().extraRange() + 1;
+                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -212,7 +224,24 @@ public class HiveMenu extends AbstractContainerMenu {
      * real values arrive a moment after the screen opens; reading them before then would show wrong settings.
      */
     public boolean behaviorReady() {
-        return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0;
+        return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0
+                && data.get(DATA_WORKER_FLAGS) > 0 && data.get(DATA_WORKER_AREA) > 0
+                && data.get(DATA_COLLECTOR_RANGE) > 0;
+    }
+
+    /** How far past the hive area collectors may reach. Only valid once ready. */
+    public int collectorRange() {
+        return data.get(DATA_COLLECTOR_RANGE) - 1;
+    }
+
+    /** The worker behaviour checkboxes, packed into one number (see WorkerBehavior). Only valid once ready. */
+    public int workerFlags() {
+        return data.get(DATA_WORKER_FLAGS) - 1;
+    }
+
+    /** The workers' own-area radius setting. Only valid once ready. */
+    public int workerAreaRadius() {
+        return data.get(DATA_WORKER_AREA) - 1;
     }
 
     /** The soldier behaviour checkboxes, packed into one number (see SoldierBehavior). Only valid once ready. */

@@ -294,6 +294,10 @@ public final class HiveSelection {
             if (mob instanceof HiveUnit unit && (nonHiveOnly || minecraft.player.getUUID().equals(unit.ownerId()))) {
                 continue;
             }
+            // A mob the hive cannot see is not drawn, so it cannot be clicked either.
+            if (SightEvents.isHidden(mob)) {
+                continue;
+            }
             Optional<Vec3> hit = mob.getBoundingBox().inflate(PICK_MARGIN).clip(ray.from(), ray.to());
             if (hit.isPresent()) {
                 double distance = ray.from().distanceToSqr(hit.get());

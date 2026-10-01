@@ -10,14 +10,17 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
+import com.projecthivemind.HiveSight;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.WorkerBehavior;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
@@ -55,6 +58,8 @@ public class HiveHeart extends Mob {
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
     private static final String TOOL_VERSION_TAG = "ToolVersion";
     private static final String BEHAVIOR_TAG = "SoldierBehavior";
+    private static final String WORKER_BEHAVIOR_TAG = "WorkerBehavior";
+    private static final String COLLECTOR_BEHAVIOR_TAG = "CollectorBehavior";
 
     @Nullable
     private UUID ownerId;
@@ -67,6 +72,48 @@ public class HiveHeart extends Mob {
 
     /** How the hive's idle, unselected soldiers behave. Edited on the menu's Behavior tab; saved. */
     private SoldierBehavior soldierBehavior = SoldierBehavior.DEFAULT;
+    /** How the hive's idle, unselected workers behave. Edited on the menu's Behavior tab; saved. */
+    private WorkerBehavior workerBehavior = WorkerBehavior.DEFAULT;
+    /** How far past the hive area the hive's collectors may reach. Edited on the menu's Behavior tab; saved. */
+    private CollectorBehavior collectorBehavior = CollectorBehavior.DEFAULT;
+
+    public CollectorBehavior collectorBehavior() {
+        return collectorBehavior;
+    }
+
+    public void setCollectorBehavior(CollectorBehavior behavior) {
+        this.collectorBehavior = behavior;
+    }
+
+    /** What the hive can see from, refreshed several times a second. Not saved. */
+    private List<HiveSight.Eye> sightEyes = List.of();
+    /** The mobs the owner's client was last told are in sight. Not saved. */
+    private Set<Integer> syncedSight = Set.of();
+
+    public WorkerBehavior workerBehavior() {
+        return workerBehavior;
+    }
+
+    public void setWorkerBehavior(WorkerBehavior behavior) {
+        this.workerBehavior = behavior;
+    }
+
+    public List<HiveSight.Eye> sightEyes() {
+        return sightEyes;
+    }
+
+    public void setSightEyes(List<HiveSight.Eye> eyes) {
+        this.sightEyes = eyes;
+    }
+
+    public Set<Integer> syncedSight() {
+        return syncedSight;
+    }
+
+    public void setSyncedSight(Set<Integer> mobIds) {
+        this.syncedSight = mobIds;
+    }
+
     /** Entity ids of the units the owner has selected right now, as their client reports. Not saved. */
     private Set<Integer> selectedUnits = Set.of();
     /** Mobs that have hurt the hive or its units, or are trying to, as of the last look. Not saved. */
@@ -240,6 +287,9 @@ public class HiveHeart extends Mob {
     /** 1 second: how often the owner is told which blocks have units working on them. */
     private static final int ACTION_SYNC_INTERVAL_TICKS = 20;
 
+    /** A quarter second: how often what the hive can see is worked out, so hidden mobs appear and vanish promptly. */
+    private static final int SIGHT_INTERVAL_TICKS = 5;
+
     private int spawnTimer;
 
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
@@ -256,6 +306,10 @@ public class HiveHeart extends Mob {
         if (++spawnTimer >= SPAWN_INTERVAL_TICKS) {
             spawnTimer = 0;
             HivemindManager.tickUnitSpawning(this);
+        }
+        // Sight first, so the workers' scans and the action sync below always use fresh eyes.
+        if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
+            HivemindManager.tickSight(this);
         }
         if (this.tickCount % ACTION_SYNC_INTERVAL_TICKS == 0) {
             HivemindManager.tickActionSync(this);
@@ -388,6 +442,8 @@ public class HiveHeart extends Mob {
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
         tag.putInt(TOOL_VERSION_TAG, toolVersion);
         tag.put(BEHAVIOR_TAG, soldierBehavior.save());
+        tag.put(WORKER_BEHAVIOR_TAG, workerBehavior.save());
+        tag.put(COLLECTOR_BEHAVIOR_TAG, collectorBehavior.save());
 
         ListTag consumed = new ListTag();
         consumedBlocks.forEach((pos, state) -> {
@@ -421,6 +477,9 @@ public class HiveHeart extends Mob {
         armorVersion = tag.getInt(ARMOR_VERSION_TAG);
         toolVersion = tag.getInt(TOOL_VERSION_TAG);
         soldierBehavior = tag.contains(BEHAVIOR_TAG) ? SoldierBehavior.load(tag.getCompound(BEHAVIOR_TAG)) : SoldierBehavior.DEFAULT;
+        workerBehavior = tag.contains(WORKER_BEHAVIOR_TAG) ? WorkerBehavior.load(tag.getCompound(WORKER_BEHAVIOR_TAG)) : WorkerBehavior.DEFAULT;
+        collectorBehavior = tag.contains(COLLECTOR_BEHAVIOR_TAG)
+                ? CollectorBehavior.load(tag.getCompound(COLLECTOR_BEHAVIOR_TAG)) : CollectorBehavior.DEFAULT;
         // The signatures are not saved: the first look after loading becomes the baseline.
         lastArmorSignature = null;
         lastToolSignature = null;

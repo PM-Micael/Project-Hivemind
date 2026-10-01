@@ -17,6 +17,7 @@ import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.SyncHivemindPayload;
+import com.projecthivemind.network.SyncSightPayload;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -404,6 +405,45 @@ public final class HivemindManager {
             HiveActions.syncActions(owner, heart);
             // Only bother looking for threats if the soldiers are set to respond to them.
             heart.setThreats(heart.soldierBehavior().threats() ? findThreats(owner, heart) : Set.of());
+        }
+    }
+
+    /**
+     * Several times a second, from the Heart: work out what the hive can see, keep the eyes for the workers' job
+     * scans, and tell the owner's client which mobs are in sight so it can hide the rest.
+     */
+    public static void tickSight(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        ServerLevel level = (ServerLevel) heart.level();
+        List<HiveSight.Eye> eyes = HiveSight.eyes(level, owner, heart);
+        heart.setSightEyes(eyes);
+
+        Set<Integer> visible = HiveSight.visibleMobs(level, eyes);
+        if (!visible.equals(heart.syncedSight())) {
+            heart.setSyncedSight(visible);
+            PacketDistributor.sendToPlayer(owner, new SyncSightPayload(List.copyOf(visible)));
+        }
+    }
+
+    /** The player edited the collector range on the menu. Only valid with the hive menu open. */
+    public static void setCollectorBehavior(ServerPlayer player, CollectorBehavior behavior) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null && player.containerMenu instanceof HiveMenu) {
+            heart.setCollectorBehavior(behavior);
+        }
+    }
+
+    /** The player edited the worker behaviour settings on the menu. Only valid with the hive menu open. */
+    public static void setWorkerBehavior(ServerPlayer player, WorkerBehavior behavior) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null && player.containerMenu instanceof HiveMenu) {
+            heart.setWorkerBehavior(behavior);
         }
     }
 
