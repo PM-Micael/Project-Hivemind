@@ -11,23 +11,23 @@ import com.projecthivemind.HivemindStage;
 public final class ClientState {
     @Nullable
     private static HivemindStage stage;
-    private static boolean hasWorker;
-    private static boolean hasSoldier;
+    private static boolean normalInventory;
+    private static boolean canSwapInventory;
 
     private ClientState() {
     }
 
-    public static void update(HivemindStage newStage, boolean worker, boolean soldier) {
+    public static void update(HivemindStage newStage, boolean normal, boolean canSwap) {
         stage = newStage;
-        hasWorker = worker;
-        hasSoldier = soldier;
+        normalInventory = normal;
+        canSwapInventory = canSwap;
     }
 
     /** Forget everything, e.g. when leaving a world, so state never leaks into the next one. */
     public static void reset() {
         stage = null;
-        hasWorker = false;
-        hasSoldier = false;
+        normalInventory = false;
+        canSwapInventory = false;
     }
 
     /** Null until the server has told us. */
@@ -40,11 +40,17 @@ public final class ClientState {
         return stage == expected;
     }
 
-    public static boolean hasWorker() {
-        return hasWorker;
+    /** Bodyless hivemind with the RTS camera, hive menu and no vanilla inventory. */
+    public static boolean hiveMode() {
+        return stage == HivemindStage.HIVE && !normalInventory;
     }
 
-    public static boolean hasSoldier() {
-        return hasSoldier;
+    /** A creative hivemind who has swapped to the normal inventory: plays like normal creative for now. */
+    public static boolean normalInventoryMode() {
+        return stage == HivemindStage.HIVE && normalInventory;
+    }
+
+    public static boolean canSwapInventory() {
+        return canSwapInventory;
     }
 }

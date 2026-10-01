@@ -13,11 +13,16 @@ public final class ClientPayloads {
     }
 
     public static void onSync(SyncHivemindPayload payload, IPayloadContext context) {
-        ClientState.update(payload.stage(), payload.hasWorker(), payload.hasSoldier());
+        boolean wasHiveMode = ClientState.hiveMode();
+        ClientState.update(payload.stage(), payload.normalInventory(), payload.canSwapInventory());
 
         Minecraft minecraft = Minecraft.getInstance();
         if (payload.stage() == HivemindStage.UNCHOSEN && !(minecraft.screen instanceof ChooseModeScreen)) {
             minecraft.setScreen(new ChooseModeScreen());
+        }
+        // Leaving the RTS view for normal play: the RTS camera had released the mouse, so take it back.
+        if (wasHiveMode && !ClientState.hiveMode() && minecraft.screen == null) {
+            minecraft.mouseHandler.grabMouse();
         }
     }
 }

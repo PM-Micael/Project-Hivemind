@@ -5,7 +5,6 @@ import java.util.Set;
 import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.projecthivemind.HivemindStage;
 import com.projecthivemind.ProjectHivemind;
 
 import net.minecraft.Util;
@@ -74,7 +73,7 @@ public final class HiveCamera {
 
     /** True while the RTS view is in control: hive stage, in a world, and no menu open. */
     private static boolean controlling(Minecraft minecraft) {
-        return ClientState.is(HivemindStage.HIVE) && minecraft.player != null && minecraft.screen == null;
+        return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null;
     }
 
     private static void startRotating(Minecraft minecraft) {
@@ -181,7 +180,7 @@ public final class HiveCamera {
 
     @SubscribeEvent
     static void onRenderGuiLayer(RenderGuiLayerEvent.Pre event) {
-        if (ClientState.is(HivemindStage.HIVE) && HIDDEN_HUD_LAYERS.contains(event.getName())) {
+        if (ClientState.hiveMode() && HIDDEN_HUD_LAYERS.contains(event.getName())) {
             event.setCanceled(true);
         }
     }

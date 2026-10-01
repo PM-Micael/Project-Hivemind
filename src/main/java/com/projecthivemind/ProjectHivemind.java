@@ -11,6 +11,7 @@ public class ProjectHivemind {
     public ProjectHivemind(IEventBus modEventBus) {
         ModBlocks.BLOCKS.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
+        ModMenus.MENU_TYPES.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
     }
 

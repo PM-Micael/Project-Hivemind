@@ -1,12 +1,14 @@
 package com.projecthivemind;
 
-import java.util.Optional;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
 import com.projecthivemind.client.ClientState;
+import com.projecthivemind.entity.HiveCollector;
+import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
+import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.SyncHivemindPayload;
 
 import net.minecraft.core.BlockPos;
@@ -16,16 +18,19 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Mth;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
+import net.minecraft.world.Containers;
+import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -33,11 +38,47 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class HivemindManager {
     /** Larva is 30% of normal player size (hitbox and eye height). */
     private static final double LARVA_SCALE_MODIFIER = -0.7D;
+    private static final ResourceLocation LARVA_SCALE_ID = ProjectHivemind.id("larva_scale");
     private static final double START_CAMERA_HEIGHT = 10.0D;
     private static final float START_CAMERA_PITCH = 25.0F;
-    private static final ResourceLocation LARVA_SCALE_ID = ProjectHivemind.id("larva_scale");
+    /** Chunks kept loaded around the Heart in each direction, so the hive keeps running while the camera roams. */
+    private static final int FORCED_CHUNK_RADIUS = 1;
+
+    /** True while this class is changing a player's game mode itself, so it does not treat that as the player's choice. */
+    private static boolean applyingMode;
 
     private HivemindManager() {
+    }
+
+    private static void forceMode(ServerPlayer player, GameType mode) {
+        applyingMode = true;
+        try {
+            player.setGameMode(mode);
+        } finally {
+            applyingMode = false;
+        }
+    }
+
+    /**
+     * Someone (the player, or a command) is changing the game mode of a player in the hive. In the hive the game mode
+     * is managed by the mod (spectator for the camera), so instead of applying it, remember it as the player's real
+     * mode. That decides whether the creative-inventory swap is offered: only while the real mode is creative.
+     *
+     * @return true if the change was taken over and the vanilla change should be cancelled
+     */
+    public static boolean interceptGameModeChange(ServerPlayer player, GameType requested) {
+        HivemindData data = get(player);
+        if (applyingMode || data.stage() != HivemindStage.HIVE) {
+            return false;
+        }
+        HivemindData updated = data.withPreviousMode(requested);
+        if (requested != GameType.CREATIVE) {
+            updated = updated.withNormalInventory(false);
+        }
+        set(player, updated);
+        player.displayClientMessage(Component.translatable("message.projecthivemind.mode_remembered", requested.getLongDisplayName()), true);
+        refresh(player);
+        return true;
     }
 
     public static HivemindData get(Player player) {
@@ -59,18 +100,34 @@ public final class HivemindManager {
 
     public static void sync(ServerPlayer player) {
         HivemindData data = get(player);
-        PacketDistributor.sendToPlayer(player,
-                new SyncHivemindPayload(data.stage(), data.hasUnit(UnitKind.WORKER), data.hasUnit(UnitKind.SOLDIER)));
+        PacketDistributor.sendToPlayer(player, new SyncHivemindPayload(data.stage(), data.normalInventory(), data.canSwapInventory()));
     }
 
     /** Make the player's attributes and game mode match their saved stage, then tell their client. Safe to call repeatedly. */
     public static void refresh(ServerPlayer player) {
-        HivemindStage stage = get(player).stage();
-        setLarvaScale(player, stage == HivemindStage.LARVA);
-        if (stage == HivemindStage.HIVE && player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
-            player.setGameMode(GameType.SPECTATOR);
+        HivemindData data = get(player);
+        setLarvaScale(player, data.stage() == HivemindStage.LARVA);
+        if (data.stage() == HivemindStage.HIVE) {
+            GameType wanted = data.normalInventory() ? GameType.CREATIVE : GameType.SPECTATOR;
+            if (player.gameMode.getGameModeForPlayer() != wanted) {
+                forceMode(player, wanted);
+            }
         }
         sync(player);
+    }
+
+    /**
+     * Creative players only: swap between the hive and the normal creative inventory, so items can still be spawned
+     * in. The server only accepts creative item spawns from a player who really is in creative mode, so this switches
+     * the game mode: creative for the normal inventory, spectator for the hive.
+     */
+    public static void toggleInventoryMode(ServerPlayer player) {
+        HivemindData data = get(player);
+        if (!data.canSwapInventory()) {
+            return;
+        }
+        set(player, data.withNormalInventory(!data.normalInventory()));
+        refresh(player);
     }
 
     public static void choose(ServerPlayer player, boolean hivemind) {
@@ -86,9 +143,26 @@ public final class HivemindManager {
         refresh(player);
     }
 
-    /** Larva right-clicked a block: place the Hive Heart next to it and turn the player into the bodyless hivemind. */
+    // ---- the Hive Heart ----
+
+    /** The player's Hive Heart entity, or null if they have none or it is not loaded. */
+    @Nullable
+    public static HiveHeart findHeart(ServerPlayer player) {
+        HivemindData data = get(player);
+        if (data.heart().isEmpty() || data.heartId().isEmpty()) {
+            return null;
+        }
+        ServerLevel level = player.server.getLevel(data.heart().get().dimension());
+        if (level != null && level.getEntity(data.heartId().get()) instanceof HiveHeart heart && heart.isAlive()) {
+            return heart;
+        }
+        return null;
+    }
+
+    /** Larva right-clicked a block: plant the Hive Heart next to it and turn the player into the bodyless hivemind. */
     public static void tryPlaceHeart(ServerPlayer player, BlockPos clicked, @Nullable Direction face) {
-        if (get(player).stage() != HivemindStage.LARVA) {
+        HivemindData data = get(player);
+        if (data.stage() != HivemindStage.LARVA) {
             return;
         }
         ServerLevel level = player.serverLevel();
@@ -99,16 +173,30 @@ public final class HivemindManager {
             return;
         }
 
-        level.setBlock(target, ModBlocks.HIVE_HEART.get().defaultBlockState(), Block.UPDATE_ALL);
+        HiveLevel hiveLevel = HiveLevels.get(1);
+        HiveHeart heart = ModEntities.HIVE_HEART.get().create(level);
+        if (heart == null) {
+            return;
+        }
+        heart.moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, 0.0F, 0.0F);
+        heart.setOwnerId(player.getUUID());
+        heart.setHiveLevel(hiveLevel.level());
+        heart.setPersistenceRequired();
+
+        setHeartChunksForced(level, target, true);
+        level.addFreshEntity(heart);
+        HiveInfection.spread(level, target, hiveLevel.infectionRadius());
         level.playSound(null, target, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 1.0F, 0.8F);
 
-        set(player, get(player).withStage(HivemindStage.HIVE).withHeart(GlobalPos.of(level.dimension(), target)));
+        set(player, data.withStage(HivemindStage.HIVE)
+                .withHeart(GlobalPos.of(level.dimension(), target), heart.getUUID())
+                .withPreviousMode(player.gameMode.getGameModeForPlayer()));
         setLarvaScale(player, false);
+
         // The player entity doubles as the camera: spectator gives free, collision-less flight and
         // makes it invisible. It is not a body any more, so put it above and behind the heart, looking
-        // down at it, so the heart starts in the middle of the view. (The client refines the pitch to
-        // match the player's FOV setting.)
-        player.setGameMode(GameType.SPECTATOR);
+        // down at it, so the heart starts in the middle of the view. (The player can re-angle it later.)
+        forceMode(player, GameType.SPECTATOR);
         float yaw = player.getYRot();
         double behind = START_CAMERA_HEIGHT / Math.tan(Math.toRadians(START_CAMERA_PITCH));
         double cameraX = target.getX() + 0.5D + Mth.sin(yaw * Mth.DEG_TO_RAD) * behind;
@@ -118,35 +206,93 @@ public final class HivemindManager {
         sync(player);
     }
 
-    /** Spawn a unit at the Hive Heart, unless the player already has one of that kind. */
+    /** The Heart died: the hive collapses. Its items drop, the creep goes, units die, and the owner is a larva again. */
+    public static void onHeartDestroyed(ServerLevel level, HiveHeart heart) {
+        BlockPos center = heart.blockPosition();
+        Containers.dropContents(level, center, heart.getStorage());
+        HiveInfection.clear(level, center, HiveLevels.get(heart.hiveLevel()).infectionRadius());
+        setHeartChunksForced(level, center, false);
+
+        UUID ownerId = heart.ownerId();
+        ServerPlayer owner = ownerId == null ? null : level.getServer().getPlayerList().getPlayer(ownerId);
+        if (owner == null) {
+            return;
+        }
+        HivemindData data = get(owner);
+        for (UUID unitId : data.allUnits()) {
+            for (ServerLevel unitLevel : level.getServer().getAllLevels()) {
+                Entity unit = unitLevel.getEntity(unitId);
+                if (unit != null) {
+                    unit.discard();
+                }
+            }
+        }
+        set(owner, data.collapsed());
+        forceMode(owner, data.previousMode().orElse(level.getServer().getDefaultGameType()));
+        owner.displayClientMessage(Component.translatable("message.projecthivemind.heart_destroyed"), false);
+        refresh(owner);
+    }
+
+    private static void setHeartChunksForced(ServerLevel level, BlockPos heart, boolean forced) {
+        ChunkPos center = new ChunkPos(heart);
+        for (int dx = -FORCED_CHUNK_RADIUS; dx <= FORCED_CHUNK_RADIUS; dx++) {
+            for (int dz = -FORCED_CHUNK_RADIUS; dz <= FORCED_CHUNK_RADIUS; dz++) {
+                level.setChunkForced(center.x + dx, center.z + dz, forced);
+            }
+        }
+    }
+
+    // ---- the hive menu ----
+
+    public static void openMenu(ServerPlayer player) {
+        if (get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        HiveHeart heart = findHeart(player);
+        if (heart == null) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_heart"), true);
+            return;
+        }
+        player.openMenu(new SimpleMenuProvider(
+                (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
+                Component.translatable("screen.projecthivemind.hive.title")));
+    }
+
+    // ---- units ----
+
+    /** Spawn a unit at the Hive Heart, unless the hive is already at its cap for that kind. */
     public static void spawnUnit(ServerPlayer player, UnitKind kind) {
         HivemindData data = get(player);
-        if (data.stage() != HivemindStage.HIVE || data.heart().isEmpty() || data.hasUnit(kind)) {
+        HiveHeart heart = findHeart(player);
+        if (data.stage() != HivemindStage.HIVE || heart == null) {
             return;
         }
-        GlobalPos heart = data.heart().get();
-        ServerLevel level = player.server.getLevel(heart.dimension());
-        if (level == null) {
+        if (data.count(kind) >= HiveLevels.get(heart.hiveLevel()).cap(kind)) {
             return;
         }
+        ServerLevel level = (ServerLevel) heart.level();
 
         // Stand each kind on a different side of the heart.
-        double x = heart.pos().getX() + 0.5D + (kind == UnitKind.WORKER ? 1.5D : -1.5D);
-        double y = heart.pos().getY();
-        double z = heart.pos().getZ() + 0.5D;
+        double x = heart.getX() + (kind == UnitKind.WORKER ? 1.5D : kind == UnitKind.SOLDIER ? -1.5D : 0.0D);
+        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? 1.5D : 0.0D);
 
-        Mob unit = kind == UnitKind.WORKER
-                ? ModEntities.HIVE_WORKER.get().create(level)
-                : ModEntities.HIVE_SOLDIER.get().create(level);
+        Mob unit = switch (kind) {
+            case WORKER -> ModEntities.HIVE_WORKER.get().create(level);
+            case SOLDIER -> ModEntities.HIVE_SOLDIER.get().create(level);
+            case COLLECTOR -> ModEntities.HIVE_COLLECTOR.get().create(level);
+        };
         if (unit == null) {
             return;
         }
         ((HiveUnit) unit).setOwnerId(player.getUUID());
-        unit.moveTo(x, y, z, player.getYRot(), 0.0F);
+        if (unit instanceof HiveCollector collector) {
+            collector.setHeartId(heart.getUUID());
+        }
+        unit.moveTo(x, heart.getY(), z, player.getYRot(), 0.0F);
         unit.setPersistenceRequired();
         level.addFreshEntity(unit);
 
-        set(player, data.withUnit(kind, Optional.of(unit.getUUID())));
+        set(player, data.withUnit(kind, unit.getUUID()));
         sync(player);
     }
 
@@ -159,13 +305,8 @@ public final class HivemindManager {
         if (owner == null) {
             return;
         }
-        UnitKind kind = hiveUnit.kind();
-        HivemindData data = get(owner);
-        UUID tracked = data.unit(kind).orElse(null);
-        if (unit.getUUID().equals(tracked)) {
-            set(owner, data.withUnit(kind, Optional.empty()));
-            sync(owner);
-        }
+        set(owner, get(owner).withoutUnit(hiveUnit.kind(), unit.getUUID()));
+        sync(owner);
     }
 
     private static void setLarvaScale(ServerPlayer player, boolean larva) {

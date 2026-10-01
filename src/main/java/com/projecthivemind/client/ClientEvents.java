@@ -2,13 +2,20 @@ package com.projecthivemind.client;
 
 import com.projecthivemind.HivemindStage;
 import com.projecthivemind.ModEntities;
+import com.projecthivemind.ModMenus;
 import com.projecthivemind.ProjectHivemind;
+import com.projecthivemind.network.OpenHiveMenuPayload;
+import com.projecthivemind.network.ToggleInventoryModePayload;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.SilverfishRenderer;
 import net.minecraft.client.renderer.entity.SkeletonRenderer;
 import net.minecraft.client.renderer.entity.ZombieRenderer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.monster.Silverfish;
@@ -19,9 +26,11 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 @EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class ClientEvents {
@@ -36,8 +45,15 @@ public final class ClientEvents {
     @SubscribeEvent
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         // Units look exactly like their vanilla counterparts for now.
+        event.registerEntityRenderer(ModEntities.HIVE_HEART.get(), HiveHeartRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_WORKER.get(), SkeletonRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_SOLDIER.get(), ZombieRenderer::new);
+        event.registerEntityRenderer(ModEntities.HIVE_COLLECTOR.get(), SilverfishRenderer::new);
+    }
+
+    @SubscribeEvent
+    static void registerScreens(RegisterMenuScreensEvent event) {
+        event.register(ModMenus.HIVE.get(), HiveScreen::new);
     }
 
     // ---- game bus ----
@@ -78,17 +94,37 @@ public final class ClientEvents {
     /** No Steve hand for a larva or a bodyless hivemind. */
     @SubscribeEvent
     static void onRenderHand(RenderHandEvent event) {
-        if (ClientState.is(HivemindStage.LARVA) || ClientState.is(HivemindStage.HIVE)) {
+        if (ClientState.is(HivemindStage.LARVA) || ClientState.hiveMode()) {
             event.setCanceled(true);
         }
     }
 
-    /** The bodyless hivemind has no vanilla inventory; show the hive menu instead. */
+    /**
+     * The bodyless hivemind has no vanilla inventory. Pressing the inventory key asks the server to open the
+     * hive menu instead; the server answers with the real menu, backed by the Hive Heart's storage.
+     */
     @SubscribeEvent
     static void onScreenOpening(ScreenEvent.Opening event) {
-        if (ClientState.is(HivemindStage.HIVE) && event.getNewScreen() instanceof InventoryScreen) {
-            event.setNewScreen(new HivemindScreen());
+        if (ClientState.hiveMode() && event.getNewScreen() instanceof InventoryScreen) {
+            event.setCanceled(true);
+            PacketDistributor.sendToServer(new OpenHiveMenuPayload());
         }
+    }
+
+    /**
+     * A creative hivemind using the normal inventory gets a button on the creative inventory to go back to the hive.
+     * (The matching button on the hive menu is in {@link HiveScreen}.)
+     */
+    @SubscribeEvent
+    static void onScreenInit(ScreenEvent.Init.Post event) {
+        if (!ClientState.normalInventoryMode() || !ClientState.canSwapInventory()
+                || !(event.getScreen() instanceof CreativeModeInventoryScreen screen)) {
+            return;
+        }
+        event.addListener(Button.builder(Component.translatable("screen.projecthivemind.swap.to_hive"), button -> {
+            PacketDistributor.sendToServer(new ToggleInventoryModePayload());
+            screen.onClose();
+        }).bounds(4, 4, 90, 20).build());
     }
 
     /**
@@ -97,7 +133,7 @@ public final class ClientEvents {
      */
     @SubscribeEvent
     static void onInteractionKey(InputEvent.InteractionKeyMappingTriggered event) {
-        if (ClientState.is(HivemindStage.HIVE)) {
+        if (ClientState.hiveMode()) {
             event.setCanceled(true);
             event.setSwingHand(false);
         }
