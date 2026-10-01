@@ -109,6 +109,18 @@ public final class HiveInfection {
         heart.consumedBlocks().clear();
     }
 
+    /**
+     * The hive area of a Heart as a box: the same square the creep marks out, measured from the Heart's position, at
+     * every height. It does not depend on the creep: breaking the creep does not shrink it. Collectors gather items
+     * in it and soldiers defend it. It grows with the hive's level.
+     */
+    public static AABB areaBox(ServerLevel level, HiveHeart heart) {
+        int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
+        BlockPos center = heart.blockPosition();
+        return new AABB(center.getX() - radius, level.getMinBuildHeight(), center.getZ() - radius,
+                center.getX() + radius + 1, level.getMaxBuildHeight(), center.getZ() + radius + 1);
+    }
+
     /** True if this position is inside any Hive Heart's infected area, at any height. */
     public static boolean isInfected(LevelAccessor level, BlockPos pos) {
         AABB search = new AABB(pos).inflate(HiveLevels.maxInfectionRadius() + 1);

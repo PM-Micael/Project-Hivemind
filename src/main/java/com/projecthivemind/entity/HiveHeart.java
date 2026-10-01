@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -15,6 +16,7 @@ import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
+import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
 
 import net.minecraft.core.BlockPos;
@@ -52,6 +54,7 @@ public class HiveHeart extends Mob {
     private static final String CONSUMED_TAG = "ConsumedGround";
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
     private static final String TOOL_VERSION_TAG = "ToolVersion";
+    private static final String BEHAVIOR_TAG = "SoldierBehavior";
 
     @Nullable
     private UUID ownerId;
@@ -61,6 +64,42 @@ public class HiveHeart extends Mob {
     private final SimpleContainer armorSlots = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
     private final SimpleContainer toolSlots = new SimpleContainer(HiveEquipment.TOOL_SLOTS);
+
+    /** How the hive's idle, unselected soldiers behave. Edited on the menu's Behavior tab; saved. */
+    private SoldierBehavior soldierBehavior = SoldierBehavior.DEFAULT;
+    /** Entity ids of the units the owner has selected right now, as their client reports. Not saved. */
+    private Set<Integer> selectedUnits = Set.of();
+    /** Mobs that have hurt the hive or its units, or are trying to, as of the last look. Not saved. */
+    private Set<UUID> threats = Set.of();
+
+    public SoldierBehavior soldierBehavior() {
+        return soldierBehavior;
+    }
+
+    public void setSoldierBehavior(SoldierBehavior behavior) {
+        this.soldierBehavior = behavior;
+    }
+
+    /** Units the player has selected follow orders only; they ignore the hive's default behaviour. */
+    public boolean isUnitSelected(int entityId) {
+        return selectedUnits.contains(entityId);
+    }
+
+    public void setSelectedUnits(Set<Integer> entityIds) {
+        this.selectedUnits = entityIds;
+    }
+
+    public boolean isThreat(UUID mobId) {
+        return threats.contains(mobId);
+    }
+
+    public Set<UUID> threats() {
+        return threats;
+    }
+
+    public void setThreats(Set<UUID> mobIds) {
+        this.threats = mobIds;
+    }
 
     /** Counts how many times the armor slots have really been changed. Saved, so units made earlier stay comparable. */
     private int armorVersion;
@@ -348,6 +387,7 @@ public class HiveHeart extends Mob {
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
         tag.putInt(TOOL_VERSION_TAG, toolVersion);
+        tag.put(BEHAVIOR_TAG, soldierBehavior.save());
 
         ListTag consumed = new ListTag();
         consumedBlocks.forEach((pos, state) -> {
@@ -380,6 +420,7 @@ public class HiveHeart extends Mob {
         }
         armorVersion = tag.getInt(ARMOR_VERSION_TAG);
         toolVersion = tag.getInt(TOOL_VERSION_TAG);
+        soldierBehavior = tag.contains(BEHAVIOR_TAG) ? SoldierBehavior.load(tag.getCompound(BEHAVIOR_TAG)) : SoldierBehavior.DEFAULT;
         // The signatures are not saved: the first look after loading becomes the baseline.
         lastArmorSignature = null;
         lastToolSignature = null;

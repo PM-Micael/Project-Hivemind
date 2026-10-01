@@ -1,7 +1,9 @@
 package com.projecthivemind;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
@@ -29,6 +31,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.Containers;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -399,6 +402,63 @@ public final class HivemindManager {
         ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
         if (owner != null && get(owner).stage() == HivemindStage.HIVE) {
             HiveActions.syncActions(owner, heart);
+            // Only bother looking for threats if the soldiers are set to respond to them.
+            heart.setThreats(heart.soldierBehavior().threats() ? findThreats(owner, heart) : Set.of());
+        }
+    }
+
+    /** How far around each hive member to look for mobs that are coming for it. */
+    private static final double THREAT_SCAN_RADIUS = 24.0D;
+
+    /**
+     * The mobs that are hostile to the hive right now: any that recently hurt the Heart or one of the owner's units,
+     * plus any that currently have one of them as their target. Players are not mobs, so they are never threats.
+     */
+    private static Set<UUID> findThreats(ServerPlayer owner, HiveHeart heart) {
+        ServerLevel level = (ServerLevel) heart.level();
+        List<LivingEntity> hive = new ArrayList<>();
+        hive.add(heart);
+        for (UUID id : get(owner).allUnits()) {
+            if (level.getEntity(id) instanceof LivingEntity unit && unit.isAlive()) {
+                hive.add(unit);
+            }
+        }
+
+        Set<UUID> threats = new HashSet<>();
+        for (LivingEntity member : hive) {
+            // The game forgets who hurt an entity after about five seconds, which is what "recently" means here.
+            if (member.getLastHurtByMob() instanceof Mob attacker && isOutsider(attacker)) {
+                threats.add(attacker.getUUID());
+            }
+            for (Mob mob : level.getEntitiesOfClass(Mob.class, member.getBoundingBox().inflate(THREAT_SCAN_RADIUS),
+                    mob -> isOutsider(mob) && isHiveMember(mob.getTarget()))) {
+                threats.add(mob.getUUID());
+            }
+        }
+        return threats;
+    }
+
+    private static boolean isHiveMember(@Nullable Entity entity) {
+        return entity instanceof HiveUnit || entity instanceof HiveHeart;
+    }
+
+    private static boolean isOutsider(Mob mob) {
+        return mob.isAlive() && !isHiveMember(mob);
+    }
+
+    /** The client reports which units the player has selected; those follow orders only, not the hive's defaults. */
+    public static void setSelection(ServerPlayer player, List<Integer> unitIds) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null) {
+            heart.setSelectedUnits(Set.copyOf(unitIds));
+        }
+    }
+
+    /** The player edited the soldier behaviour settings on the menu. Only valid with the hive menu open. */
+    public static void setSoldierBehavior(ServerPlayer player, SoldierBehavior behavior) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null && player.containerMenu instanceof HiveMenu) {
+            heart.setSoldierBehavior(behavior);
         }
     }
 

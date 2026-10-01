@@ -72,7 +72,9 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int DATA_HEALTH = 1;
     private static final int DATA_MAX_HEALTH = 2;
     private static final int DATA_TIMER = 3;
-    private static final int DATA_UNITS = 4;
+    private static final int DATA_BEHAVIOR_FLAGS = 4;
+    private static final int DATA_UNIT_AREA = 5;
+    private static final int DATA_UNITS = 6;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -97,7 +99,7 @@ public class HiveMenu extends AbstractContainerMenu {
     private final ResultContainer resultSlots = new ResultContainer();
 
     /** Client-side only: the screen shows the Quests tab, so the slots are hidden. */
-    public boolean questsOpen;
+    public boolean slotsHidden;
 
     /** Client constructor: the real contents arrive from the server. */
     public HiveMenu(int containerId, Inventory inventory) {
@@ -151,6 +153,13 @@ public class HiveMenu extends AbstractContainerMenu {
                 if (index == DATA_TIMER) {
                     return heart.ticksUntilSpawn();
                 }
+                // Both behaviour values are sent plus one, so a value of 0 means "not received yet" on the client.
+                if (index == DATA_BEHAVIOR_FLAGS) {
+                    return heart.soldierBehavior().flags() + 1;
+                }
+                if (index == DATA_UNIT_AREA) {
+                    return heart.soldierBehavior().unitAreaRadius() + 1;
+                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -196,6 +205,24 @@ public class HiveMenu extends AbstractContainerMenu {
     /** What the next spawning interval will do for this kind: one of the STATUS constants. */
     public int unitStatus(UnitKind kind) {
         return data.get(DATA_UNITS + kind.ordinal() * VALUES_PER_UNIT + 2);
+    }
+
+    /**
+     * True once the server's behaviour settings have reached the client. A new menu's data starts at zero and the
+     * real values arrive a moment after the screen opens; reading them before then would show wrong settings.
+     */
+    public boolean behaviorReady() {
+        return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0;
+    }
+
+    /** The soldier behaviour checkboxes, packed into one number (see SoldierBehavior). Only valid once ready. */
+    public int behaviorFlags() {
+        return data.get(DATA_BEHAVIOR_FLAGS) - 1;
+    }
+
+    /** The soldiers' own-area radius setting. Only valid once ready. */
+    public int unitAreaRadius() {
+        return data.get(DATA_UNIT_AREA) - 1;
     }
 
     /** Whole seconds until the next spawning interval, rounded up so it never shows 0 before it fires. */
@@ -320,7 +347,7 @@ public class HiveMenu extends AbstractContainerMenu {
 
         @Override
         public boolean isActive() {
-            return !questsOpen;
+            return !slotsHidden;
         }
     }
 
@@ -331,7 +358,7 @@ public class HiveMenu extends AbstractContainerMenu {
 
         @Override
         public boolean isActive() {
-            return !questsOpen;
+            return !slotsHidden;
         }
     }
 

@@ -13,6 +13,8 @@ import com.projecthivemind.network.ClientPayloads;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.BlockActionPayload;
 import com.projecthivemind.network.MobActionPayload;
+import com.projecthivemind.network.SelectionPayload;
+import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
@@ -60,6 +62,8 @@ public final class CommonEvents {
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
+        registrar.playToServer(SelectionPayload.TYPE, SelectionPayload.STREAM_CODEC, ServerPayloads::onSelection);
+        registrar.playToServer(SetBehaviorPayload.TYPE, SetBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetBehavior);
         registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);
         registrar.playToClient(WeakToolPayload.TYPE, WeakToolPayload.STREAM_CODEC, ClientPayloads::onWeakTool);
         registrar.playToClient(SyncActionsPayload.TYPE, SyncActionsPayload.STREAM_CODEC, ClientPayloads::onSyncActions);

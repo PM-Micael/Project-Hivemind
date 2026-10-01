@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -14,13 +15,16 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 /**
@@ -62,10 +66,53 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         // Soldiers walk where told and fight what they are told to attack. Digging and interacting is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
+        // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
+        this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));
     }
 
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
+    }
+
+    // ---- fighting, shared by ordered attacks and the hive's default behaviour ----
+
+    private static final double CHASE_SPEED = 1.15D;
+    private static final int REPATH_INTERVAL = 6;
+    /** Never swing faster than this many ticks apart, whatever the weapon says. */
+    private static final int MIN_ATTACK_INTERVAL = 5;
+
+    private int repathCooldown;
+    private int attackCooldown;
+
+    /** Start a fresh fight: no leftover cooldowns from the last one. */
+    public void resetCombat() {
+        repathCooldown = 0;
+        attackCooldown = 0;
+    }
+
+    /** Run down a target and hit it whenever it is in reach. Call every tick while fighting. */
+    public void pursue(LivingEntity target) {
+        this.getLookControl().setLookAt(target, 30.0F, 30.0F);
+        if (--repathCooldown <= 0) {
+            this.getNavigation().moveTo(target, CHASE_SPEED);
+            repathCooldown = REPATH_INTERVAL;
+        }
+        if (--attackCooldown <= 0 && this.isWithinMeleeAttackRange(target) && this.hasLineOfSight(target)) {
+            strike(target);
+        }
+    }
+
+    private void strike(LivingEntity target) {
+        ItemStack weapon = this.getMainHandItem();
+        this.swing(InteractionHand.MAIN_HAND);
+        boolean hit = this.doHurtTarget(target);
+        if (hit && !weapon.isEmpty()) {
+            // Mobs do not wear their weapons in vanilla, but a player does: a hit costs the weapon durability. The gear
+            // mirror then charges the same to the original in the hive.
+            weapon.getItem().postHurtEnemy(weapon, target, this);
+        }
+        // Swing as often as the weapon allows: attacks per second is its attack speed.
+        attackCooldown = Math.max(MIN_ATTACK_INTERVAL, (int) Math.round(20.0D / HiveEquipment.attackSpeed(weapon)));
     }
 
     @Nullable

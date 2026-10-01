@@ -6,6 +6,9 @@ import java.util.List;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveInfection;
+
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
@@ -15,7 +18,6 @@ import net.minecraft.world.item.ItemStack;
  * Only items the hive has room for are fetched, so a full hive makes collectors idle.
  */
 public class CollectItemsGoal extends Goal {
-    private static final double SEARCH_RADIUS = 16.0D;
     private static final double SPEED = 1.1D;
     private static final double PICKUP_DISTANCE_SQR = 1.5D * 1.5D;
     private static final double DELIVER_DISTANCE_SQR = 2.5D * 2.5D;
@@ -117,8 +119,9 @@ public class CollectItemsGoal extends Goal {
 
     @Nullable
     private ItemEntity findItem(HiveHeart heart) {
+        // The collector's job is the hive area: items lying anywhere in it, whether or not the creep is still there.
         List<ItemEntity> items = collector.level().getEntitiesOfClass(ItemEntity.class,
-                heart.getBoundingBox().inflate(SEARCH_RADIUS),
+                HiveInfection.areaBox((ServerLevel) collector.level(), heart),
                 item -> item.isAlive() && !item.getItem().isEmpty() && heart.getStorage().canAddItem(item.getItem()));
         return items.stream()
                 .sorted(Comparator.comparingDouble(collector::distanceToSqr))

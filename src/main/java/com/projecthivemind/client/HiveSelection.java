@@ -20,6 +20,7 @@ import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
 import com.projecthivemind.network.MobActionPayload;
+import com.projecthivemind.network.SelectionPayload;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -61,6 +62,8 @@ public final class HiveSelection {
     private static final Matrix4f VIEW = new Matrix4f();
     private static Vec3 cameraPosition = Vec3.ZERO;
     private static boolean haveCamera;
+    /** The selection as the server was last told it. */
+    private static Set<Integer> lastSentSelection = Set.of();
 
     private HiveSelection() {
     }
@@ -101,6 +104,14 @@ public final class HiveSelection {
             }
         }
         ClientSelection.retain(alive);
+
+        // Tell the server what is selected whenever that changes: selected units follow orders only, so the server
+        // has to leave them out of the hive's default behaviour.
+        Set<Integer> selection = ClientSelection.selected();
+        if (!selection.equals(lastSentSelection)) {
+            lastSentSelection = selection;
+            PacketDistributor.sendToServer(new SelectionPayload(List.copyOf(selection)));
+        }
     }
 
     @SubscribeEvent
@@ -109,6 +120,7 @@ public final class HiveSelection {
         ClientActions.reset();
         ContextMenu.close();
         haveCamera = false;
+        lastSentSelection = Set.of();
     }
 
     /**
