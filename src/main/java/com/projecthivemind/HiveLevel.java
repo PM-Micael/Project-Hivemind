@@ -12,11 +12,10 @@ import java.util.Map;
  *                         is also the hive area that collectors and soldiers work in.
  * @param sightRadius      how far, in blocks, every hive unit except scouts can see (see HiveSight). The Heart sees
  *                         one chunk per level instead, see {@link #heartSightRadius()}.
- * @param scoutSightRadius how far, in blocks, a scout can see
  * @param unitCaps         how many units of each kind the hive may have at once
  */
 public record HiveLevel(int level, float maxHealth, int storageSlots, int craftingGrid, int infectionRadius,
-                        int sightRadius, int scoutSightRadius, Map<UnitKind, Integer> unitCaps) {
+                        int sightRadius, Map<UnitKind, Integer> unitCaps) {
     public int cap(UnitKind kind) {
         return unitCaps.getOrDefault(kind, 0);
     }
@@ -26,8 +25,13 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
         return level * 16;
     }
 
+    /** A scout's sight: two chunks (32 blocks) per hive level. Still being tuned. */
+    public int scoutSightRadius() {
+        return level * 2 * 16;
+    }
+
     /** The sight radius for one kind of unit. */
     public int sightRadius(UnitKind kind) {
-        return kind == UnitKind.SCOUT ? scoutSightRadius : sightRadius;
+        return kind == UnitKind.SCOUT ? scoutSightRadius() : sightRadius;
     }
 }

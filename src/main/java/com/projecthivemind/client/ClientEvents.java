@@ -57,6 +57,8 @@ public final class ClientEvents {
     @SubscribeEvent
     static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(ModMenus.HIVE.get(), HiveScreen::new);
+        event.register(ModMenus.SCOUT_CONTAINER.get(), ScoutContainerScreen::new);
+        event.register(ModMenus.SCOUT_TRADE.get(), ScoutTradeScreen::new);
     }
 
     @SubscribeEvent

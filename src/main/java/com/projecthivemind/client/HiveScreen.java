@@ -94,7 +94,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
     private final List<AbstractWidget> workerWidgets = new ArrayList<>();
-    // Scout settings: two checkboxes.
+    // Scout settings: the radius and two checkboxes.
+    private EditBox scoutAreaBox;
+    private int scoutRadius;
     private Checkbox pickUpItems;
     private Checkbox fleeHostiles;
 
@@ -233,9 +235,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             sendCollectorBehavior();
         });
 
-        // Scouts: no radius, just the two things they may do on their own.
-        pickUpItems = behaviorBox(scoutWidgets, 0, "screen.projecthivemind.behavior.scout_pickup", this::sendScoutBehavior);
-        fleeHostiles = behaviorBox(scoutWidgets, 1, "screen.projecthivemind.behavior.scout_flee", this::sendScoutBehavior);
+        // Scouts: the radius first, then the two things they may do on their own.
+        scoutAreaBox = areaBox(scoutWidgets, "screen.projecthivemind.behavior.unit_area",
+                "screen.projecthivemind.behavior.scout_area.tooltip", text -> {
+            scoutRadius = Integer.parseInt(text);
+            sendScoutBehavior();
+        });
+        pickUpItems = behaviorBox(scoutWidgets, 1, "screen.projecthivemind.behavior.scout_pickup", this::sendScoutBehavior);
+        fleeHostiles = behaviorBox(scoutWidgets, 2, "screen.projecthivemind.behavior.scout_flee", this::sendScoutBehavior);
 
         setBehaviorEnabled(false);
         filling = false;
@@ -305,7 +312,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         collectorRange = menu.collectorRange();
         collectorRangeBox.setValue(String.valueOf(collectorRange));
 
-        ScoutBehavior scouts = ScoutBehavior.fromFlags(menu.scoutFlags());
+        ScoutBehavior scouts = ScoutBehavior.fromFlags(menu.scoutFlags(), menu.scoutAreaRadius());
+        scoutRadius = scouts.unitAreaRadius();
+        scoutAreaBox.setValue(String.valueOf(scoutRadius));
         setChecked(pickUpItems, scouts.collectItems());
         setChecked(fleeHostiles, scouts.fleeHostiles());
         filling = false;
@@ -352,7 +361,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (filling || !behaviorLoaded) {
             return;
         }
-        PacketDistributor.sendToServer(new SetScoutBehaviorPayload(new ScoutBehavior(pickUpItems.selected(), fleeHostiles.selected()).flags()));
+        int flags = new ScoutBehavior(scoutRadius, pickUpItems.selected(), fleeHostiles.selected()).flags();
+        PacketDistributor.sendToServer(new SetScoutBehaviorPayload(flags, scoutRadius));
     }
 
     /** Send the collector range to the server whenever the player changes it. */
@@ -413,17 +423,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void renderBehaviorLabels(GuiGraphics graphics) {
-        if (page == Page.SCOUTS) {
-            // The scout page has only checkboxes, which carry their own text; it has no number field to label.
-            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 2 * BEHAVIOR_ROW + 4, 0x909090, false);
-            return;
-        }
         String labelKey = page == Page.COLLECTORS ? "screen.projecthivemind.behavior.collector_range" : "screen.projecthivemind.behavior.unit_area";
         graphics.drawString(font, Component.translatable(labelKey), BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0xE0E0E0, false);
         if (page == Page.COLLECTORS) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.collector_note"),
                     BEHAVIOR_X + 4, BEHAVIOR_TOP + BEHAVIOR_ROW + 4, 0x909090, false);
+        }
+        if (page == Page.SCOUTS) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 3 * BEHAVIOR_ROW + 4, 0x909090, false);
         }
         if (page == Page.WORKERS) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),

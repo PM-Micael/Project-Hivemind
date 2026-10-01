@@ -27,6 +27,8 @@ import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.ServerPayloads;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
+import com.projecthivemind.network.TradeOffersPayload;
+import com.projecthivemind.network.TradePayload;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -73,6 +75,8 @@ public final class CommonEvents {
         registrar.playToServer(SetScoutBehaviorPayload.TYPE, SetScoutBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetScoutBehavior);
         registrar.playToServer(SetCollectorBehaviorPayload.TYPE, SetCollectorBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetCollectorBehavior);
         registrar.playToServer(SetWorkerBehaviorPayload.TYPE, SetWorkerBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetWorkerBehavior);
+        registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
+        registrar.playToClient(TradeOffersPayload.TYPE, TradeOffersPayload.STREAM_CODEC, ClientPayloads::onTradeOffers);
         registrar.playToClient(SyncEyesPayload.TYPE, SyncEyesPayload.STREAM_CODEC, ClientPayloads::onSyncEyes);
         registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);
         registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);

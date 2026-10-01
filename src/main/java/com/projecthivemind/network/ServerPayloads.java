@@ -7,8 +7,11 @@ import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
+import com.projecthivemind.menu.ScoutTradeMenu;
+import com.projecthivemind.menu.SpectatorClickable;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
@@ -26,11 +29,12 @@ public final class ServerPayloads {
     /** Spectators cannot use vanilla container clicks, so the hive menu's clicks arrive here and are applied if safe. */
     public static void onHiveMenuClick(HiveMenuClickPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)
-                || !(player.containerMenu instanceof HiveMenu menu)
-                || menu.containerId != payload.containerId()
-                || !menu.stillValid(player)) {
+                || !(player.containerMenu instanceof SpectatorClickable)
+                || player.containerMenu.containerId != payload.containerId()
+                || !player.containerMenu.stillValid(player)) {
             return;
         }
+        AbstractContainerMenu menu = player.containerMenu;
         // Allowed: pick up / place, shift-click, drag-spread, double-click collect. Everything else is refused:
         // number-key swaps would trade with the hidden hotbar, and throws would drop items from the camera.
         ClickType type = payload.clickType();
@@ -47,6 +51,17 @@ public final class ServerPayloads {
     }
 
     private static final int OUTSIDE_SLOT = -999;
+
+    /** The player pressed a trade in the scout's trade screen. */
+    public static void onTrade(TradePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player
+                && player.containerMenu instanceof ScoutTradeMenu menu
+                && menu.containerId == payload.containerId()
+                && menu.stillValid(player)) {
+            menu.trade(payload.offerIndex(), player);
+            menu.broadcastChanges();
+        }
+    }
 
     public static void onSelection(SelectionPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && payload.unitIds().size() <= BlockActionPayload.MAX_UNITS) {
@@ -77,7 +92,7 @@ public final class ServerPayloads {
 
     public static void onSetScoutBehavior(SetScoutBehaviorPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
-            HivemindManager.setScoutBehavior(player, ScoutBehavior.fromFlags(payload.flags()));
+            HivemindManager.setScoutBehavior(player, ScoutBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
         }
     }
 

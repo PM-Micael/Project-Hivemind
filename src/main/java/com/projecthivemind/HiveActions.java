@@ -22,6 +22,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -111,16 +112,33 @@ public final class HiveActions {
         }
     }
 
-    /** Workers go and right-click the block once. Like digging, this is worker-only. */
+    /**
+     * Workers go and right-click the block once. Scouts go and open its inventory for the player, if it has one.
+     * Anything else selected is not asked to do anything.
+     */
     private static void interact(ServerPlayer player, ServerLevel level, List<Integer> ids, BlockPos pos) {
         List<Mob> workers = commandable(player, level, ids, UnitKind.WORKER);
-        if (workers.isEmpty()) {
-            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+        List<Mob> scouts = commandable(player, level, ids, UnitKind.SCOUT);
+        if (workers.isEmpty() && scouts.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_interactors"), true);
             return;
         }
         for (Mob worker : workers) {
             worker.getNavigation().stop();
             ((HiveUnit) worker).setAction(new UnitAction(UnitAction.Kind.INTERACT, pos));
+        }
+        if (!scouts.isEmpty() && !HiveAccess.canOpen(level, pos)) {
+            // Only worth a message when there is no worker to do something with the block instead.
+            if (workers.isEmpty()) {
+                player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_open"), true);
+            }
+            return;
+        }
+        // One scout is enough: two would only fight over the one screen.
+        for (Mob scout : scouts) {
+            scout.getNavigation().stop();
+            ((HiveUnit) scout).setAction(new UnitAction(UnitAction.Kind.INTERACT, pos));
+            break;
         }
     }
 
@@ -150,6 +168,7 @@ public final class HiveActions {
 
         switch (request.action()) {
             case ATTACK -> attack(player, level, request.unitIds(), target);
+            case TRADE -> trade(player, level, request.unitIds(), target);
             case CANCEL -> cancelMob(player, level, target);
         }
         syncActions(player, heart);
@@ -172,6 +191,28 @@ public final class HiveActions {
         for (Mob soldier : soldiers) {
             soldier.getNavigation().stop();
             ((HiveUnit) soldier).setAction(UnitAction.attack(target.getUUID()));
+        }
+    }
+
+    /** A scout walks up to the villager and opens its trades. */
+    private static void trade(ServerPlayer player, ServerLevel level, List<Integer> ids, Mob target) {
+        if (!(target instanceof AbstractVillager villager) || !villager.isAlive()) {
+            return;
+        }
+        List<Mob> scouts = commandable(player, level, ids, UnitKind.SCOUT);
+        if (scouts.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts"), true);
+            return;
+        }
+        if (!HiveAccess.canTrade(villager)) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_trade"), true);
+            return;
+        }
+        // One scout is enough: two would only fight over the one screen.
+        for (Mob scout : scouts) {
+            scout.getNavigation().stop();
+            ((HiveUnit) scout).setAction(UnitAction.trade(villager.getUUID()));
+            break;
         }
     }
 

@@ -75,6 +75,7 @@ public class HiveScout extends Husk implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Running away comes before collecting items, so it can interrupt a trip to an item.
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
+        this.goalSelector.addGoal(1, new ScoutInteractGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
     }
 

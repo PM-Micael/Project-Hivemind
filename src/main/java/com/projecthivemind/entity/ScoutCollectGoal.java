@@ -18,8 +18,6 @@ import net.minecraft.world.entity.item.ItemEntity;
  * <p>It is a lower priority than fleeing, so it never walks toward an item while it is running from something.
  */
 public class ScoutCollectGoal extends Goal {
-    /** How far from itself a scout looks for items, in blocks. */
-    private static final double SEARCH_RADIUS = 32.0D;
     private static final double SPEED = 1.0D;
     private static final int SCAN_INTERVAL = 20;
     private static final int REPATH_INTERVAL = 10;
@@ -95,8 +93,10 @@ public class ScoutCollectGoal extends Goal {
     @Nullable
     private ItemEntity findItem(HiveHeart heart) {
         ignored.values().removeIf(until -> until <= scout.tickCount);
-        List<ItemEntity> items = scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(SEARCH_RADIUS),
+        double radius = heart.scoutBehavior().unitAreaRadius();
+        List<ItemEntity> items = scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(radius),
                 item -> item.isAlive() && !item.getItem().isEmpty() && !isIgnored(item)
+                        && item.distanceToSqr(scout) <= radius * radius
                         && heart.getStorage().canAddItem(item.getItem()));
         return items.stream()
                 .sorted(Comparator.comparingDouble(scout::distanceToSqr))

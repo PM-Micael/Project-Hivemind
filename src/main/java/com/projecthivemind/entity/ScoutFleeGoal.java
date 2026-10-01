@@ -13,8 +13,11 @@ import net.minecraft.world.entity.monster.Enemy;
  * <p>It has priority over collecting items, so a scout drops everything and runs when something dangerous comes close.
  */
 public class ScoutFleeGoal extends AvoidEntityGoal<Mob> {
-    /** How close a hostile mob has to be, in blocks, before the scout runs. */
-    private static final float FLEE_DISTANCE = 16.0F;
+    /**
+     * The furthest the game's avoid behaviour is asked to look. How close a hostile mob has to be before the scout
+     * actually runs is the hive's scout radius setting, checked in {@link #canUse()}.
+     */
+    private static final float FLEE_DISTANCE = ScoutBehavior.MAX_UNIT_AREA;
 
     private final HiveScout scout;
 
@@ -34,7 +37,13 @@ public class ScoutFleeGoal extends AvoidEntityGoal<Mob> {
 
     @Override
     public boolean canUse() {
-        return allowed() && super.canUse();
+        if (!allowed() || !super.canUse()) {
+            return false;
+        }
+        // super picked the closest hostile mob within the maximum distance; it only counts inside the setting.
+        HiveHeart heart = scout.findHeart();
+        double radius = heart == null ? 0.0D : heart.scoutBehavior().unitAreaRadius();
+        return toAvoid != null && scout.distanceToSqr(toAvoid) <= radius * radius;
     }
 
     @Override

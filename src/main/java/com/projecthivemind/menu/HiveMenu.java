@@ -41,7 +41,7 @@ import net.minecraft.world.level.Level;
  * contents new soldiers are equipped with. The hivemind has no body, so nothing here touches the player's own
  * inventory; everything goes to and from the hive.
  */
-public class HiveMenu extends AbstractContainerMenu {
+public class HiveMenu extends AbstractContainerMenu implements SpectatorClickable {
     public static final int STORAGE_SLOTS = 27;
     public static final int GRID_SIZE = 3;
 
@@ -78,7 +78,8 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int DATA_WORKER_AREA = 7;
     private static final int DATA_COLLECTOR_RANGE = 8;
     private static final int DATA_SCOUT_FLAGS = 9;
-    private static final int DATA_UNITS = 10;
+    private static final int DATA_SCOUT_AREA = 10;
+    private static final int DATA_UNITS = 11;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -176,6 +177,9 @@ public class HiveMenu extends AbstractContainerMenu {
                 if (index == DATA_SCOUT_FLAGS) {
                     return heart.scoutBehavior().flags() + 1;
                 }
+                if (index == DATA_SCOUT_AREA) {
+                    return heart.scoutBehavior().unitAreaRadius() + 1;
+                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -230,12 +234,18 @@ public class HiveMenu extends AbstractContainerMenu {
     public boolean behaviorReady() {
         return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0
                 && data.get(DATA_WORKER_FLAGS) > 0 && data.get(DATA_WORKER_AREA) > 0
-                && data.get(DATA_COLLECTOR_RANGE) > 0 && data.get(DATA_SCOUT_FLAGS) > 0;
+                && data.get(DATA_COLLECTOR_RANGE) > 0 && data.get(DATA_SCOUT_FLAGS) > 0
+                && data.get(DATA_SCOUT_AREA) > 0;
     }
 
     /** The scout behaviour checkboxes, packed into one number (see ScoutBehavior). Only valid once ready. */
     public int scoutFlags() {
         return data.get(DATA_SCOUT_FLAGS) - 1;
+    }
+
+    /** The scouts' own-area radius setting. Only valid once ready. */
+    public int scoutAreaRadius() {
+        return data.get(DATA_SCOUT_AREA) - 1;
     }
 
     /** How far past the hive area collectors may reach. Only valid once ready. */

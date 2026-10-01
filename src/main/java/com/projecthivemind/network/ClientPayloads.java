@@ -6,6 +6,7 @@ import com.projecthivemind.client.ChooseModeScreen;
 import com.projecthivemind.client.ClientActions;
 import com.projecthivemind.client.ClientSight;
 import com.projecthivemind.client.ClientState;
+import com.projecthivemind.menu.ScoutTradeMenu;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
@@ -34,6 +35,14 @@ public final class ClientPayloads {
 
     public static void onSyncSight(SyncSightPayload payload, IPayloadContext context) {
         ClientSight.update(payload.visibleMobs());
+    }
+
+    public static void onTradeOffers(TradeOffersPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player != null && minecraft.player.containerMenu instanceof ScoutTradeMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setOffers(payload.offers());
+        }
     }
 
     public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {

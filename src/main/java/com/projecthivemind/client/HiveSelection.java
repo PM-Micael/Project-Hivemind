@@ -27,7 +27,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -184,15 +186,43 @@ public final class HiveSelection {
             return;
         }
         if (mobHit) {
+            // Scouts trade with a villager; soldiers attack anything else.
+            if (mob.mob() instanceof AbstractVillager && selectionHas(minecraft, selected, UnitKind.SCOUT)) {
+                PacketDistributor.sendToServer(new MobActionPayload(selected, mob.mob().getId(), MobAction.TRADE));
+                return;
+            }
             if (!selectionHas(minecraft, selected, UnitKind.SOLDIER)) {
                 minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.no_soldiers"), false);
                 return;
             }
             PacketDistributor.sendToServer(new MobActionPayload(selected, mob.mob().getId(), MobAction.ATTACK));
         } else {
-            PacketDistributor.sendToServer(new BlockActionPayload(selected, hit.getBlockPos(), BlockAction.WALK_TO, false));
-            puffAbove(hit.getBlockPos());
+            BlockPos pos = hit.getBlockPos();
+            List<Integer> scouts = unitsOfKind(minecraft, selected, UnitKind.SCOUT);
+            if (!scouts.isEmpty() && minecraft.level.getBlockEntity(pos) instanceof Container) {
+                // Scouts open a container; everyone else selected just walks to it.
+                PacketDistributor.sendToServer(new BlockActionPayload(scouts, pos, BlockAction.INTERACT, false));
+                List<Integer> others = new ArrayList<>(selected);
+                others.removeAll(scouts);
+                if (!others.isEmpty()) {
+                    PacketDistributor.sendToServer(new BlockActionPayload(others, pos, BlockAction.WALK_TO, false));
+                }
+            } else {
+                PacketDistributor.sendToServer(new BlockActionPayload(selected, pos, BlockAction.WALK_TO, false));
+            }
+            puffAbove(pos);
         }
+    }
+
+    /** The ids among these units that are of this kind. */
+    private static List<Integer> unitsOfKind(Minecraft minecraft, List<Integer> ids, UnitKind kind) {
+        List<Integer> result = new ArrayList<>();
+        for (int id : ids) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit unit && unit.kind() == kind) {
+                result.add(id);
+            }
+        }
+        return result;
     }
 
     // ---- selecting ----
@@ -261,9 +291,15 @@ public final class HiveSelection {
         List<ContextMenu.Option> options = new ArrayList<>();
         if (!selected.isEmpty()) {
             options.add(option("action.projecthivemind.walk_to", selected, pos, BlockAction.WALK_TO));
-            // Digging and interacting are worker jobs: only offer them if a worker is part of the selection.
-            if (selectionHas(minecraft, selected, UnitKind.WORKER)) {
+            // Digging is a worker job, interacting a worker's or a scout's: only offer what the selection can do.
+            boolean hasWorker = selectionHas(minecraft, selected, UnitKind.WORKER);
+            if (hasWorker) {
                 options.add(option("action.projecthivemind.dig", selected, pos, BlockAction.DIG));
+            }
+            // A scout opens containers (chests, furnaces, hoppers...) for the player.
+            boolean scoutCanOpen = selectionHas(minecraft, selected, UnitKind.SCOUT)
+                    && minecraft.level.getBlockEntity(pos) instanceof Container;
+            if (hasWorker || scoutCanOpen) {
                 options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));
             }
         }
@@ -313,10 +349,14 @@ public final class HiveSelection {
     private static void openMobMenu(Minecraft minecraft, Mob mob, List<Integer> selected) {
         boolean attacked = ClientActions.isAttacked(mob.getId());
         boolean hasSoldier = selectionHas(minecraft, selected, UnitKind.SOLDIER);
+        boolean scoutCanTrade = mob instanceof AbstractVillager && selectionHas(minecraft, selected, UnitKind.SCOUT);
 
         List<ContextMenu.Option> options = new ArrayList<>();
         if (hasSoldier) {
             options.add(mobOption("action.projecthivemind.attack", selected, mob, MobAction.ATTACK));
+        }
+        if (scoutCanTrade) {
+            options.add(mobOption("action.projecthivemind.trade", selected, mob, MobAction.TRADE));
         }
         if (attacked) {
             options.add(mobOption("action.projecthivemind.cancel", List.of(), mob, MobAction.CANCEL));
