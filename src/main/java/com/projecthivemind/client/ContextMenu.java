@@ -3,11 +3,14 @@ package com.projecthivemind.client;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 
@@ -35,6 +38,10 @@ public final class ContextMenu {
     private static int left;
     private static int top;
     private static int width;
+    /** What the open menu is for: a block, or a mob (by entity id), so it can be outlined. */
+    @Nullable
+    private static BlockPos targetBlock;
+    private static int targetMobId = -1;
 
     private ContextMenu() {
     }
@@ -43,8 +50,26 @@ public final class ContextMenu {
         return open;
     }
 
-    /** Open the menu with its top-left corner at a point in GUI coordinates, nudged to stay on the screen. */
-    public static void open(Minecraft minecraft, int x, int y, List<Option> options) {
+    /** The block the open menu is about, or null. */
+    @Nullable
+    public static BlockPos targetBlock() {
+        return open ? targetBlock : null;
+    }
+
+    /** The entity id of the mob the open menu is about, or -1. */
+    public static int targetMobId() {
+        return open ? targetMobId : -1;
+    }
+
+    /**
+     * Open the menu with its top-left corner at a point in GUI coordinates, nudged to stay on the screen.
+     *
+     * @param block the block the menu is about, or null if it is about a mob
+     * @param mobId the entity id of the mob the menu is about, or -1 if it is about a block
+     */
+    public static void open(Minecraft minecraft, int x, int y, List<Option> options, @Nullable BlockPos block, int mobId) {
+        targetBlock = block;
+        targetMobId = mobId;
         OPTIONS.clear();
         OPTIONS.addAll(options);
         int textWidth = 0;
@@ -59,6 +84,8 @@ public final class ContextMenu {
 
     public static void close() {
         open = false;
+        targetBlock = null;
+        targetMobId = -1;
         OPTIONS.clear();
     }
 

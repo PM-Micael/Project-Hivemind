@@ -7,12 +7,10 @@ import javax.annotation.Nullable;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.HiveMenuClickPayload;
-import com.projecthivemind.network.SpawnUnitPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -21,8 +19,8 @@ import net.minecraft.world.inventory.Slot;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * The hive menu: shared storage, a crafting grid and unit spawning on the Hive tab, and the quest list on the
- * Quests tab. Drawn with plain rectangles until there is real art.
+ * The hive menu: shared storage, a crafting grid, the soldier gear slots and unit counts on the Hive tab, and the
+ * quest list on the Quests tab. Drawn with plain rectangles until there is real art.
  */
 public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int PANEL = 0xF0201414;
@@ -30,17 +28,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int SLOT_EDGE = 0xFF120A0A;
     private static final int SLOT_FILL = 0xFF3A2424;
 
+    /** Where the row of unit counts sits, and how far apart its three entries are. */
+    private static final int COUNTS_Y = 148;
+    private static final int COUNTS_SPACING = 90;
+
     private Button hiveTab;
     private Button questsTab;
-    private Button workerButton;
-    private Button soldierButton;
-    private Tooltip replaceTooltip;
-
-    private static final int BUTTON_WIDTH = 60;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int BUTTON_Y = 142;
-    /** Horizontal gap between the two spawn buttons' columns, leaving room for each one's counter. */
-    private static final int BUTTON_COLUMN_SPACING = 100;
 
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -65,30 +58,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 onClose();
             }).bounds(leftPos + imageWidth - 8 - 90, topPos + 28, 90, 18).build());
         }
-
-        // No Collector button: the Heart makes collectors itself.
-        replaceTooltip = Tooltip.create(Component.translatable("screen.projecthivemind.hive.replace_oldest"));
-        workerButton = spawnButton(0, UnitKind.WORKER, "screen.projecthivemind.hive.spawn_worker");
-        soldierButton = spawnButton(1, UnitKind.SOLDIER, "screen.projecthivemind.hive.spawn_soldier");
         showQuests(menu.questsOpen);
-    }
-
-    private Button spawnButton(int column, UnitKind kind, String key) {
-        return addRenderableWidget(Button.builder(Component.translatable(key),
-                        button -> PacketDistributor.sendToServer(new SpawnUnitPayload(kind)))
-                .bounds(leftPos + spawnButtonX(column), topPos + BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT).build());
-    }
-
-    private static int spawnButtonX(int column) {
-        return HiveMenu.STORAGE_X + column * BUTTON_COLUMN_SPACING;
     }
 
     private void showQuests(boolean quests) {
         menu.questsOpen = quests;
         hiveTab.active = quests;
         questsTab.active = !quests;
-        workerButton.visible = !quests;
-        soldierButton.visible = !quests;
     }
 
     /**
@@ -105,10 +81,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // The buttons always work. At the limit a click replaces the oldest unit, so say so on hover.
-        workerButton.setTooltip(atLimit(UnitKind.WORKER) ? replaceTooltip : null);
-        soldierButton.setTooltip(atLimit(UnitKind.SOLDIER) ? replaceTooltip : null);
-
         super.render(graphics, mouseX, mouseY, partialTick);
         this.renderTooltip(graphics, mouseX, mouseY);
     }
@@ -138,11 +110,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (menu.questsOpen) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.no_quests"), 8, 58, 0xA0A0A0, false);
         } else {
-            drawUnitCounter(graphics, 0, UnitKind.WORKER);
-            drawUnitCounter(graphics, 1, UnitKind.SOLDIER);
-            String collectors = Component.translatable("screen.projecthivemind.hive.collectors",
-                    menu.unitCount(UnitKind.COLLECTOR), menu.unitCap(UnitKind.COLLECTOR)).getString();
-            graphics.drawString(font, collectors, imageWidth - 8 - font.width(collectors), BUTTON_Y + 6, 0xA0A0A0, false);
+            drawUnitCount(graphics, 0, "screen.projecthivemind.hive.workers", UnitKind.WORKER);
+            drawUnitCount(graphics, 1, "screen.projecthivemind.hive.soldiers", UnitKind.SOLDIER);
+            drawUnitCount(graphics, 2, "screen.projecthivemind.hive.collectors", UnitKind.COLLECTOR);
 
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, 44, 0xA0A0A0, false);
             graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, 44, 0xA0A0A0, false);
@@ -152,14 +122,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    private boolean atLimit(UnitKind kind) {
-        return menu.unitCount(kind) >= menu.unitCap(kind);
-    }
-
-    /** "1/1" beside a spawn button: units out now, out of the most the hive allows. */
-    private void drawUnitCounter(GuiGraphics graphics, int column, UnitKind kind) {
-        graphics.drawString(font, menu.unitCount(kind) + "/" + menu.unitCap(kind),
-                spawnButtonX(column) + BUTTON_WIDTH + 5, BUTTON_Y + 6, atLimit(kind) ? 0xFFAA00 : 0xFFFFFF, false);
+    /** "Workers 1/1": units out now, out of the most the hive allows. Orange when at the limit. */
+    private void drawUnitCount(GuiGraphics graphics, int column, String labelKey, UnitKind kind) {
+        boolean atLimit = menu.unitCount(kind) >= menu.unitCap(kind);
+        graphics.drawString(font, Component.translatable(labelKey, menu.unitCount(kind), menu.unitCap(kind)),
+                HiveMenu.STORAGE_X + column * COUNTS_SPACING, COUNTS_Y, atLimit ? 0xFFAA00 : 0xFFFFFF, false);
     }
 
     /** Health points as hearts: 2 points per heart, dropping a trailing ".0". */

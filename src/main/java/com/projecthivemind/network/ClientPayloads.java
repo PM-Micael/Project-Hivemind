@@ -32,7 +32,7 @@ public final class ClientPayloads {
     }
 
     public static void onSyncActions(SyncActionsPayload payload, IPayloadContext context) {
-        ClientActions.update(payload.positions());
+        ClientActions.update(payload.positions(), payload.attacked());
     }
 
     /** The hive's tools cannot harvest the block: let the player choose whether to dig it anyway. */

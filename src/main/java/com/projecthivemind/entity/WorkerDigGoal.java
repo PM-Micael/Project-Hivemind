@@ -36,7 +36,13 @@ public class WorkerDigGoal extends Goal {
     private int repathCooldown;
     private int stuckTicks;
     private int swingCooldown;
-    private boolean equipped;
+    /** The block and block type the worker's tool was last chosen for, so a different target gets a fresh choice. */
+    @Nullable
+    private BlockPos equippedFor;
+    @Nullable
+    private Block equippedForBlock;
+    /** The worker is holding a tool picked from the hive, so an empty hand means that tool broke. */
+    private boolean holdingTool;
     /** The block this worker last drew cracks on, so they can be cleared when it stops. */
     @Nullable
     private BlockPos crackPos;
@@ -67,7 +73,9 @@ public class WorkerDigGoal extends Goal {
         repathCooldown = 0;
         stuckTicks = 0;
         swingCooldown = 0;
-        equipped = false;
+        equippedFor = null;
+        equippedForBlock = null;
+        holdingTool = false;
     }
 
     @Override
@@ -96,6 +104,17 @@ public class WorkerDigGoal extends Goal {
             return;
         }
 
+        // Choose the best tool for this block before anything else, so the worker walks over already holding it. Choose
+        // again whenever the target changes (a new block given to a worker that is already digging) and if the tool
+        // broke and the hive has another.
+        boolean toolBroke = holdingTool && worker.getMainHandItem().isEmpty();
+        if (!pos.equals(equippedFor) || state.getBlock() != equippedForBlock || toolBroke) {
+            HiveEquipment.equipBestTool(worker, heart, state);
+            equippedFor = pos;
+            equippedForBlock = state.getBlock();
+            holdingTool = !worker.getMainHandItem().isEmpty();
+        }
+
         Vec3 center = Vec3.atCenterOf(pos);
         if (worker.distanceToSqr(center) > REACH_SQR) {
             if (++stuckTicks > GIVE_UP_TICKS) {
@@ -110,17 +129,13 @@ public class WorkerDigGoal extends Goal {
         worker.getNavigation().stop();
         worker.getLookControl().setLookAt(center);
 
-        // Pick up the best tool for this block, once, and again if the tool broke and the hive has another.
-        if (!equipped || worker.getMainHandItem().isEmpty()) {
-            HiveEquipment.equipBestTool(worker, heart, state);
-            equipped = true;
-        }
-
         ItemStack tool = worker.getMainHandItem();
         boolean correct = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
         float hardness = state.getDestroySpeed(level, pos);
-        // The same formula a player uses: speed / hardness, divided by 30 with the right tool and 100 without.
-        float progress = heart.addDigProgress(pos, tool.getDestroySpeed(state) / hardness / (correct ? 30.0F : 100.0F));
+        // The same formula a player uses: speed / hardness, divided by 30 with the right tool and 100 without. The
+        // speed includes Efficiency, the same as when the tool was chosen.
+        float speed = HiveEquipment.miningSpeed(tool, state, level.registryAccess());
+        float progress = heart.addDigProgress(pos, speed / hardness / (correct ? 30.0F : 100.0F));
 
         if (--swingCooldown <= 0) {
             worker.swing(InteractionHand.MAIN_HAND);

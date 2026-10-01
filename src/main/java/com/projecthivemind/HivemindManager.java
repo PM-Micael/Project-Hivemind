@@ -268,45 +268,12 @@ public final class HivemindManager {
     // ---- units ----
 
     /**
-     * The player asked for a unit. At the hive's cap for that kind this replaces the oldest unit of that kind: it is
-     * killed to make room. Collectors cannot be asked for; the Heart makes them itself.
+     * Every interval, from the Heart: make the units the hive is owed. For each kind below its cap, one new unit.
+     * For a kind at its cap, if its oldest unit was made before the gear last changed, replace it with a fresh one
+     * that has the current gear: so after a swap the hive turns its units over, one per interval, oldest first.
+     * Collectors use no gear and are only ever topped up.
      */
-    public static void spawnUnit(ServerPlayer player, UnitKind kind) {
-        if (kind == UnitKind.COLLECTOR) {
-            return;
-        }
-        HiveHeart heart = findHeart(player);
-        if (get(player).stage() != HivemindStage.HIVE || heart == null) {
-            return;
-        }
-        int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
-        if (cap <= 0) {
-            return;
-        }
-        if (get(player).count(kind) >= cap) {
-            killOldest(player, kind);
-            // The kill frees the slot through the normal death handling; check it did before spawning.
-            if (get(player).count(kind) >= cap) {
-                return;
-            }
-        }
-        createUnit(player, heart, kind);
-    }
-
-    /** Kill the unit of this kind that was spawned first. Units are tracked in spawn order, oldest first. */
-    private static void killOldest(ServerPlayer player, UnitKind kind) {
-        for (UUID id : get(player).units().getOrDefault(kind, List.of())) {
-            for (ServerLevel level : player.server.getAllLevels()) {
-                if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
-                    unit.kill();
-                    return;
-                }
-            }
-        }
-    }
-
-    /** How often the Heart makes a collector for itself while it has fewer than its cap. */
-    public static void tickCollectorSpawn(HiveHeart heart) {
+    public static void tickUnitSpawning(HiveHeart heart) {
         if (heart.ownerId() == null || heart.getServer() == null) {
             return;
         }
@@ -316,11 +283,48 @@ public final class HivemindManager {
         }
         HivemindData data = get(owner);
         boolean theirHeart = data.heartId().isPresent() && data.heartId().get().equals(heart.getUUID());
-        if (data.stage() != HivemindStage.HIVE || !theirHeart
-                || data.count(UnitKind.COLLECTOR) >= HiveLevels.get(heart.hiveLevel()).cap(UnitKind.COLLECTOR)) {
+        if (data.stage() != HivemindStage.HIVE || !theirHeart) {
             return;
         }
-        createUnit(owner, heart, UnitKind.COLLECTOR);
+
+        heart.refreshGearVersions();
+        for (UnitKind kind : UnitKind.values()) {
+            spawnOrRefresh(owner, heart, kind);
+        }
+    }
+
+    private static void spawnOrRefresh(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
+        int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
+        if (cap <= 0) {
+            return;
+        }
+        if (get(owner).count(kind) < cap) {
+            createUnit(owner, heart, kind);
+            return;
+        }
+        // At the cap. Units are tracked oldest first, and the oldest is the most out of date.
+        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
+        if (kind == UnitKind.COLLECTOR || units.isEmpty()) {
+            return;
+        }
+        Mob oldest = findUnit(owner, units.get(0));
+        if (oldest instanceof HiveUnit unit && unit.gearVersion() < heart.gearVersionFor(kind)) {
+            oldest.kill();
+            // The kill frees the slot through the normal death handling; only replace it if that happened.
+            if (get(owner).count(kind) < cap) {
+                createUnit(owner, heart, kind);
+            }
+        }
+    }
+
+    @Nullable
+    private static Mob findUnit(ServerPlayer owner, UUID id) {
+        for (ServerLevel level : owner.server.getAllLevels()) {
+            if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
+                return unit;
+            }
+        }
+        return null;
     }
 
     /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
@@ -340,6 +344,7 @@ public final class HivemindManager {
             return;
         }
         ((HiveUnit) unit).setOwnerId(player.getUUID());
+        ((HiveUnit) unit).setGearVersion(heart.gearVersionFor(kind));
         if (unit instanceof HiveCollector collector) {
             collector.setHeartId(heart.getUUID());
         } else if (unit instanceof HiveSoldier soldier) {

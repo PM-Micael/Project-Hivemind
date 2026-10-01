@@ -1,15 +1,34 @@
 package com.projecthivemind;
 
+import java.util.UUID;
+
+import javax.annotation.Nullable;
+
 import net.minecraft.core.BlockPos;
 
-/** What a commanded unit is currently doing to a block. Lives on the unit and is not saved. */
-public record UnitAction(Kind kind, BlockPos pos) {
+/**
+ * What a commanded unit is currently doing. Lives on the unit and is not saved.
+ *
+ * <p>Actions on a block have a {@code pos}; an attack has a {@code target} mob and no position.
+ */
+public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID target) {
     public enum Kind {
-        /** Walking to stand on top of the block. */
+        /** Walking to stand on top of a block. */
         WALK,
-        /** Breaking the block (workers only). */
+        /** Breaking a block (workers only). */
         DIG,
-        /** Right-clicking the block once. */
-        INTERACT
+        /** Right-clicking a block once (workers only). */
+        INTERACT,
+        /** Fighting a mob until it dies or the order is cancelled (soldiers only). */
+        ATTACK
+    }
+
+    /** An action on a block. */
+    public UnitAction(Kind kind, BlockPos pos) {
+        this(kind, pos, null);
+    }
+
+    public static UnitAction attack(UUID target) {
+        return new UnitAction(Kind.ATTACK, null, target);
     }
 }

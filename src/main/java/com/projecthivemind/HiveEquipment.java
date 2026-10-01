@@ -9,6 +9,10 @@ import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveWorker;
 
 import net.minecraft.core.Holder;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.Equipable;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -85,6 +89,11 @@ public final class HiveEquipment {
         return damage * speed;
     }
 
+    /** Attacks per second with this item in hand, as its tooltip shows (4.0 for an empty hand). */
+    public static double attackSpeed(ItemStack stack) {
+        return mainHandValue(stack, Attributes.ATTACK_SPEED, BASE_ATTACK_SPEED);
+    }
+
     /** The five slots hold tools and weapons. */
     public static boolean isToolOrWeapon(ItemStack stack) {
         return !stack.isEmpty()
@@ -111,10 +120,28 @@ public final class HiveEquipment {
     }
 
     /**
+     * How fast this tool breaks this block, as a player would get it: the tool's own speed, plus what the Efficiency
+     * enchantment adds (level squared plus one) when the tool is any faster than a bare hand on that block.
+     */
+    public static float miningSpeed(ItemStack tool, BlockState state, RegistryAccess registries) {
+        float speed = tool.getDestroySpeed(state);
+        if (speed > 1.0F) {
+            Holder<Enchantment> efficiency = registries.lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.EFFICIENCY);
+            int level = tool.getEnchantments().getLevel(efficiency);
+            if (level > 0) {
+                speed += level * level + 1;
+            }
+        }
+        return speed;
+    }
+
+    /**
      * Put a copy of the hive's best tool for this block into a worker's hand. A tool that can harvest the block (so it
-     * drops its items) beats one that cannot; among those, the fastest wins. With no tools in the hive the hand is empty.
+     * drops its items) beats one that cannot; among those, the one that breaks it fastest wins, Efficiency included.
+     * With no tools in the hive the hand is empty.
      */
     public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state) {
+        RegistryAccess registries = worker.level().registryAccess();
         int best = -1;
         boolean bestCorrect = false;
         float bestSpeed = 0.0F;
@@ -124,7 +151,7 @@ public final class HiveEquipment {
                 continue;
             }
             boolean correct = tool.isCorrectToolForDrops(state);
-            float speed = tool.getDestroySpeed(state);
+            float speed = miningSpeed(tool, state, registries);
             if (best == -1 || (correct && !bestCorrect) || (correct == bestCorrect && speed > bestSpeed)) {
                 best = i;
                 bestCorrect = correct;

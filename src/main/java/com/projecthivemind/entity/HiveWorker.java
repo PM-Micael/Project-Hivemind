@@ -31,8 +31,11 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     @Nullable
     private UUID heartId;
+    private static final String GEAR_VERSION_TAG = "GearVersion";
+
     @Nullable
     private UnitAction action;
+    private int gearVersion;
     private final GearMirror gearMirror = new GearMirror();
 
     public HiveWorker(EntityType<? extends HiveWorker> type, Level level) {
@@ -138,12 +141,23 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     }
 
     @Override
+    public int gearVersion() {
+        return gearVersion;
+    }
+
+    @Override
+    public void setGearVersion(int version) {
+        this.gearVersion = version;
+    }
+
+    @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
+        tag.putInt(GEAR_VERSION_TAG, gearVersion);
     }
 
     @Override
@@ -153,5 +167,6 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }
+        gearVersion = tag.getInt(GEAR_VERSION_TAG);
     }
 }

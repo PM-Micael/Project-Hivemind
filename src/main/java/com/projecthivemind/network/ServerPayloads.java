@@ -19,12 +19,6 @@ public final class ServerPayloads {
         }
     }
 
-    public static void onSpawnUnit(SpawnUnitPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            HivemindManager.spawnUnit(player, payload.kind());
-        }
-    }
-
     /** Spectators cannot use vanilla container clicks, so the hive menu's clicks arrive here and are applied if safe. */
     public static void onHiveMenuClick(HiveMenuClickPayload payload, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)
@@ -49,6 +43,12 @@ public final class ServerPayloads {
     }
 
     private static final int OUTSIDE_SLOT = -999;
+
+    public static void onMobAction(MobActionPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.handleMob(player, payload);
+        }
+    }
 
     public static void onBlockAction(BlockActionPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {

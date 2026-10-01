@@ -1,19 +1,24 @@
 package com.projecthivemind.entity;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
+import com.projecthivemind.ModComponents;
+import com.projecthivemind.UnitKind;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -45,6 +50,8 @@ public class HiveHeart extends Mob {
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
     private static final String CONSUMED_TAG = "ConsumedGround";
+    private static final String ARMOR_VERSION_TAG = "ArmorVersion";
+    private static final String TOOL_VERSION_TAG = "ToolVersion";
 
     @Nullable
     private UUID ownerId;
@@ -55,10 +62,78 @@ public class HiveHeart extends Mob {
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
     private final SimpleContainer toolSlots = new SimpleContainer(HiveEquipment.TOOL_SLOTS);
 
+    /** Counts how many times the armor slots have really been changed. Saved, so units made earlier stay comparable. */
+    private int armorVersion;
+    /** Counts how many times the tool slots have really been changed. */
+    private int toolVersion;
+    /** What the gear slots held when changes were last looked for, to tell a real swap from wear. Not saved. */
+    @Nullable
+    private List<ItemStack> lastArmorSignature;
+    @Nullable
+    private List<ItemStack> lastToolSignature;
+
+    /**
+     * The gear version a unit of this kind is made with. Soldiers care about armor and tools, workers only about
+     * tools, and collectors use no gear. A unit made at an older version than this is out of date.
+     */
+    public int gearVersionFor(UnitKind kind) {
+        return switch (kind) {
+            case SOLDIER -> armorVersion + toolVersion;
+            case WORKER -> toolVersion;
+            case COLLECTOR -> 0;
+        };
+    }
+
+    /**
+     * Look for changes to the armor and tool slots since last time and bump the versions if there are any. Only a real
+     * change counts: a tool wearing down, or the hidden link stamp being added, does not.
+     */
+    public void refreshGearVersions() {
+        List<ItemStack> armor = signature(armorSlots);
+        List<ItemStack> tools = signature(toolSlots);
+        if (lastArmorSignature == null || lastToolSignature == null) {
+            // First look since the Heart loaded: take it as the starting point rather than as a change.
+            lastArmorSignature = armor;
+            lastToolSignature = tools;
+            return;
+        }
+        if (!sameSignature(armor, lastArmorSignature)) {
+            armorVersion++;
+            lastArmorSignature = armor;
+        }
+        if (!sameSignature(tools, lastToolSignature)) {
+            toolVersion++;
+            lastToolSignature = tools;
+        }
+    }
+
+    /** The contents of a gear container, with wear and the link stamp stripped off so only a real swap shows up. */
+    private static List<ItemStack> signature(SimpleContainer container) {
+        List<ItemStack> contents = new ArrayList<>();
+        for (int i = 0; i < container.getContainerSize(); i++) {
+            ItemStack copy = container.getItem(i).copy();
+            if (!copy.isEmpty()) {
+                copy.remove(DataComponents.DAMAGE);
+                copy.remove(ModComponents.HIVE_LINK.get());
+            }
+            contents.add(copy);
+        }
+        return contents;
+    }
+
+    private static boolean sameSignature(List<ItemStack> a, List<ItemStack> b) {
+        for (int i = 0; i < a.size(); i++) {
+            if (!ItemStack.matches(a.get(i), b.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** How far along each block being dug is, from 0 to 1. Shared by every worker digging it. Not saved. */
     private final Map<BlockPos, Float> digProgress = new HashMap<>();
-    /** The block positions with a unit action on them that the owner's client was last told about. Not saved. */
-    private Set<BlockPos> syncedActions = Set.of();
+    /** What the owner's client was last told units are working on. Not saved. */
+    private HiveActions.Snapshot syncedActions = HiveActions.Snapshot.EMPTY;
 
     /** Add to a block's dig progress and return the new total. */
     public float addDigProgress(BlockPos pos, float amount) {
@@ -69,12 +144,12 @@ public class HiveHeart extends Mob {
         digProgress.remove(pos);
     }
 
-    public Set<BlockPos> syncedActions() {
+    public HiveActions.Snapshot syncedActions() {
         return syncedActions;
     }
 
-    public void setSyncedActions(Set<BlockPos> positions) {
-        this.syncedActions = positions;
+    public void setSyncedActions(HiveActions.Snapshot snapshot) {
+        this.syncedActions = snapshot;
     }
 
     /** The ground the hive's creep has consumed, by position, so destroying the Heart can put it back. */
@@ -116,10 +191,10 @@ public class HiveHeart extends Mob {
         if (this.level().isClientSide) {
             return;
         }
-        // The Heart grows its own collectors: one every interval while the hive has fewer than its cap.
+        // The Heart makes its own units: every interval it tops up what is below the cap and refreshes out-of-date gear.
         if (++collectorTimer >= COLLECTOR_INTERVAL_TICKS) {
             collectorTimer = 0;
-            HivemindManager.tickCollectorSpawn(this);
+            HivemindManager.tickUnitSpawning(this);
         }
         if (this.tickCount % ACTION_SYNC_INTERVAL_TICKS == 0) {
             HivemindManager.tickActionSync(this);
@@ -249,6 +324,8 @@ public class HiveHeart extends Mob {
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
+        tag.putInt(ARMOR_VERSION_TAG, armorVersion);
+        tag.putInt(TOOL_VERSION_TAG, toolVersion);
 
         ListTag consumed = new ListTag();
         consumedBlocks.forEach((pos, state) -> {
@@ -279,6 +356,12 @@ public class HiveHeart extends Mob {
         if (tag.contains(TOOLS_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(TOOLS_TAG), toolSlots.getItems(), registryAccess());
         }
+        armorVersion = tag.getInt(ARMOR_VERSION_TAG);
+        toolVersion = tag.getInt(TOOL_VERSION_TAG);
+        // The signatures are not saved: the first look after loading becomes the baseline.
+        lastArmorSignature = null;
+        lastToolSignature = null;
+
         consumedBlocks.clear();
         for (Tag entry : tag.getList(CONSUMED_TAG, Tag.TAG_COMPOUND)) {
             CompoundTag consumed = (CompoundTag) entry;

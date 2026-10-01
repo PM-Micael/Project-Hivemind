@@ -10,17 +10,23 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
+import javax.annotation.Nullable;
+
 import com.projecthivemind.BlockAction;
+import com.projecthivemind.MobAction;
 import com.projecthivemind.ProjectHivemind;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
+import com.projecthivemind.network.MobActionPayload;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -37,8 +43,9 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * RTS unit control with the free cursor: left click a unit to select it (again to deselect it), right click a block
- * to open its context menu of things the selected units can do to it.
+ * RTS unit control with the free cursor. Left click is the quick command: click one of your units to select it (again
+ * to deselect it), click a block to send the selected units there, click a mob outside the hive to attack it. Right
+ * click opens a context menu with every choice for what is under the cursor.
  *
  * <p>The cursor position is turned into a ray through the world using the same projection and view matrices the
  * game rendered the last frame with, so the ray matches exactly what is under the cursor.
@@ -130,19 +137,56 @@ public final class HiveSelection {
         }
 
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            selectUnderCursor(minecraft);
+            leftClick(minecraft);
         } else if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             openMenuUnderCursor(minecraft);
         }
     }
 
-    // ---- selecting ----
-
-    private static void selectUnderCursor(Minecraft minecraft) {
+    /**
+     * Left click is the quick command. In order: one of your own units is selected or deselected; a mob outside the
+     * hive is attacked by the selected soldiers; a block is walked to by every selected unit. The right-click menu has
+     * the full list of choices.
+     */
+    private static void leftClick(Minecraft minecraft) {
         Optional<Ray> ray = cursorRay(minecraft);
         if (ray.isEmpty()) {
             return;
         }
+        if (toggleUnitUnderCursor(minecraft, ray.get())) {
+            return;
+        }
+
+        BlockHitResult hit = minecraft.level.clip(new ClipContext(ray.get().from(), ray.get().to(),
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
+        boolean blockHit = hit.getType() != HitResult.Type.MISS;
+        MobPick mob = pickMob(minecraft, ray.get(), true);
+        boolean mobHit = mob != null && (!blockHit || mob.distanceSqr() < ray.get().from().distanceToSqr(hit.getLocation()));
+        if (!mobHit && !blockHit) {
+            return;
+        }
+
+        List<Integer> selected = List.copyOf(ClientSelection.selected());
+        if (selected.isEmpty()) {
+            minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.select_units_first"), false);
+            return;
+        }
+        if (mobHit) {
+            if (!selectionHas(minecraft, selected, UnitKind.SOLDIER)) {
+                minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.no_soldiers"), false);
+                return;
+            }
+            PacketDistributor.sendToServer(new MobActionPayload(selected, mob.mob().getId(), MobAction.ATTACK));
+        } else {
+            PacketDistributor.sendToServer(new BlockActionPayload(selected, hit.getBlockPos(), BlockAction.WALK_TO, false));
+            puffAbove(hit.getBlockPos());
+        }
+    }
+
+    // ---- selecting ----
+
+    /** Select or deselect the nearest of your own units under the cursor. Returns false if there is none. */
+    private static boolean toggleUnitUnderCursor(Minecraft minecraft, Ray ray) {
         Entity closest = null;
         double closestDistance = Double.MAX_VALUE;
         for (Entity entity : minecraft.level.entitiesForRendering()) {
@@ -152,39 +196,50 @@ public final class HiveSelection {
                 continue;
             }
             AABB box = entity.getBoundingBox().inflate(PICK_MARGIN);
-            Optional<Vec3> hit = box.clip(ray.get().from(), ray.get().to());
+            Optional<Vec3> hit = box.clip(ray.from(), ray.to());
             if (hit.isPresent()) {
-                double distance = ray.get().from().distanceToSqr(hit.get());
+                double distance = ray.from().distanceToSqr(hit.get());
                 if (distance < closestDistance) {
                     closestDistance = distance;
                     closest = entity;
                 }
             }
         }
-        if (closest != null) {
-            ClientSelection.toggle(closest.getId());
+        if (closest == null) {
+            return false;
         }
+        ClientSelection.toggle(closest.getId());
+        return true;
     }
 
     // ---- commanding ----
 
     /**
-     * Right click a block: open its context menu. The options depend on what is there and what is going on: the
-     * actions need selected units, and "Cancel actions" appears on a block that units are working on.
+     * Right click: open the context menu for whatever is under the cursor, a mob or a block, whichever is nearer along
+     * the line of sight. The options depend on what is there, what is selected, and what units are already doing.
      */
     private static void openMenuUnderCursor(Minecraft minecraft) {
         Optional<Ray> ray = cursorRay(minecraft);
         if (ray.isEmpty()) {
             return;
         }
+        List<Integer> selected = List.copyOf(ClientSelection.selected());
+
         // OUTLINE, not COLLIDER: thin things like flowers and tall grass can be picked too.
         BlockHitResult hit = minecraft.level.clip(new ClipContext(ray.get().from(), ray.get().to(),
                 ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
-        if (hit.getType() == HitResult.Type.MISS) {
+        boolean blockHit = hit.getType() != HitResult.Type.MISS;
+
+        // A mob in front of the block (or with no block behind it) is what was clicked; a mob behind a block is not.
+        MobPick mob = pickMob(minecraft, ray.get(), false);
+        if (mob != null && (!blockHit || mob.distanceSqr() < ray.get().from().distanceToSqr(hit.getLocation()))) {
+            openMobMenu(minecraft, mob.mob(), selected);
+            return;
+        }
+        if (!blockHit) {
             return;
         }
         BlockPos pos = hit.getBlockPos();
-        List<Integer> selected = List.copyOf(ClientSelection.selected());
         boolean working = ClientActions.isActive(pos);
         if (selected.isEmpty() && !working) {
             minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.select_units_first"), false);
@@ -195,7 +250,7 @@ public final class HiveSelection {
         if (!selected.isEmpty()) {
             options.add(option("action.projecthivemind.walk_to", selected, pos, BlockAction.WALK_TO));
             // Digging and interacting are worker jobs: only offer them if a worker is part of the selection.
-            if (selectionHasWorker(minecraft, selected)) {
+            if (selectionHas(minecraft, selected, UnitKind.WORKER)) {
                 options.add(option("action.projecthivemind.dig", selected, pos, BlockAction.DIG));
                 options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));
             }
@@ -204,12 +259,70 @@ public final class HiveSelection {
             options.add(option("action.projecthivemind.cancel", List.of(), pos, BlockAction.CANCEL));
         }
         int[] cursor = ContextMenu.cursor(minecraft);
-        ContextMenu.open(minecraft, cursor[0], cursor[1], options);
+        ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);
     }
 
-    private static boolean selectionHasWorker(Minecraft minecraft, List<Integer> selected) {
+    /** The mob under the cursor and how far away along the ray it was hit. */
+    private record MobPick(Mob mob, double distanceSqr) {
+    }
+
+    /**
+     * The nearest mob the ray passes through that can be targeted. Your own units and Hive Hearts never are. With
+     * {@code nonHiveOnly} no hive unit is, whoever owns it: that is what the left-click quick attack uses, while the
+     * right-click menu still offers Attack on another player's units. Unlike unit selection this respects walls: the
+     * caller compares the distance with the nearest block, so a mob behind a block is not picked.
+     */
+    @Nullable
+    private static MobPick pickMob(Minecraft minecraft, Ray ray, boolean nonHiveOnly) {
+        MobPick closest = null;
+        for (Entity entity : minecraft.level.entitiesForRendering()) {
+            if (!(entity instanceof Mob mob) || !mob.isAlive() || mob instanceof HiveHeart) {
+                continue;
+            }
+            if (mob instanceof HiveUnit unit && (nonHiveOnly || minecraft.player.getUUID().equals(unit.ownerId()))) {
+                continue;
+            }
+            Optional<Vec3> hit = mob.getBoundingBox().inflate(PICK_MARGIN).clip(ray.from(), ray.to());
+            if (hit.isPresent()) {
+                double distance = ray.from().distanceToSqr(hit.get());
+                if (closest == null || distance < closest.distanceSqr()) {
+                    closest = new MobPick(mob, distance);
+                }
+            }
+        }
+        return closest;
+    }
+
+    /** The menu for a mob: Attack (soldiers only), and Cancel on a mob that units are already attacking. */
+    private static void openMobMenu(Minecraft minecraft, Mob mob, List<Integer> selected) {
+        boolean attacked = ClientActions.isAttacked(mob.getId());
+        boolean hasSoldier = selectionHas(minecraft, selected, UnitKind.SOLDIER);
+
+        List<ContextMenu.Option> options = new ArrayList<>();
+        if (hasSoldier) {
+            options.add(mobOption("action.projecthivemind.attack", selected, mob, MobAction.ATTACK));
+        }
+        if (attacked) {
+            options.add(mobOption("action.projecthivemind.cancel", List.of(), mob, MobAction.CANCEL));
+        }
+        if (options.isEmpty()) {
+            String message = selected.isEmpty() ? "message.projecthivemind.select_units_first" : "message.projecthivemind.no_soldiers";
+            minecraft.gui.setOverlayMessage(Component.translatable(message), false);
+            return;
+        }
+        int[] cursor = ContextMenu.cursor(minecraft);
+        ContextMenu.open(minecraft, cursor[0], cursor[1], options, null, mob.getId());
+    }
+
+    private static ContextMenu.Option mobOption(String labelKey, List<Integer> units, Mob mob, MobAction action) {
+        return new ContextMenu.Option(Component.translatable(labelKey),
+                () -> PacketDistributor.sendToServer(new MobActionPayload(units, mob.getId(), action)));
+    }
+
+    /** True if any of the selected units is of this kind. */
+    private static boolean selectionHas(Minecraft minecraft, List<Integer> selected, UnitKind kind) {
         for (int id : selected) {
-            if (minecraft.level.getEntity(id) instanceof HiveUnit unit && unit.kind() == UnitKind.WORKER) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit unit && unit.kind() == kind) {
                 return true;
             }
         }

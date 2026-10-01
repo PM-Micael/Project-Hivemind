@@ -11,11 +11,11 @@ import com.projecthivemind.network.ChooseModePayload;
 import com.projecthivemind.network.ClientPayloads;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.BlockActionPayload;
+import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ServerPayloads;
-import com.projecthivemind.network.SpawnUnitPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
 
@@ -56,10 +56,10 @@ public final class CommonEvents {
     static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToServer(ChooseModePayload.TYPE, ChooseModePayload.STREAM_CODEC, ServerPayloads::onChooseMode);
-        registrar.playToServer(SpawnUnitPayload.TYPE, SpawnUnitPayload.STREAM_CODEC, ServerPayloads::onSpawnUnit);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
+        registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);
         registrar.playToClient(WeakToolPayload.TYPE, WeakToolPayload.STREAM_CODEC, ClientPayloads::onWeakTool);
         registrar.playToClient(SyncActionsPayload.TYPE, SyncActionsPayload.STREAM_CODEC, ClientPayloads::onSyncActions);
         registrar.playToServer(ToggleInventoryModePayload.TYPE, ToggleInventoryModePayload.STREAM_CODEC, ServerPayloads::onToggleInventoryMode);

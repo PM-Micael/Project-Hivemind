@@ -30,6 +30,17 @@ public interface HiveUnit {
 
     void setAction(@Nullable UnitAction action);
 
+    /**
+     * Which version of the hive's gear this unit was made with (see {@link HiveHeart#gearVersionFor}). A unit whose
+     * version is behind the hive's is out of date and gets replaced. Units that do not use gear stay at 0.
+     */
+    default int gearVersion() {
+        return 0;
+    }
+
+    default void setGearVersion(int version) {
+    }
+
     default void saveOwner(CompoundTag tag) {
         UUID owner = ownerId();
         if (owner != null) {

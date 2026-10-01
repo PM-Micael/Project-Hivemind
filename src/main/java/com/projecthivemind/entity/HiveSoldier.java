@@ -35,8 +35,11 @@ public class HiveSoldier extends Zombie implements HiveUnit {
 
     @Nullable
     private UUID heartId;
+    private static final String GEAR_VERSION_TAG = "GearVersion";
+
     @Nullable
     private UnitAction action;
+    private int gearVersion;
     private final GearMirror gearMirror = new GearMirror();
 
     public HiveSoldier(EntityType<? extends HiveSoldier> type, Level level) {
@@ -56,8 +59,9 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     @Override
     protected void registerGoals() {
         // Deliberately not calling super: zombie goals hunt players, villagers and turtle eggs.
-        // Soldiers only walk where told. Digging and interacting with blocks is worker-only.
+        // Soldiers walk where told and fight what they are told to attack. Digging and interacting is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
     }
 
     public void setHeartId(@Nullable UUID heartId) {
@@ -155,12 +159,23 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     }
 
     @Override
+    public int gearVersion() {
+        return gearVersion;
+    }
+
+    @Override
+    public void setGearVersion(int version) {
+        this.gearVersion = version;
+    }
+
+    @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
+        tag.putInt(GEAR_VERSION_TAG, gearVersion);
     }
 
     @Override
@@ -170,5 +185,6 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }
+        gearVersion = tag.getInt(GEAR_VERSION_TAG);
     }
 }
