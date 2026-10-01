@@ -6,6 +6,7 @@ import java.util.Locale;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.WorkerBehavior;
@@ -13,6 +14,7 @@ import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
+import com.projecthivemind.network.SetScoutBehaviorPayload;
 import com.projecthivemind.network.SetWorkerBehaviorPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
 
@@ -56,7 +58,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     /** Which unit's behaviour the Behavior tab is showing. */
     private enum Page {
-        SOLDIERS, WORKERS, COLLECTORS
+        SOLDIERS, WORKERS, COLLECTORS, SCOUTS
     }
 
     private Tab tab = Tab.HIVE;
@@ -67,6 +69,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button soldiersPage;
     private Button workersPage;
     private Button collectorsPage;
+    private Button scoutsPage;
 
     // Soldier settings.
     private EditBox soldierAreaBox;
@@ -90,7 +93,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
     private final List<AbstractWidget> workerWidgets = new ArrayList<>();
+    // Scout settings: two checkboxes.
+    private Checkbox pickUpItems;
+    private Checkbox fleeHostiles;
+
     private final List<AbstractWidget> collectorWidgets = new ArrayList<>();
+    private final List<AbstractWidget> scoutWidgets = new ArrayList<>();
 
     /** True while the widgets are being filled from the server's values, so that does not count as the player editing. */
     private boolean filling;
@@ -115,6 +123,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldiersPage = pageButton(0, "screen.projecthivemind.behavior.page_soldiers", Page.SOLDIERS);
         workersPage = pageButton(1, "screen.projecthivemind.behavior.page_workers", Page.WORKERS);
         collectorsPage = pageButton(2, "screen.projecthivemind.behavior.page_collectors", Page.COLLECTORS);
+        scoutsPage = pageButton(3, "screen.projecthivemind.behavior.page_scouts", Page.SCOUTS);
 
         // Creative players can drop out of the hive to the normal inventory, e.g. to spawn items in for testing.
         if (ClientState.canSwapInventory()) {
@@ -152,9 +161,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldiersPage.visible = behavior;
         workersPage.visible = behavior;
         collectorsPage.visible = behavior;
+        scoutsPage.visible = behavior;
         soldiersPage.active = page != Page.SOLDIERS;
         workersPage.active = page != Page.WORKERS;
         collectorsPage.active = page != Page.COLLECTORS;
+        scoutsPage.active = page != Page.SCOUTS;
+        scoutWidgets.forEach(widget -> widget.visible = behavior && page == Page.SCOUTS);
         soldierWidgets.forEach(widget -> widget.visible = behavior && page == Page.SOLDIERS);
         workerWidgets.forEach(widget -> widget.visible = behavior && page == Page.WORKERS);
         collectorWidgets.forEach(widget -> widget.visible = behavior && page == Page.COLLECTORS);
@@ -173,6 +185,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldierWidgets.clear();
         workerWidgets.clear();
         collectorWidgets.clear();
+        scoutWidgets.clear();
 
         // Soldiers: the radius first, since it limits every option below except the last.
         soldierAreaBox = areaBox(soldierWidgets, "screen.projecthivemind.behavior.unit_area",
@@ -202,6 +215,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             collectorRange = Integer.parseInt(text);
             sendCollectorBehavior();
         });
+
+        // Scouts: no radius, just the two things they may do on their own.
+        pickUpItems = behaviorBox(scoutWidgets, 0, "screen.projecthivemind.behavior.scout_pickup", this::sendScoutBehavior);
+        fleeHostiles = behaviorBox(scoutWidgets, 1, "screen.projecthivemind.behavior.scout_flee", this::sendScoutBehavior);
 
         setBehaviorEnabled(false);
         filling = false;
@@ -238,7 +255,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void setBehaviorEnabled(boolean enabled) {
-        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets)) {
+        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets)) {
             for (AbstractWidget widget : group) {
                 if (widget instanceof EditBox editBox) {
                     editBox.setEditable(enabled);
@@ -270,6 +287,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         collectorRange = menu.collectorRange();
         collectorRangeBox.setValue(String.valueOf(collectorRange));
+
+        ScoutBehavior scouts = ScoutBehavior.fromFlags(menu.scoutFlags());
+        setChecked(pickUpItems, scouts.collectItems());
+        setChecked(fleeHostiles, scouts.fleeHostiles());
         filling = false;
         behaviorLoaded = true;
         setBehaviorEnabled(true);
@@ -307,6 +328,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         int flags = new WorkerBehavior(workerRadius, mineOre.selected(), chopLogs.selected(), digThrough.selected()).flags();
         PacketDistributor.sendToServer(new SetWorkerBehaviorPayload(flags, workerRadius));
+    }
+
+    /** Send the scout settings to the server whenever the player changes one. */
+    private void sendScoutBehavior() {
+        if (filling || !behaviorLoaded) {
+            return;
+        }
+        PacketDistributor.sendToServer(new SetScoutBehaviorPayload(new ScoutBehavior(pickUpItems.selected(), fleeHostiles.selected()).flags()));
     }
 
     /** Send the collector range to the server whenever the player changes it. */
@@ -367,6 +396,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void renderBehaviorLabels(GuiGraphics graphics) {
+        if (page == Page.SCOUTS) {
+            // The scout page has only checkboxes, which carry their own text; it has no number field to label.
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 2 * BEHAVIOR_ROW + 4, 0x909090, false);
+            return;
+        }
         String labelKey = page == Page.COLLECTORS ? "screen.projecthivemind.behavior.collector_range" : "screen.projecthivemind.behavior.unit_area";
         graphics.drawString(font, Component.translatable(labelKey), BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0xE0E0E0, false);
         if (page == Page.COLLECTORS) {

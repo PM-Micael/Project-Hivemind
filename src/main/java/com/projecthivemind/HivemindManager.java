@@ -431,6 +431,14 @@ public final class HivemindManager {
         }
     }
 
+    /** The player edited the scout settings on the menu. Only valid with the hive menu open. */
+    public static void setScoutBehavior(ServerPlayer player, ScoutBehavior behavior) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null && player.containerMenu instanceof HiveMenu) {
+            heart.setScoutBehavior(behavior);
+        }
+    }
+
     /** The player edited the collector range on the menu. Only valid with the hive menu open. */
     public static void setCollectorBehavior(ServerPlayer player, CollectorBehavior behavior) {
         HiveHeart heart = findHeart(player);

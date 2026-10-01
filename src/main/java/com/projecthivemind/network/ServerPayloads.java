@@ -3,6 +3,7 @@ package com.projecthivemind.network;
 import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HivemindManager;
+import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
@@ -71,6 +72,12 @@ public final class ServerPayloads {
         if (context.player() instanceof ServerPlayer player) {
             // The constructor clamps the range, so a bad client cannot set a silly one.
             HivemindManager.setCollectorBehavior(player, new CollectorBehavior(payload.extraRange()));
+        }
+    }
+
+    public static void onSetScoutBehavior(SetScoutBehaviorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setScoutBehavior(player, ScoutBehavior.fromFlags(payload.flags()));
         }
     }
 

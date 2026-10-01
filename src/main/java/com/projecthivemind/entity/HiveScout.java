@@ -14,6 +14,8 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -21,7 +23,9 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.monster.Husk;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 /**
@@ -38,13 +42,25 @@ public class HiveScout extends Husk implements HiveUnit {
     private UUID heartId;
     @Nullable
     private UnitAction action;
+    private final SpeedProbe speedProbe = new SpeedProbe("scout");
 
     public HiveScout(EntityType<? extends HiveScout> type, Level level) {
         super(type, level);
     }
 
+    /**
+     * The scout's movement speed attribute, chosen to be halfway between a player's walking and sprinting speed:
+     * about 5.0 blocks per second, against 4.3 walking and 5.6 sprinting. A mob's forward input is its own speed, so
+     * its ground speed grows with the square of the attribute: blocks per second is roughly 43.2 times the attribute
+     * squared. That is why this is 0.339, and why the vanilla 0.23 of a husk or zombie is only about 2.3 blocks per
+     * second.
+     */
+    public static final double MOVEMENT_SPEED = 0.339D;
+
     public static AttributeSupplier.Builder createScoutAttributes() {
-        return Zombie.createAttributes().add(Attributes.SPAWN_REINFORCEMENTS_CHANCE, 0.0D);
+        return Zombie.createAttributes()
+                .add(Attributes.SPAWN_REINFORCEMENTS_CHANCE, 0.0D)
+                .add(Attributes.MOVEMENT_SPEED, MOVEMENT_SPEED);
     }
 
     @Override
@@ -57,6 +73,9 @@ public class HiveScout extends Husk implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: husk goals hunt players, villagers and turtle eggs.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        // Running away comes before collecting items, so it can interrupt a trip to an item.
+        this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
+        this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
     }
 
     public void setHeartId(@Nullable UUID heartId) {
@@ -72,8 +91,43 @@ public class HiveScout extends Husk implements HiveUnit {
     @Override
     public void tick() {
         super.tick();
-        if (!this.level().isClientSide && action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+        if (this.level().isClientSide) {
+            return;
+        }
+        speedProbe.tick(this);
+        if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
             action = null;
+        }
+        // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
+        // one that is not selected walks to items and takes them on arrival.
+        HiveHeart heart = findHeart();
+        if (heart != null && heart.scoutBehavior().collectItems()) {
+            pickUpNearbyItems(heart);
+        }
+    }
+
+    /**
+     * Take any dropped items within a player's pickup reach into the hive's inventory, the way a player picks things
+     * up: whatever fits goes in, and what does not stays on the ground. Items that have only just been dropped are
+     * left alone until their pickup delay ends.
+     */
+    private void pickUpNearbyItems(HiveHeart heart) {
+        for (ItemEntity item : this.level().getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(1.0D, 0.5D, 1.0D),
+                candidate -> candidate.isAlive() && !candidate.hasPickUpDelay())) {
+            ItemStack stack = item.getItem();
+            int before = stack.getCount();
+            ItemStack leftover = heart.getStorage().addItem(stack.copy());
+            int taken = before - leftover.getCount();
+            if (taken > 0) {
+                this.take(item, taken);
+                this.level().playSound(null, this.blockPosition(), SoundEvents.ITEM_PICKUP, SoundSource.NEUTRAL,
+                        0.2F, 1.0F + (this.random.nextFloat() - this.random.nextFloat()) * 1.4F);
+                if (leftover.isEmpty()) {
+                    item.discard();
+                } else {
+                    item.setItem(leftover);
+                }
+            }
         }
     }
 
@@ -161,5 +215,8 @@ public class HiveScout extends Husk implements HiveUnit {
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }
+        // A mob's attribute values are saved with it, so a scout saved before the speed was changed would come back
+        // with its old one. Always put the current speed back after loading.
+        this.getAttribute(Attributes.MOVEMENT_SPEED).setBaseValue(MOVEMENT_SPEED);
     }
 }

@@ -77,7 +77,8 @@ public class HiveMenu extends AbstractContainerMenu {
     private static final int DATA_WORKER_FLAGS = 6;
     private static final int DATA_WORKER_AREA = 7;
     private static final int DATA_COLLECTOR_RANGE = 8;
-    private static final int DATA_UNITS = 9;
+    private static final int DATA_SCOUT_FLAGS = 9;
+    private static final int DATA_UNITS = 10;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -172,6 +173,9 @@ public class HiveMenu extends AbstractContainerMenu {
                 if (index == DATA_COLLECTOR_RANGE) {
                     return heart.collectorBehavior().extraRange() + 1;
                 }
+                if (index == DATA_SCOUT_FLAGS) {
+                    return heart.scoutBehavior().flags() + 1;
+                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -226,7 +230,12 @@ public class HiveMenu extends AbstractContainerMenu {
     public boolean behaviorReady() {
         return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0
                 && data.get(DATA_WORKER_FLAGS) > 0 && data.get(DATA_WORKER_AREA) > 0
-                && data.get(DATA_COLLECTOR_RANGE) > 0;
+                && data.get(DATA_COLLECTOR_RANGE) > 0 && data.get(DATA_SCOUT_FLAGS) > 0;
+    }
+
+    /** The scout behaviour checkboxes, packed into one number (see ScoutBehavior). Only valid once ready. */
+    public int scoutFlags() {
+        return data.get(DATA_SCOUT_FLAGS) - 1;
     }
 
     /** How far past the hive area collectors may reach. Only valid once ready. */

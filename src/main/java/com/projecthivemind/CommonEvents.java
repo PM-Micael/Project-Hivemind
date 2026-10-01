@@ -16,6 +16,7 @@ import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SelectionPayload;
 import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
+import com.projecthivemind.network.SetScoutBehaviorPayload;
 import com.projecthivemind.network.SetWorkerBehaviorPayload;
 import com.projecthivemind.network.SyncSightPayload;
 import com.projecthivemind.network.SyncActionsPayload;
@@ -67,6 +68,7 @@ public final class CommonEvents {
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
         registrar.playToServer(SelectionPayload.TYPE, SelectionPayload.STREAM_CODEC, ServerPayloads::onSelection);
         registrar.playToServer(SetBehaviorPayload.TYPE, SetBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetBehavior);
+        registrar.playToServer(SetScoutBehaviorPayload.TYPE, SetScoutBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetScoutBehavior);
         registrar.playToServer(SetCollectorBehaviorPayload.TYPE, SetCollectorBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetCollectorBehavior);
         registrar.playToServer(SetWorkerBehaviorPayload.TYPE, SetWorkerBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetWorkerBehavior);
         registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);

@@ -18,6 +18,7 @@ import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HiveSight;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
+import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.WorkerBehavior;
@@ -60,6 +61,7 @@ public class HiveHeart extends Mob {
     private static final String BEHAVIOR_TAG = "SoldierBehavior";
     private static final String WORKER_BEHAVIOR_TAG = "WorkerBehavior";
     private static final String COLLECTOR_BEHAVIOR_TAG = "CollectorBehavior";
+    private static final String SCOUT_BEHAVIOR_TAG = "ScoutBehavior";
 
     @Nullable
     private UUID ownerId;
@@ -74,6 +76,17 @@ public class HiveHeart extends Mob {
     private SoldierBehavior soldierBehavior = SoldierBehavior.DEFAULT;
     /** How the hive's idle, unselected workers behave. Edited on the menu's Behavior tab; saved. */
     private WorkerBehavior workerBehavior = WorkerBehavior.DEFAULT;
+    /** How the hive's scouts behave. Edited on the menu's Behavior tab; saved. */
+    private ScoutBehavior scoutBehavior = ScoutBehavior.DEFAULT;
+
+    public ScoutBehavior scoutBehavior() {
+        return scoutBehavior;
+    }
+
+    public void setScoutBehavior(ScoutBehavior behavior) {
+        this.scoutBehavior = behavior;
+    }
+
     /** How far past the hive area the hive's collectors may reach. Edited on the menu's Behavior tab; saved. */
     private CollectorBehavior collectorBehavior = CollectorBehavior.DEFAULT;
 
@@ -444,6 +457,7 @@ public class HiveHeart extends Mob {
         tag.put(BEHAVIOR_TAG, soldierBehavior.save());
         tag.put(WORKER_BEHAVIOR_TAG, workerBehavior.save());
         tag.put(COLLECTOR_BEHAVIOR_TAG, collectorBehavior.save());
+        tag.put(SCOUT_BEHAVIOR_TAG, scoutBehavior.save());
 
         ListTag consumed = new ListTag();
         consumedBlocks.forEach((pos, state) -> {
@@ -480,6 +494,7 @@ public class HiveHeart extends Mob {
         workerBehavior = tag.contains(WORKER_BEHAVIOR_TAG) ? WorkerBehavior.load(tag.getCompound(WORKER_BEHAVIOR_TAG)) : WorkerBehavior.DEFAULT;
         collectorBehavior = tag.contains(COLLECTOR_BEHAVIOR_TAG)
                 ? CollectorBehavior.load(tag.getCompound(COLLECTOR_BEHAVIOR_TAG)) : CollectorBehavior.DEFAULT;
+        scoutBehavior = tag.contains(SCOUT_BEHAVIOR_TAG) ? ScoutBehavior.load(tag.getCompound(SCOUT_BEHAVIOR_TAG)) : ScoutBehavior.DEFAULT;
         // The signatures are not saved: the first look after loading becomes the baseline.
         lastArmorSignature = null;
         lastToolSignature = null;

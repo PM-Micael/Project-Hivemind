@@ -130,11 +130,15 @@ public class HiveSoldier extends Zombie implements HiveUnit {
                 // The gear on this soldier is a copy of pieces in the hive: wear on it is charged to the original.
                 gearMirror.tick(this, heart);
             }
+            speedProbe.tick(this);
             if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
                 action = null;
             }
         }
     }
+
+    // TEMPORARY: logs real walking speed, to compare against the scout. Remove once speeds are settled.
+    private final SpeedProbe speedProbe = new SpeedProbe("soldier");
 
     /** Soldiers never drop their gear: it is a copy, and the original stays in the hive. */
     @Override
