@@ -1,0 +1,15 @@
+{
+  "block.projecthivemind.hive_heart": "Hive Heart",
+  "entity.projecthivemind.hive_worker": "Hive Worker",
+  "entity.projecthivemind.hive_soldier": "Hive Soldier",
+  "screen.projecthivemind.choose_mode.title": "Choose how you play",
+  "screen.projecthivemind.choose_mode.subtitle": "This choice is permanent for this world",
+  "screen.projecthivemind.choose_mode.steve": "Play as Steve",
+  "screen.projecthivemind.choose_mode.hivemind": "Play as Hivemind",
+  "screen.projecthivemind.hive.title": "Hive",
+  "screen.projecthivemind.hive.spawn_worker": "Spawn Worker",
+  "screen.projecthivemind.hive.spawn_soldier": "Spawn Soldier",
+  "message.projecthivemind.larva_hint": "Right-click a block to place your Hive Heart",
+  "message.projecthivemind.no_room": "No room for the Hive Heart there",
+  "message.projecthivemind.heart_placed": "The Hive Heart awakens. WASD pan, hold middle mouse to rotate, scroll zoom, E hive menu"
+}
