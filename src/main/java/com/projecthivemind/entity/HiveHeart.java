@@ -2,6 +2,7 @@ package com.projecthivemind.entity;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,8 @@ import net.minecraft.world.level.block.state.BlockState;
 public class HiveHeart extends Mob {
     private static final String OWNER_TAG = "HiveOwner";
     private static final String LEVEL_TAG = "HiveLevel";
+    private static final String LOGS_TAG = "QuestLogs";
+    private static final String EXPLORED_TAG = "ExploredChunks";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
@@ -66,6 +69,10 @@ public class HiveHeart extends Mob {
     @Nullable
     private UUID ownerId;
     private int hiveLevel = 1;
+    /** Quest progress: the most logs the hive has held at once, up to what the quest asks. It never goes back down. */
+    private int logsProgress;
+    /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
+    private final Set<Long> exploredChunks = new HashSet<>();
     private SimpleContainer storage = new SimpleContainer(HiveLevels.get(1).storageSlots());
     /** One piece per armor slot, in {@link HiveEquipment#ARMOR_SLOTS} order. New soldiers get copies of these. */
     private final SimpleContainer armorSlots = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
@@ -299,6 +306,7 @@ public class HiveHeart extends Mob {
 
     /** 1 second: how often the owner is told which blocks have units working on them. */
     private static final int ACTION_SYNC_INTERVAL_TICKS = 20;
+    private static final int QUEST_INTERVAL_TICKS = 20;
 
     /** A quarter second: how often what the hive can see is worked out, so hidden mobs appear and vanish promptly. */
     private static final int SIGHT_INTERVAL_TICKS = 5;
@@ -324,6 +332,9 @@ public class HiveHeart extends Mob {
         if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
             HivemindManager.tickSight(this);
         }
+        if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
+            HivemindManager.tickQuests(this);
+        }
         if (this.tickCount % ACTION_SYNC_INTERVAL_TICKS == 0) {
             HivemindManager.tickActionSync(this);
         }
@@ -343,6 +354,22 @@ public class HiveHeart extends Mob {
 
     public void setOwnerId(@Nullable UUID ownerId) {
         this.ownerId = ownerId;
+    }
+
+    public int logsProgress() {
+        return logsProgress;
+    }
+
+    public void setLogsProgress(int logs) {
+        this.logsProgress = logs;
+    }
+
+    public Set<Long> exploredChunks() {
+        return exploredChunks;
+    }
+
+    public int exploredChunkCount() {
+        return exploredChunks.size();
     }
 
     public int hiveLevel() {
@@ -449,6 +476,8 @@ public class HiveHeart extends Mob {
             tag.putUUID(OWNER_TAG, ownerId);
         }
         tag.putInt(LEVEL_TAG, hiveLevel);
+        tag.putInt(LOGS_TAG, logsProgress);
+        tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
@@ -477,6 +506,11 @@ public class HiveHeart extends Mob {
         }
         if (tag.contains(LEVEL_TAG)) {
             hiveLevel = HiveLevels.get(tag.getInt(LEVEL_TAG)).level();
+        }
+        logsProgress = tag.getInt(LOGS_TAG);
+        exploredChunks.clear();
+        for (long chunk : tag.getLongArray(EXPLORED_TAG)) {
+            exploredChunks.add(chunk);
         }
         storage = new SimpleContainer(HiveLevels.get(hiveLevel).storageSlots());
         if (tag.contains(STORAGE_TAG)) {

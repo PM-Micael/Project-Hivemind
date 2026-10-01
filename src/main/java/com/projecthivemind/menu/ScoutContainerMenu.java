@@ -44,8 +44,8 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
     private final BlockPos pos;
 
     /** Client constructor: the real contents arrive from the server. */
-    public ScoutContainerMenu(int containerId, Inventory inventory, int targetSize) {
-        this(containerId, new SimpleContainer(targetSize), new SimpleContainer(HiveMenu.STORAGE_SLOTS), targetSize, null, null, null, null);
+    public ScoutContainerMenu(int containerId, Inventory inventory, int targetSize, int storageSlots) {
+        this(containerId, new SimpleContainer(targetSize), new SimpleContainer(storageSlots), targetSize, null, null, null, null);
     }
 
     public ScoutContainerMenu(int containerId, Container target, SimpleContainer storage, @Nullable HiveScout scout,
@@ -68,9 +68,13 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
             this.addSlot(new TargetSlot(target, i, SLOT_X + (i % COLUMNS) * 18, TOP_Y + (i / COLUMNS) * 18));
         }
         int storageY = storageY(this.targetSize);
-        for (int i = 0; i < HiveMenu.STORAGE_SLOTS; i++) {
+        for (int i = 0; i < storage.getContainerSize(); i++) {
             this.addSlot(new Slot(storage, i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18));
         }
+    }
+
+    public int storageSlots() {
+        return storage.getContainerSize();
     }
 
     public int targetSize() {
@@ -86,8 +90,8 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
         return TOP_Y + rows(slots) * 18 + 14;
     }
 
-    public static int panelHeight(int slots) {
-        return storageY(slots) + 3 * 18 + 8;
+    public static int panelHeight(int slots, int storageSlots) {
+        return storageY(slots) + HiveMenu.storageRows(storageSlots) * 18 + 8;
     }
 
     /** A slot of the opened container: only takes what the container itself would accept there (no filling a furnace's output). */

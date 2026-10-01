@@ -38,7 +38,7 @@ public class ScoutTradeScreen extends AbstractContainerScreen<ScoutTradeMenu> {
     public ScoutTradeScreen(ScoutTradeMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 176;
-        this.imageHeight = ScoutTradeMenu.PANEL_HEIGHT;
+        this.imageHeight = ScoutTradeMenu.panelHeight(menu.storageSlots());
     }
 
     /** The offer index under this screen position, or -1. */

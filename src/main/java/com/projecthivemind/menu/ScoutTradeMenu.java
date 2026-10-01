@@ -34,7 +34,9 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
     public static final int SLOT_X = 8;
     /** Where the hive storage grid starts; the offers sit above it. */
     public static final int STORAGE_Y = 160;
-    public static final int PANEL_HEIGHT = STORAGE_Y + 3 * 18 + 8;
+    public static int panelHeight(int storageSlots) {
+        return STORAGE_Y + HiveMenu.storageRows(storageSlots) * 18 + 8;
+    }
     private static final double MAX_SCOUT_DISTANCE = 10.0D;
 
     private final SimpleContainer storage;
@@ -49,8 +51,8 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
     private MerchantOffers offers = new MerchantOffers();
 
     /** Client constructor: the real contents and offers arrive from the server. */
-    public ScoutTradeMenu(int containerId, Inventory inventory) {
-        this(containerId, new SimpleContainer(HiveMenu.STORAGE_SLOTS), null, null, null);
+    public ScoutTradeMenu(int containerId, Inventory inventory, int storageSlots) {
+        this(containerId, new SimpleContainer(storageSlots), null, null, null);
     }
 
     public ScoutTradeMenu(int containerId, SimpleContainer storage, @Nullable AbstractVillager villager, @Nullable HiveScout scout,
@@ -60,9 +62,13 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
         this.villager = villager;
         this.scout = scout;
         this.heart = heart;
-        for (int i = 0; i < HiveMenu.STORAGE_SLOTS; i++) {
+        for (int i = 0; i < storage.getContainerSize(); i++) {
             this.addSlot(new Slot(storage, i, SLOT_X + (i % 9) * 18, STORAGE_Y + (i / 9) * 18));
         }
+    }
+
+    public int storageSlots() {
+        return storage.getContainerSize();
     }
 
     public MerchantOffers offers() {

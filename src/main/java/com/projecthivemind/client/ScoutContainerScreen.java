@@ -18,7 +18,7 @@ public class ScoutContainerScreen extends AbstractContainerScreen<ScoutContainer
     public ScoutContainerScreen(ScoutContainerMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 176;
-        this.imageHeight = ScoutContainerMenu.panelHeight(menu.targetSize());
+        this.imageHeight = ScoutContainerMenu.panelHeight(menu.targetSize(), menu.storageSlots());
     }
 
     /** The server ignores vanilla container clicks from spectators, so clicks go over the mod's own packet. */

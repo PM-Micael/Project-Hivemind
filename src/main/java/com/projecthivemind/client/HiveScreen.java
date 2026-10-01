@@ -6,6 +6,8 @@ import java.util.Locale;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveLevel;
+import com.projecthivemind.HiveLevels;
 import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
@@ -44,7 +46,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int SLOT_FILL = 0xFF3A2424;
 
     /** Where the row of unit counts sits, and how far apart its entries are. */
-    private static final int COUNTS_Y = 148;
     private static final int COUNTS_SPACING = 72;
 
     // Behavior tab layout, relative to the panel.
@@ -111,7 +112,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 300;
-        this.imageHeight = 186;
+        this.imageHeight = HiveMenu.panelHeight(menu.storageRows());
         this.titleLabelX = 8;
         this.titleLabelY = 8;
     }
@@ -416,10 +417,71 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         graphics.drawString(font, hearts, imageWidth - 8 - font.width(hearts), titleLabelY, 0xFF5555, false);
 
         switch (tab) {
-            case QUESTS -> graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.no_quests"), 8, 58, 0xA0A0A0, false);
+            case QUESTS -> renderQuests(graphics);
             case BEHAVIOR -> renderBehaviorLabels(graphics);
             default -> renderHiveLabels(graphics);
         }
+    }
+
+    // ---- the Quests tab ----
+
+    private static final int QUEST_X = 12;
+    private static final int QUEST_Y = 56;
+    private static final int DONE = 0x77DD77;
+    private static final int TODO = 0xE0E0E0;
+
+    /** The level-up quest, its progress, and what the next level unlocks. */
+    private void renderQuests(GuiGraphics graphics) {
+        int level = menu.level();
+        HiveLevel.Quest quest = HiveLevels.get(level).quest();
+        if (quest == null || !HiveLevels.hasNext(level)) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.max_level"), QUEST_X, QUEST_Y, 0xA0A0A0, false);
+            return;
+        }
+        HiveLevel current = HiveLevels.get(level);
+        HiveLevel next = HiveLevels.get(level + 1);
+        int y = QUEST_Y;
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.title", next.level()), QUEST_X, y, 0xFFDD55, false);
+        y += 14;
+        y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.logs", quest.logs()), menu.questLogs(), quest.logs());
+        y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.chunks", quest.chunks()), menu.questChunks(), quest.chunks());
+
+        y += 8;
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.unlocks", next.level()), QUEST_X, y, 0xFFDD55, false);
+        y += 14;
+        // Only what actually changes at the next level.
+        for (UnitKind kind : new UnitKind[] {UnitKind.SOLDIER, UnitKind.WORKER, UnitKind.SCOUT, UnitKind.COLLECTOR}) {
+            if (next.cap(kind) != current.cap(kind)) {
+                y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_cap",
+                        Component.translatable("command.projecthivemind." + kind.name().toLowerCase(Locale.ROOT) + "s"), next.cap(kind)));
+            }
+        }
+        if (next.maxHealth() != current.maxHealth()) {
+            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_health", hearts((int) next.maxHealth())));
+        }
+        if (next.storageSlots() != current.storageSlots()) {
+            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_storage", next.storageSlots()));
+        }
+        if (next.infectionRadius() != current.infectionRadius()) {
+            int size = next.infectionRadius() * 2 + 1;
+            unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_area", size, size));
+        }
+    }
+
+    /** One goal of the quest: a tick or a dot, what it asks, and how far along it is. Returns the next line's y. */
+    private int questLine(GuiGraphics graphics, int y, Component text, int have, int need) {
+        boolean done = have >= need;
+        graphics.drawString(font, done ? "✔" : "•", QUEST_X, y, done ? DONE : TODO, false);
+        graphics.drawString(font, text, QUEST_X + 12, y, done ? DONE : TODO, false);
+        String progress = Math.min(have, need) + " / " + need;
+        graphics.drawString(font, progress, imageWidth - 12 - font.width(progress), y, done ? DONE : TODO, false);
+        return y + 12;
+    }
+
+    private int unlockLine(GuiGraphics graphics, int y, Component text) {
+        graphics.drawString(font, "•", QUEST_X, y, 0xA0A0A0, false);
+        graphics.drawString(font, text, QUEST_X + 12, y, 0xE0E0E0, false);
+        return y + 12;
     }
 
     private void renderBehaviorLabels(GuiGraphics graphics) {
@@ -439,6 +501,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
+    /** Where the row of unit counts sits: under the tool row, which moves down as the storage grows. */
+    private int countsY() {
+        return HiveMenu.toolsY(menu.storageRows()) + 32;
+    }
+
     private void renderHiveLabels(GuiGraphics graphics) {
         // Same order as the command bar's keys: scouts, soldiers, workers; then the collectors, which you do not command.
         drawUnitCount(graphics, 0, "screen.projecthivemind.hive.scouts", UnitKind.SCOUT);
@@ -450,7 +517,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, 44, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.crafting"), HiveMenu.GRID_X, 44, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
-                HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.TOOLS_Y + 5, 0xA0A0A0, false);
+                HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }
 
     /**
@@ -461,7 +528,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         int x = HiveMenu.STORAGE_X + column * COUNTS_SPACING;
         boolean atLimit = menu.unitCount(kind) >= menu.unitCap(kind);
         graphics.drawString(font, Component.translatable(labelKey, menu.unitCount(kind), menu.unitCap(kind)),
-                x, COUNTS_Y, atLimit ? 0xFFAA00 : 0xFFFFFF, false);
+                x, countsY(), atLimit ? 0xFFAA00 : 0xFFFFFF, false);
 
         int seconds = menu.secondsUntilSpawn();
         Component status;
@@ -480,7 +547,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 colour = 0x808080;
             }
         }
-        graphics.drawString(font, status, x, COUNTS_Y + 10, colour, false);
+        graphics.drawString(font, status, x, countsY() + 10, colour, false);
     }
 
     /** Health points as hearts: 2 points per heart, dropping a trailing ".0". */

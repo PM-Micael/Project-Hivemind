@@ -29,6 +29,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Containers;
 import net.minecraft.world.SimpleMenuProvider;
@@ -39,7 +40,9 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -285,7 +288,7 @@ public final class HivemindManager {
         }
         player.openMenu(new SimpleMenuProvider(
                 (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
-                Component.translatable("screen.projecthivemind.hive.title")));
+                Component.translatable("screen.projecthivemind.hive.title")), buf -> buf.writeVarInt(heart.getStorage().getContainerSize()));
     }
 
     // ---- units ----
@@ -455,6 +458,66 @@ public final class HivemindManager {
             heart.setSyncedSight(visible);
             PacketDistributor.sendToPlayer(owner, new SyncSightPayload(List.copyOf(visible)));
         }
+    }
+
+    // ---- the level-up quest ----
+
+    /**
+     * Once a second, from the Heart: work out how far the hive is through its level-up quest, and level it up when
+     * every part is done. Logs: the most the hive's storage has held at once counts, and it never goes back down.
+     * Exploring: every chunk a unit of the hive has stood in counts once, except the chunks of the hive area itself.
+     */
+    public static void tickQuests(HiveHeart heart) {
+        HiveLevel.Quest quest = HiveLevels.get(heart.hiveLevel()).quest();
+        if (quest == null || heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        ServerLevel level = (ServerLevel) heart.level();
+
+        int logs = 0;
+        for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
+            ItemStack stack = heart.getStorage().getItem(i);
+            if (stack.is(ItemTags.LOGS)) {
+                logs += stack.getCount();
+            }
+        }
+        heart.setLogsProgress(Math.max(heart.logsProgress(), Math.min(logs, quest.logs())));
+
+        AABB area = HiveInfection.areaBox(level, heart);
+        int areaMinX = Mth.floor(area.minX) >> 4;
+        int areaMaxX = Mth.floor(area.maxX - 1.0E-4D) >> 4;
+        int areaMinZ = Mth.floor(area.minZ) >> 4;
+        int areaMaxZ = Mth.floor(area.maxZ - 1.0E-4D) >> 4;
+        for (UUID id : get(owner).allUnits()) {
+            if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
+                ChunkPos chunk = unit.chunkPosition();
+                boolean inHiveArea = chunk.x >= areaMinX && chunk.x <= areaMaxX && chunk.z >= areaMinZ && chunk.z <= areaMaxZ;
+                if (!inHiveArea) {
+                    heart.exploredChunks().add(chunk.toLong());
+                }
+            }
+        }
+
+        if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()) {
+            levelUp(heart, owner);
+        }
+    }
+
+    /** The quest is done: the hive moves up one level and gets everything the new level has. */
+    private static void levelUp(HiveHeart heart, ServerPlayer owner) {
+        ServerLevel level = (ServerLevel) heart.level();
+        heart.setHiveLevel(heart.hiveLevel() + 1);
+        // The storage is a new, bigger container now: a menu that is still open would be looking at the old one.
+        if (owner.containerMenu != owner.inventoryMenu) {
+            owner.closeContainer();
+        }
+        HiveInfection.spread(level, heart);
+        level.playSound(null, heart.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 0.8F);
+        owner.sendSystemMessage(Component.translatable("message.projecthivemind.level_up", heart.hiveLevel()));
     }
 
     /** The player edited the scout settings on the menu. Only valid with the hive menu open. */

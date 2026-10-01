@@ -83,7 +83,10 @@ public final class HiveAccess {
         int size = container.getContainerSize();
         return owner.openMenu(new SimpleMenuProvider(
                 (id, inventory, player) -> new ScoutContainerMenu(id, container, heart.getStorage(), scout, heart, blockEntity, pos),
-                title), buf -> buf.writeVarInt(size)).isPresent();
+                title), buf -> {
+            buf.writeVarInt(size);
+            buf.writeVarInt(heart.getStorage().getContainerSize());
+        }).isPresent();
     }
 
     /** Open the villager's trades for the owner, as seen by this scout. Returns false if it could not be opened. */
@@ -96,7 +99,7 @@ public final class HiveAccess {
         boolean ok = owner.openMenu(new SimpleMenuProvider((id, inventory, player) -> {
             opened[0] = new ScoutTradeMenu(id, heart.getStorage(), villager, scout, heart);
             return opened[0];
-        }, villager.getDisplayName())).isPresent();
+        }, villager.getDisplayName()), buf -> buf.writeVarInt(heart.getStorage().getContainerSize())).isPresent();
         if (ok && opened[0] != null) {
             opened[0].startTrading(owner);
             opened[0].sendOffers(owner);

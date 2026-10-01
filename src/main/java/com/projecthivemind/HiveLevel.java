@@ -2,6 +2,8 @@ package com.projecthivemind;
 
 import java.util.Map;
 
+import javax.annotation.Nullable;
+
 /**
  * What a hive is capable of at one level. New levels are new entries in {@link HiveLevels}, not new code.
  *
@@ -13,9 +15,14 @@ import java.util.Map;
  * @param sightRadius      how far, in blocks, every hive unit except scouts can see (see HiveSight). The Heart sees
  *                         one chunk per level instead, see {@link #heartSightRadius()}.
  * @param unitCaps         how many units of each kind the hive may have at once
+ * @param quest            what the hive has to do to reach the next level, or null at the highest level
  */
 public record HiveLevel(int level, float maxHealth, int storageSlots, int craftingGrid, int infectionRadius,
-                        int sightRadius, Map<UnitKind, Integer> unitCaps) {
+                        int sightRadius, Map<UnitKind, Integer> unitCaps, @Nullable Quest quest) {
+    /** The quest that levels a hive up: collect this many logs and have its units explore this many chunks. */
+    public record Quest(int logs, int chunks) {
+    }
+
     public int cap(UnitKind kind) {
         return unitCaps.getOrDefault(kind, 0);
     }

@@ -42,17 +42,17 @@ import net.minecraft.world.level.Level;
  * inventory; everything goes to and from the hive.
  */
 public class HiveMenu extends AbstractContainerMenu implements SpectatorClickable {
-    public static final int STORAGE_SLOTS = 27;
     public static final int GRID_SIZE = 3;
 
-    // Slot indices.
+    // Slot indices. The storage grid grows with the hive's level, so everything after it moves with it.
+    private final int storageSlots;
+    private final int resultIndex;
+    private final int gridStart;
+    private final int gridEnd;
+    private final int armorStart;
+    private final int toolsStart;
+    private final int toolsEnd;
     private static final int STORAGE_START = 0;
-    private static final int RESULT_INDEX = STORAGE_START + STORAGE_SLOTS;
-    private static final int GRID_START = RESULT_INDEX + 1;
-    private static final int GRID_END = GRID_START + GRID_SIZE * GRID_SIZE;
-    private static final int ARMOR_START = GRID_END;
-    private static final int TOOLS_START = ARMOR_START + HiveEquipment.ARMOR_SLOTS.length;
-    private static final int TOOLS_END = TOOLS_START + HiveEquipment.TOOL_SLOTS;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -60,7 +60,31 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int STORAGE_X = 32;
     public static final int STORAGE_Y = 54;
     public static final int TOOLS_X = 32;
-    public static final int TOOLS_Y = 116;
+    /** Slots in a row of the storage grid. */
+    public static final int STORAGE_COLUMNS = 9;
+
+    /** Rows in the storage grid. */
+    public static int storageRows(int storageSlots) {
+        return (storageSlots + STORAGE_COLUMNS - 1) / STORAGE_COLUMNS;
+    }
+
+    /** Where the tool row sits: under the storage grid, whatever its size. */
+    public static int toolsY(int storageRows) {
+        return STORAGE_Y + storageRows * 18 + 8;
+    }
+
+    /** The panel's height: the tool row, then the unit counts underneath. */
+    public static int panelHeight(int storageRows) {
+        return toolsY(storageRows) + 70;
+    }
+
+    public int storageSlots() {
+        return storageSlots;
+    }
+
+    public int storageRows() {
+        return storageRows(storageSlots);
+    }
     public static final int GRID_X = 214;
     public static final int GRID_Y = 54;
     public static final int RESULT_X = 232;
@@ -79,7 +103,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_COLLECTOR_RANGE = 8;
     private static final int DATA_SCOUT_FLAGS = 9;
     private static final int DATA_SCOUT_AREA = 10;
-    private static final int DATA_UNITS = 11;
+    private static final int DATA_QUEST_LOGS = 11;
+    private static final int DATA_QUEST_CHUNKS = 12;
+    private static final int DATA_UNITS = 13;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -107,23 +133,29 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public boolean slotsHidden;
 
     /** Client constructor: the real contents arrive from the server. */
-    public HiveMenu(int containerId, Inventory inventory) {
-        this(containerId, inventory, new SimpleContainer(STORAGE_SLOTS), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length),
+    public HiveMenu(int containerId, Inventory inventory, int storageSlots) {
+        this(containerId, inventory, new SimpleContainer(storageSlots), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length),
                 new SimpleContainer(HiveEquipment.TOOL_SLOTS), new SimpleContainerData(DATA_COUNT), null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, SimpleContainer storage, SimpleContainer armor, SimpleContainer tools,
                      ContainerData data, @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
-        checkContainerSize(storage, STORAGE_SLOTS);
+        this.storageSlots = storage.getContainerSize();
+        this.resultIndex = STORAGE_START + storageSlots;
+        this.gridStart = resultIndex + 1;
+        this.gridEnd = gridStart + GRID_SIZE * GRID_SIZE;
+        this.armorStart = gridEnd;
+        this.toolsStart = armorStart + HiveEquipment.ARMOR_SLOTS.length;
+        this.toolsEnd = toolsStart + HiveEquipment.TOOL_SLOTS;
         this.storage = storage;
         this.data = data;
         this.player = inventory.player;
         this.heart = heart;
 
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 9; col++) {
-                this.addSlot(new HiveSlot(storage, col + row * 9, STORAGE_X + col * 18, STORAGE_Y + row * 18));
+        for (int row = 0; row < storageRows(storageSlots); row++) {
+            for (int col = 0; col < STORAGE_COLUMNS; col++) {
+                this.addSlot(new HiveSlot(storage, col + row * STORAGE_COLUMNS, STORAGE_X + col * 18, STORAGE_Y + row * 18));
             }
         }
         this.addSlot(new HiveResultSlot(player, craftSlots, resultSlots, 0, RESULT_X, RESULT_Y));
@@ -136,7 +168,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addSlot(new ArmorSlot(armor, i, ARMOR_X, ARMOR_Y + i * 18, HiveEquipment.ARMOR_SLOTS[i]));
         }
         for (int i = 0; i < HiveEquipment.TOOL_SLOTS; i++) {
-            this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, TOOLS_Y));
+            this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, toolsY(storageRows(storageSlots))));
         }
         this.addDataSlots(data);
     }
@@ -176,6 +208,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 }
                 if (index == DATA_SCOUT_FLAGS) {
                     return heart.scoutBehavior().flags() + 1;
+                }
+                if (index == DATA_QUEST_LOGS) {
+                    return heart.logsProgress();
+                }
+                if (index == DATA_QUEST_CHUNKS) {
+                    return heart.exploredChunkCount();
                 }
                 if (index == DATA_SCOUT_AREA) {
                     return heart.scoutBehavior().unitAreaRadius() + 1;
@@ -243,6 +281,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return data.get(DATA_SCOUT_FLAGS) - 1;
     }
 
+    /** Quest progress: logs the hive has collected so far (counting up to what the quest asks). */
+    public int questLogs() {
+        return data.get(DATA_QUEST_LOGS);
+    }
+
+    /** Quest progress: chunks the hive's units have explored so far. */
+    public int questChunks() {
+        return data.get(DATA_QUEST_CHUNKS);
+    }
+
     /** The scouts' own-area radius setting. Only valid once ready. */
     public int scoutAreaRadius() {
         return data.get(DATA_SCOUT_AREA) - 1;
@@ -304,8 +352,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             }
         }
         resultSlots.setItem(0, result);
-        setRemoteSlot(RESULT_INDEX, result);
-        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), RESULT_INDEX, result));
+        setRemoteSlot(resultIndex, result);
+        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), resultIndex, result));
     }
 
     // ---- moving items ----
@@ -319,19 +367,19 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         ItemStack stack = slot.getItem();
         ItemStack original = stack.copy();
 
-        if (index == RESULT_INDEX) {
+        if (index == resultIndex) {
             stack.getItem().onCraftedBy(stack, player.level(), player);
-            if (!this.moveItemStackTo(stack, STORAGE_START, RESULT_INDEX, true)) {
+            if (!this.moveItemStackTo(stack, STORAGE_START, resultIndex, true)) {
                 return ItemStack.EMPTY;
             }
             slot.onQuickCraft(stack, original);
-        } else if (index >= GRID_START) {
+        } else if (index >= gridStart) {
             // Crafting grid, armor and tool slots: back to storage.
-            if (!this.moveItemStackTo(stack, STORAGE_START, RESULT_INDEX, false)) {
+            if (!this.moveItemStackTo(stack, STORAGE_START, resultIndex, false)) {
                 return ItemStack.EMPTY;
             }
-        } else if (!this.moveItemStackTo(stack, ARMOR_START, TOOLS_END, false)
-                && !this.moveItemStackTo(stack, GRID_START, GRID_END, false)) {
+        } else if (!this.moveItemStackTo(stack, armorStart, toolsEnd, false)
+                && !this.moveItemStackTo(stack, gridStart, gridEnd, false)) {
             // From storage: gear slots first (each only takes what belongs there), then the crafting grid.
             return ItemStack.EMPTY;
         }
