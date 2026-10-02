@@ -31,12 +31,12 @@ public final class HiveArea {
         return x >= center.getX() - radius && x < center.getX() + radius + 1 && z >= center.getZ() - radius && z < center.getZ() + radius + 1;
     }
 
-    /** The point of the area nearest to this one, kept half a block in from the edge so that it is really inside. */
+    /** The point of the area nearest to this one, kept a block and a half in from the edge: a walking mob stops about a block short of where it is sent, and must still end up inside. */
     public static net.minecraft.world.phys.Vec3 nearestInside(HiveHeart heart, double x, double z) {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
         BlockPos center = heart.blockPosition();
-        double clampedX = Math.max(center.getX() - radius + 0.5D, Math.min(center.getX() + radius + 0.5D, x));
-        double clampedZ = Math.max(center.getZ() - radius + 0.5D, Math.min(center.getZ() + radius + 0.5D, z));
+        double clampedX = Math.max(center.getX() - radius + 1.5D, Math.min(center.getX() + radius - 0.5D, x));
+        double clampedZ = Math.max(center.getZ() - radius + 1.5D, Math.min(center.getZ() + radius - 0.5D, z));
         return new net.minecraft.world.phys.Vec3(clampedX, heart.getY(), clampedZ);
     }
 

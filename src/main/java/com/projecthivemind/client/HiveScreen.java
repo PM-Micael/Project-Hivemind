@@ -128,6 +128,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox chopLogs;
     private Checkbox digThrough;
     private Checkbox workerStay;
+    private Checkbox harvestCrops;
 
     // Collector setting: just the one.
     /** The collector's planting task: the seed it plants, and clearing the soil block it plants on. */
@@ -434,6 +435,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 CommonComponents.GUI_YES, CommonComponents.GUI_NO));
     }
 
+
     /** The operation number the server wants: saplings are the same as crops, plus 10. */
     private static int taskOp(HiveCollector.PlantKind kind, int op) {
         return kind == HiveCollector.PlantKind.SAPLING ? op + 10 : op;
@@ -519,6 +521,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         workerRadii[1] = radiusBox(workerWidgets, 1, 1, this::sendWorkerBehavior);
         digThrough = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
         workerStay = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.stay_inside", this::sendWorkerBehavior);
+        harvestCrops = behaviorBox(workerWidgets, 4, "screen.projecthivemind.behavior.harvest_crops", this::sendWorkerBehavior);
 
         // Collectors: two planting tasks, crops and saplings. For each, the item (picked from a list) and the soil blocks it is
         // planted on (set in the world). Their rows: the item, how many spots, and a button to clear them.
@@ -619,6 +622,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(chopLogs, worker.chopLogs());
                 setChecked(digThrough, worker.digThrough());
                 setChecked(workerStay, worker.stayInside());
+                setChecked(harvestCrops, worker.harvestCrops());
                 int[] values = worker.radii();
                 for (int i = 0; i < workerRadii.length; i++) {
                     workerRadii[i].setValue(String.valueOf(values[i]));
@@ -666,7 +670,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void sendWorkerBehavior() {
         if (canSend()) {
             WorkerBehavior behavior = new WorkerBehavior(mineOre.selected(), number(workerRadii[0]), chopLogs.selected(),
-                    number(workerRadii[1]), digThrough.selected(), workerStay.selected());
+                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -803,7 +807,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case SCOUT -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
                     BEHAVIOR_X + 4, BEHAVIOR_TOP + 3 * BEHAVIOR_ROW + 4, 0x909090, false);
             case WORKER -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 4 * BEHAVIOR_ROW + 4, 0x909090, false);
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 5 * BEHAVIOR_ROW + 4, 0x909090, false);
             default -> {
             }
         }

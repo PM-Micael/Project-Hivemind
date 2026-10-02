@@ -10,6 +10,7 @@ import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -114,9 +115,21 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
     }
 
+
     /** With no orders and not selected, look for work the hive's worker settings allow. */
     private void findOwnWork(HiveHeart heart) {
-        if (heart.isUnitSelected(this.getId()) || !behavior.any()) {
+        if (heart.isUnitSelected(this.getId())) {
+            return;
+        }
+        // A grown crop in the hive area comes first, if the worker is set to harvest.
+        if (behavior.harvestCrops()) {
+            UnitAction harvest = WorkerAutoJobs.findHarvest(this, heart);
+            if (harvest != null) {
+                setAction(harvest);
+                return;
+            }
+        }
+        if (!behavior.any()) {
             return;
         }
         UnitAction job = WorkerAutoJobs.findJob(this, heart);

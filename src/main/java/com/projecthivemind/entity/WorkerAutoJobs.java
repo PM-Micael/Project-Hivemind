@@ -32,6 +32,8 @@ import net.neoforged.neoforge.common.Tags;
 public final class WorkerAutoJobs {
     /** Only the nearest few matches are looked at closely, because seeing and path-finding cost more than scanning. */
     private static final int MAX_CANDIDATES = 24;
+    /** How far above and below itself a worker looks for crops to harvest. */
+    private static final int HARVEST_HEIGHT = 6;
 
     private WorkerAutoJobs() {
     }
@@ -70,6 +72,56 @@ public final class WorkerAutoJobs {
             }
         }
         return null;
+    }
+
+    /**
+     * The nearest fully grown crop inside the hive area that the worker can get to, as a dig order, or null if none is ready.
+     * Only crops near the worker's height are looked at, as farms lie flat; the worker looks again every few seconds.
+     */
+    @Nullable
+    public static UnitAction findHarvest(HiveWorker worker, HiveHeart heart) {
+        if (!(worker.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
+        BlockPos origin = worker.blockPosition();
+        List<BlockPos> ready = new ArrayList<>();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
+            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
+                // Reading a block in an unloaded chunk would make the game load it, so never touch those.
+                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                    continue;
+                }
+                for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
+                    pos.set(x, y, z);
+                    if (isGrown(level.getBlockState(pos))) {
+                        ready.add(pos.immutable());
+                    }
+                }
+            }
+        }
+        ready.sort(Comparator.comparingDouble(crop -> crop.distSqr(origin)));
+        int checked = 0;
+        for (BlockPos crop : ready) {
+            if (checked++ >= MAX_CANDIDATES) {
+                break;
+            }
+            if (reachable(worker, crop)) {
+                return new UnitAction(UnitAction.Kind.DIG, crop);
+            }
+        }
+        return null;
+    }
+
+
+    /** True for a crop that is fully grown and ready to harvest: wheat, carrots, potatoes, beetroot, nether wart... */
+    public static boolean isGrown(BlockState state) {
+        if (state.getBlock() instanceof net.minecraft.world.level.block.CropBlock crop) {
+            return crop.isMaxAge(state);
+        }
+        return state.getBlock() instanceof net.minecraft.world.level.block.NetherWartBlock
+                && state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE) >= net.minecraft.world.level.block.NetherWartBlock.MAX_AGE;
     }
 
     /** Every block of a wanted kind inside the worker's range. Columns in chunks that are not loaded are skipped. */

@@ -15,6 +15,7 @@ import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.entity.HiveWorker;
+import com.projecthivemind.entity.WorkerAutoJobs;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHeartHealthPayload;
@@ -313,6 +314,9 @@ public final class HivemindManager {
     private static net.minecraft.network.chat.Component describeJob(ServerLevel level, HiveHeart heart, UnitAction job) {
         switch (job.kind()) {
             case DIG:
+                if (job.pos() != null && WorkerAutoJobs.isGrown(level.getBlockState(job.pos()))) {
+                    return Component.translatable("job.projecthivemind.harvest", level.getBlockState(job.pos()).getBlock().getName());
+                }
                 if (job.pos() != null) {
                     return Component.translatable("job.projecthivemind.mine", level.getBlockState(job.pos()).getBlock().getName());
                 }
