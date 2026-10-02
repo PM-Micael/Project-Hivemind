@@ -22,9 +22,10 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
     /**
      * The quest that levels a hive up. Each part is a total the hive has to reach, and a part that is 0 is not asked:
      * logs collected, chunks explored by its units, mobs its units killed, and ticks the hive has been alive for
-     * (24000 is a whole day and night).
+     * (24000 is a whole day and night), the height one of its units has to get down to ({@code reachY}, null for none), and
+     * coal and raw iron collected.
      */
-    public record Quest(int logs, int chunks, int kills, int survivalTicks) {
+    public record Quest(int logs, int chunks, int kills, int survivalTicks, @Nullable Integer reachY, int coal, int rawIron) {
     }
 
     public int cap(UnitKind kind) {

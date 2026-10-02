@@ -205,7 +205,7 @@ public final class HiveSelection {
                 PacketDistributor.sendToServer(new MobActionPayload(selected, mob.mob().getId(), MobAction.TRADE));
                 return;
             }
-            if (!selectionHas(minecraft, selected, UnitKind.SOLDIER)) {
+            if (!selectionHas(minecraft, selected, UnitKind.SOLDIER) && !selectionHas(minecraft, selected, UnitKind.SCOUT)) {
                 minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.no_soldiers"), false);
                 return;
             }
@@ -341,7 +341,7 @@ public final class HiveSelection {
             options.add(option("action.projecthivemind.walk_to", selected, pos, BlockAction.WALK_TO));
             // Digging is a worker job, interacting a worker's or a scout's: only offer what the selection can do.
             boolean hasWorker = selectionHas(minecraft, selected, UnitKind.WORKER);
-            if (hasWorker) {
+            if (hasWorker || selectionHas(minecraft, selected, UnitKind.SCOUT)) {
                 options.add(option("action.projecthivemind.dig", selected, pos, BlockAction.DIG));
             }
             // A scout opens containers (chests, furnaces, hoppers...) for the player.
@@ -358,6 +358,8 @@ public final class HiveSelection {
             // Workers can build a tower on the block: one for the single staircase, two or more for the double.
             List<Integer> builders = unitsOfKind(minecraft, selected, UnitKind.WORKER);
             if (!builders.isEmpty()) {
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.dig_staircase"),
+                        () -> minecraft.setScreen(new DigStaircaseScreen(builders, pos))));
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_tower"),
                         () -> minecraft.setScreen(new BuildTowerScreen(builders, pos))));
             }
@@ -439,10 +441,10 @@ public final class HiveSelection {
         return closest;
     }
 
-    /** The menu for a mob: Attack (soldiers only), and Cancel on a mob that units are already attacking. */
+    /** The menu for a mob: Attack (soldiers and scouts), and Cancel on a mob that units are already attacking. */
     private static void openMobMenu(Minecraft minecraft, Mob mob, List<Integer> selected) {
         boolean attacked = ClientActions.isAttacked(mob.getId());
-        boolean hasSoldier = selectionHas(minecraft, selected, UnitKind.SOLDIER);
+        boolean hasSoldier = selectionHas(minecraft, selected, UnitKind.SOLDIER) || selectionHas(minecraft, selected, UnitKind.SCOUT);
         boolean scoutCanTrade = mob instanceof AbstractVillager && selectionHas(minecraft, selected, UnitKind.SCOUT);
 
         List<ContextMenu.Option> options = new ArrayList<>();

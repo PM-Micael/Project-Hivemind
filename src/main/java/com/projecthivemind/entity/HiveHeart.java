@@ -72,6 +72,10 @@ public class HiveHeart extends Mob {
     private int hiveLevel = 1;
     /** Quest progress: the most logs the hive has held at once, up to what the quest asks. It never goes back down. */
     private int logsProgress;
+    /** Quest progress: the most coal and raw iron the hive has held at once (up to what the quest asks), and the lowest height a unit has been at. */
+    private int coalProgress;
+    private int ironProgress;
+    private int lowestY = Integer.MAX_VALUE;
     /** Quest progress: mobs the hive's units have killed. */
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
@@ -357,6 +361,31 @@ public class HiveHeart extends Mob {
         this.logsProgress = logs;
     }
 
+    public int coalProgress() {
+        return coalProgress;
+    }
+
+    public void setCoalProgress(int coal) {
+        this.coalProgress = coal;
+    }
+
+    public int ironProgress() {
+        return ironProgress;
+    }
+
+    public void setIronProgress(int iron) {
+        this.ironProgress = iron;
+    }
+
+    /** The lowest block height one of the hive's units has stood at, or Integer.MAX_VALUE if none has been counted. */
+    public int lowestY() {
+        return lowestY;
+    }
+
+    public void setLowestY(int y) {
+        this.lowestY = y;
+    }
+
     public int kills() {
         return kills;
     }
@@ -555,6 +584,9 @@ public class HiveHeart extends Mob {
         }
         tag.putInt(LEVEL_TAG, hiveLevel);
         tag.putInt(LOGS_TAG, logsProgress);
+        tag.putInt("QuestCoal", coalProgress);
+        tag.putInt("QuestIron", ironProgress);
+        tag.putInt("QuestLowestY", lowestY);
         tag.putInt(KILLS_TAG, kills);
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
@@ -583,6 +615,9 @@ public class HiveHeart extends Mob {
             hiveLevel = HiveLevels.get(tag.getInt(LEVEL_TAG)).level();
         }
         logsProgress = tag.getInt(LOGS_TAG);
+        coalProgress = tag.getInt("QuestCoal");
+        ironProgress = tag.getInt("QuestIron");
+        lowestY = tag.contains("QuestLowestY") ? tag.getInt("QuestLowestY") : Integer.MAX_VALUE;
         kills = tag.getInt(KILLS_TAG);
         ageTicks = tag.getInt(AGE_TAG);
         food.load(tag);

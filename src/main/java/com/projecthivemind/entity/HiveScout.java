@@ -47,6 +47,8 @@ public class HiveScout extends Husk implements HiveUnit {
     @Nullable
     private UnitAction action;
     /** This unit's own settings, edited from the hive menu's page for its kind. */
+    /** Whether the scout had something in hand on the last tick: an empty hand after that means the tool broke. */
+    private boolean wasHolding;
     private ScoutBehavior behavior = ScoutBehavior.DEFAULT;
     private final SpeedProbe speedProbe = new SpeedProbe("scout");
 
@@ -83,10 +85,14 @@ public class HiveScout extends Husk implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        // The last thing a unit does: when idle and set to, walk about inside the border.
+        this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         // Running away comes before collecting items, so it can interrupt a trip to an item.
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
         this.goalSelector.addGoal(1, new ScoutInteractGoal(this));
         this.goalSelector.addGoal(1, new ScoutUseItemGoal(this));
+        this.goalSelector.addGoal(1, new WorkerDigGoal(this));
+        this.goalSelector.addGoal(1, new ScoutAttackGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
     }
 
@@ -113,6 +119,19 @@ public class HiveScout extends Husk implements HiveUnit {
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
         // one that is not selected walks to items and takes them on arrival.
         HiveHeart heart = findHeart();
+        if (heart != null) {
+            // Wear on the tool in hand is charged to the one in the hive's hand slot, which the hand is only a copy of; and a tool
+            // that broke in the hand is gone from the slot. Without this the copy is simply replaced by the unworn original.
+            ItemStack held = this.getMainHandItem();
+            ItemStack slot = heart.scoutHand().getItem(0);
+            if (held.isEmpty() && wasHolding && slot.isDamageableItem()) {
+                heart.scoutHand().setItem(0, ItemStack.EMPTY);
+            } else if (!held.isEmpty() && ItemStack.isSameItem(held, slot) && held.getDamageValue() > slot.getDamageValue()) {
+                slot.setDamageValue(held.getDamageValue());
+                heart.scoutHand().setChanged();
+            }
+            wasHolding = !held.isEmpty();
+        }
         if (heart != null && this.tickCount % 10 == 0) {
             // The scout holds a copy of what is in its hand slot in the hive menu.
             ItemStack wanted = heart.scoutHand().getItem(0);

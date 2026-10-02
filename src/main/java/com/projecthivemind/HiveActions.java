@@ -20,6 +20,9 @@ import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
 import com.projecthivemind.network.BuildTowerPayload;
+import com.projecthivemind.network.DigStaircasePayload;
+import com.projecthivemind.build.StairDig;
+import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.network.DropItemPayload;
 import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.network.MobActionPayload;
@@ -27,6 +30,7 @@ import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -98,12 +102,15 @@ public final class HiveActions {
     }
 
     /**
-     * Workers dig the block. If none of the hive's tools can harvest it, the player is asked first (once); digging
+     * Workers and scouts dig the block. If none of the hive's tools can harvest it, the player is asked first (once); digging
      * anyway still breaks the block, it just drops nothing.
      */
     private static void dig(ServerPlayer player, ServerLevel level, HiveHeart heart, List<Integer> ids, BlockPos pos, boolean confirmed) {
         List<Mob> workers = commandable(player, level, ids, UnitKind.WORKER);
-        if (workers.isEmpty()) {
+        // Scouts dig too, with whatever they hold: they do not use the hive's tools.
+        List<Mob> diggers = new ArrayList<>(workers);
+        diggers.addAll(commandable(player, level, ids, UnitKind.SCOUT));
+        if (diggers.isEmpty()) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
             return;
         }
@@ -112,11 +119,11 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_dig"), true);
             return;
         }
-        if (!confirmed && !toolsCanHarvest(heart, state)) {
+        if (!confirmed && !workers.isEmpty() && !toolsCanHarvest(heart, state)) {
             PacketDistributor.sendToPlayer(player, new WeakToolPayload(ids, pos));
             return;
         }
-        for (Mob worker : workers) {
+        for (Mob worker : diggers) {
             worker.getNavigation().stop();
             ((HiveUnit) worker).setAction(new UnitAction(UnitAction.Kind.DIG, pos));
         }
@@ -153,6 +160,33 @@ public final class HiveActions {
     }
 
     // ---- building a tower ----
+
+    /**
+     * Workers dig a classic staircase down from the block, one block down for every block forward, until it reaches the stop height.
+     * They carry on with it whenever they are idle and not selected, and it is the same staircase for every worker given it.
+     */
+    public static void digStaircase(ServerPlayer player, DigStaircasePayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos start = request.pos();
+        if (!level.isInWorldBounds(start)) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        int stopY = Math.max(level.getMinBuildHeight() + 1, Math.min(request.stopY(), start.getY()));
+        StairDig stairs = new StairDig(start.immutable(), Direction.from2DDataValue(request.direction() & 3), stopY, request.torches());
+        for (Mob worker : workers) {
+            worker.getNavigation().stop();
+            ((HiveWorker) worker).setStaircase(stairs);
+            ((HiveUnit) worker).setAction(null);
+        }
+    }
 
     /**
      * Two or more workers build a tower on the block. The order is checked here: enough workers, a real height, a site
@@ -200,7 +234,7 @@ public final class HiveActions {
         Vec3 site = Vec3.atCenterOf(clicked);
         workers = workers.stream().sorted(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(site)))
                 .limit(shape.maxWorkers()).toList();
-        TowerPlan plan = new TowerPlan(clicked, shape, direction, height, request.walls());
+        TowerPlan plan = new TowerPlan(clicked, shape, direction, height, request.walls(), request.torches());
         // Only the bits of the materials that exist count; with none left there is nothing to build from.
         int materials = request.materials() & ((1 << TowerMaterial.values().length) - 1);
         Optional<TowerSet> set = materials == 0 ? Optional.empty()
@@ -323,7 +357,7 @@ public final class HiveActions {
     }
 
     /**
-     * Soldiers attack the mob and keep at it until it dies or the order is cancelled. Your own units and Hive Hearts
+     * Soldiers and scouts attack the mob and keep at it until it dies or the order is cancelled. Your own units and Hive Hearts
      * are not valid targets.
      */
     private static void attack(ServerPlayer player, ServerLevel level, List<Integer> ids, Mob target) {
@@ -332,6 +366,7 @@ public final class HiveActions {
             return;
         }
         List<Mob> soldiers = commandable(player, level, ids, UnitKind.SOLDIER);
+        soldiers.addAll(commandable(player, level, ids, UnitKind.SCOUT));
         if (soldiers.isEmpty()) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.no_soldiers"), true);
             return;

@@ -314,7 +314,7 @@ public final class HivemindManager {
     private static net.minecraft.network.chat.Component describeJob(ServerLevel level, HiveHeart heart, UnitAction job) {
         switch (job.kind()) {
             case DIG:
-                if (job.pos() != null && WorkerAutoJobs.isGrown(level.getBlockState(job.pos()))) {
+                if (job.pos() != null && WorkerAutoJobs.isHarvestable(level.getBlockState(job.pos()))) {
                     return Component.translatable("job.projecthivemind.harvest", level.getBlockState(job.pos()).getBlock().getName());
                 }
                 if (job.pos() != null) {
@@ -362,6 +362,17 @@ public final class HivemindManager {
         }
     }
 
+    /** The player chose the block one of their workers fills gaps in the ground with (empty for none). */
+    public static void setWorkerFill(ServerPlayer player, int unitId, String item) {
+        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+                || !player.getUUID().equals(worker.ownerId())) {
+            return;
+        }
+        ResourceLocation id = item.isEmpty() ? null : ResourceLocation.tryParse(item);
+        worker.setFillItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        sendUnits(player);
+    }
+
     /** A collector's planting tasks, for the unit pages; everything else has none. */
     private static SyncUnitsPayload.Task taskOf(Mob mob) {
         if (mob instanceof HiveCollector collector) {
@@ -369,6 +380,10 @@ public final class HivemindManager {
                     List.copyOf(collector.task(HiveCollector.PlantKind.CROP).spots()),
                     itemName(collector.task(HiveCollector.PlantKind.SAPLING).item()),
                     List.copyOf(collector.task(HiveCollector.PlantKind.SAPLING).spots()));
+        }
+        if (mob instanceof HiveWorker worker) {
+            // A worker has one thing of the kind: the block it fills gaps with, carried where a collector's seed goes.
+            return new SyncUnitsPayload.Task(itemName(worker.fillItem()), List.of(), "", List.of());
         }
         return SyncUnitsPayload.Task.NONE;
     }
@@ -490,6 +505,11 @@ public final class HivemindManager {
         Mob oldest = oldestOutOfDate(owner, heart, kind);
         if (oldest != null) {
             // The hive itself is ending this unit, to make a new one with the new gear: that costs the Heart nothing.
+            // The new unit takes over the old one's settings, so the player does not have to set it up again.
+            HiveUnit old = (HiveUnit) oldest;
+            int inheritedFlags = old.behaviorFlags();
+            int[] inheritedRadii = old.behaviorRadii();
+            net.minecraft.world.item.Item inheritedFill = old instanceof HiveWorker oldWorker ? oldWorker.fillItem() : null;
             replacingUnit = true;
             try {
                 oldest.kill();
@@ -498,7 +518,7 @@ public final class HivemindManager {
             }
             // The kill frees the slot through the normal death handling; only replace it if that happened.
             if (get(owner).count(kind) < cap) {
-                createUnit(owner, heart, kind);
+                createUnit(owner, heart, kind, inheritedFlags, inheritedRadii, inheritedFill);
             }
         }
     }
@@ -543,6 +563,11 @@ public final class HivemindManager {
 
     /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
     private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
+        createUnit(player, heart, kind, -1, null, null);
+    }
+
+    /** As above; with {@code inheritedRadii} given, the new unit starts with those settings (a replacement keeps its predecessor's). */
+    private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind, int inheritedFlags, @Nullable int[] inheritedRadii, @Nullable net.minecraft.world.item.Item inheritedFill) {
         ServerLevel level = (ServerLevel) heart.level();
 
         // Stand each kind on a different side of the heart.
@@ -560,6 +585,12 @@ public final class HivemindManager {
         }
         ((HiveUnit) unit).setOwnerId(player.getUUID());
         ((HiveUnit) unit).setGearVersion(heart.gearVersionFor(kind));
+        if (inheritedRadii != null) {
+            ((HiveUnit) unit).setBehavior(inheritedFlags, inheritedRadii);
+            if (unit instanceof HiveWorker newWorker) {
+                newWorker.setFillItem(inheritedFill);
+            }
+        }
         if (unit instanceof HiveCollector collector) {
             collector.setHeartId(heart.getUUID());
         } else if (unit instanceof HiveSoldier soldier) {
@@ -577,7 +608,10 @@ public final class HivemindManager {
         level.addFreshEntity(unit);
 
         // Summoning a unit costs the hive 2 saturation (a saturation point is 4 exhaustion, as in the game's own food).
-        heart.food().payForUnit();
+        // A replacement (the hive ended the old unit itself, for new gear) costs nothing.
+        if (inheritedRadii == null) {
+            heart.food().payForUnit();
+        }
         set(player, get(player).withUnit(kind, unit.getUUID()));
         sync(player);
     }
@@ -641,7 +675,6 @@ public final class HivemindManager {
      * spectator mode, and the bodyless hivemind always is, so without this the world would go quiet: no hostile mobs
      * to fight (or to survive a night against), no animals. This runs the game's own spawning, with its own rules,
      * caps and light levels, on the chunks within 128 blocks of the camera, once a tick like the game does.
-     * (Spawns inside the hive area are still refused, see CommonEvents.)
      */
     public static void tickNaturalSpawning(HiveHeart heart) {
         if (heart.ownerId() == null || heart.getServer() == null || !(heart.level() instanceof ServerLevel level)) {
@@ -659,20 +692,32 @@ public final class HivemindManager {
             return;
         }
 
-        ChunkPos center = owner.chunkPosition();
+        // Spawning takes place around the camera and around every unit of the hive, as the game does it around every player:
+        // a unit out exploring at night meets the dark's mobs too, not just whatever is near the camera.
+        List<Vec3> centers = new ArrayList<>();
+        centers.add(owner.position());
+        for (UUID id : get(owner).allUnits()) {
+            if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
+                centers.add(unit.position());
+            }
+        }
+        java.util.Set<Long> seen = new java.util.HashSet<>();
         List<LevelChunk> chunks = new ArrayList<>();
-        for (int dx = -SPAWN_CHUNK_RADIUS; dx <= SPAWN_CHUNK_RADIUS; dx++) {
-            for (int dz = -SPAWN_CHUNK_RADIUS; dz <= SPAWN_CHUNK_RADIUS; dz++) {
-                ChunkPos pos = new ChunkPos(center.x + dx, center.z + dz);
-                double distanceX = pos.getMiddleBlockX() - owner.getX();
-                double distanceZ = pos.getMiddleBlockZ() - owner.getZ();
-                if (distanceX * distanceX + distanceZ * distanceZ >= SPAWN_DISTANCE_SQR) {
-                    continue;
-                }
-                LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
-                if (chunk != null && chunk.getFullStatus() == FullChunkStatus.ENTITY_TICKING
-                        && level.isNaturalSpawningAllowed(pos) && level.getWorldBorder().isWithinBounds(pos)) {
-                    chunks.add(chunk);
+        for (Vec3 around : centers) {
+            ChunkPos center = new ChunkPos(Mth.floor(around.x) >> 4, Mth.floor(around.z) >> 4);
+            for (int dx = -SPAWN_CHUNK_RADIUS; dx <= SPAWN_CHUNK_RADIUS; dx++) {
+                for (int dz = -SPAWN_CHUNK_RADIUS; dz <= SPAWN_CHUNK_RADIUS; dz++) {
+                    ChunkPos pos = new ChunkPos(center.x + dx, center.z + dz);
+                    double distanceX = pos.getMiddleBlockX() - around.x;
+                    double distanceZ = pos.getMiddleBlockZ() - around.z;
+                    if (distanceX * distanceX + distanceZ * distanceZ >= SPAWN_DISTANCE_SQR || !seen.add(pos.toLong())) {
+                        continue;
+                    }
+                    LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
+                    if (chunk != null && chunk.getFullStatus() == FullChunkStatus.ENTITY_TICKING
+                            && level.isNaturalSpawningAllowed(pos) && level.getWorldBorder().isWithinBounds(pos)) {
+                        chunks.add(chunk);
+                    }
                 }
             }
         }
@@ -683,16 +728,43 @@ public final class HivemindManager {
 
         // The game's own per-player mob cap says "no" when no player is close enough, which is always so for a
         // spectator. So the caps are worked out here instead: the same totals, counted over the whole world.
+        // The game also removes mobs that are far from every player, so they do not pile up. With only a spectator in the
+        // world it never does (it looks for players who are not spectators), so without this the caps fill up with mobs that
+        // were left behind in caves and far corners, and nothing new can spawn where it matters. Same rules as the game's:
+        // beyond 128 blocks from the camera and every unit a mob goes at once; beyond 32 it may go after 30 quiet seconds.
+        // Only mobs within range count toward the caps, as in the game.
         Object2IntOpenHashMap<MobCategory> counts = new Object2IntOpenHashMap<>();
+        // Mobs to remove are only collected here: removing one while the world's entity list is being walked corrupts the walk.
+        List<Mob> toRemove = new ArrayList<>();
         for (Entity entity : level.getAllEntities()) {
+            if (entity == null) {
+                continue;
+            }
             if (entity instanceof Mob mob && (mob.isPersistenceRequired() || mob.requiresCustomPersistence())) {
                 continue;
+            }
+            if (entity instanceof Mob mob) {
+                double nearest = Double.MAX_VALUE;
+                for (Vec3 around : centers) {
+                    nearest = Math.min(nearest, mob.position().distanceToSqr(around));
+                }
+                if (mob.removeWhenFarAway(nearest)) {
+                    if (nearest > 128.0D * 128.0D
+                            || (nearest > 32.0D * 32.0D && mob.getNoActionTime() > 600 && level.random.nextInt(800) == 0)) {
+                        toRemove.add(mob);
+                        continue;
+                    }
+                }
+                if (nearest > SPAWN_DISTANCE_SQR) {
+                    continue;
+                }
             }
             MobCategory category = entity.getType().getCategory();
             if (category != MobCategory.MISC) {
                 counts.addTo(category, 1);
             }
         }
+        toRemove.forEach(Mob::discard);
         // Passive animals and the like only get their turn every 20 seconds, as in the game.
         boolean persistent = level.getGameTime() % 400L == 0L;
         Util.shuffle(chunks, level.random);
@@ -760,13 +832,22 @@ public final class HivemindManager {
         heart.addAge(HiveHeart.QUEST_INTERVAL_TICKS);
 
         int logs = 0;
+        int coal = 0;
+        int rawIron = 0;
         for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
             ItemStack stack = heart.getStorage().getItem(i);
+            if (stack.is(net.minecraft.world.item.Items.COAL)) {
+                coal += stack.getCount();
+            } else if (stack.is(net.minecraft.world.item.Items.RAW_IRON)) {
+                rawIron += stack.getCount();
+            }
             if (stack.is(ItemTags.LOGS)) {
                 logs += stack.getCount();
             }
         }
         heart.setLogsProgress(Math.max(heart.logsProgress(), Math.min(logs, quest.logs())));
+        heart.setCoalProgress(Math.max(heart.coalProgress(), Math.min(coal, quest.coal())));
+        heart.setIronProgress(Math.max(heart.ironProgress(), Math.min(rawIron, quest.rawIron())));
 
         AABB area = HiveArea.areaBox(level, heart);
         int areaMinX = Mth.floor(area.minX) >> 4;
@@ -775,6 +856,7 @@ public final class HivemindManager {
         int areaMaxZ = Mth.floor(area.maxZ - 1.0E-4D) >> 4;
         for (UUID id : get(owner).allUnits()) {
             if (level.getEntity(id) instanceof Mob unit && unit.isAlive()) {
+                heart.setLowestY(Math.min(heart.lowestY(), Mth.floor(unit.getY())));
                 ChunkPos chunk = unit.chunkPosition();
                 boolean inHiveArea = chunk.x >= areaMinX && chunk.x <= areaMaxX && chunk.z >= areaMinZ && chunk.z <= areaMaxZ;
                 if (!inHiveArea) {
@@ -784,7 +866,9 @@ public final class HivemindManager {
         }
 
         if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()
-                && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()) {
+                && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()
+                && heart.coalProgress() >= quest.coal() && heart.ironProgress() >= quest.rawIron()
+                && (quest.reachY() == null || heart.lowestY() <= quest.reachY())) {
             levelUp(heart, owner);
         }
     }

@@ -26,6 +26,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -89,6 +90,7 @@ public final class TowerBuild {
         tag.putInt("Direction", plan.direction().ordinal());
         tag.putInt("Height", plan.height());
         tag.putBoolean("Walls", plan.walls());
+        tag.putBoolean("Torches", plan.torches());
         tag.put("WallItems", itemNames(set.walls()));
         tag.put("StairItems", itemNames(set.stairs()));
         return tag;
@@ -121,7 +123,7 @@ public final class TowerBuild {
             return null;
         }
         TowerPlan plan = new TowerPlan(pos, TowerShape.byIndex(tag.getInt("Shape")), TowerDirection.byIndex(tag.getInt("Direction")),
-                tag.getInt("Height"), tag.getBoolean("Walls"));
+                tag.getInt("Height"), tag.getBoolean("Walls"), tag.getBoolean("Torches"));
         List<Item> walls = items(tag.getList("WallItems", Tag.TAG_STRING));
         List<Item> stairs = items(tag.getList("StairItems", Tag.TAG_STRING));
         return walls.isEmpty() || stairs.isEmpty() ? null : new TowerBuild(plan, new TowerSet(walls, stairs));
@@ -143,6 +145,10 @@ public final class TowerBuild {
         BlockState state = level.getBlockState(placement.pos());
         if (placement.dig()) {
             return state.isAir() || state.canBeReplaced();
+        }
+        if (placement.torch()) {
+            // Done once there is anything in the cell: the torch, or something that took its place.
+            return !state.isAir();
         }
         if (placement.stair()) {
             return state.getBlock() instanceof StairBlock && state.getValue(StairBlock.FACING) == placement.facing();
@@ -203,6 +209,11 @@ public final class TowerBuild {
             if (claim != null && !claim.worker().equals(worker.getUUID())) {
                 continue;
             }
+            // A torch waits for the wall it goes on.
+            if (placement.torch() && !level.getBlockState(placement.pos().relative(placement.facing().getOpposite()))
+                    .isFaceSturdy(level, placement.pos().relative(placement.facing().getOpposite()), placement.facing())) {
+                continue;
+            }
             // Not a block the worker is standing in.
             if (new AABB(placement.pos()).intersects(workerBox)) {
                 continue;
@@ -254,16 +265,33 @@ public final class TowerBuild {
     public Result place(ServerLevel level, HiveHeart heart, Mob worker, TowerPlan.Placement placement) {
         BlockPos pos = placement.pos();
         if (placement.dig()) {
-            // Digging needs no material: the block is broken, and its drops are left for the collectors.
+            // Digging needs no material: the block is broken, and its drops go into the hive.
             BlockState existing = level.getBlockState(pos);
             if (!existing.isAir() && !existing.canBeReplaced()) {
                 if (existing.getDestroySpeed(level, pos) < 0.0F || existing.hasBlockEntity()) {
                     skipped.add(pos);
                     return Result.SKIPPED;
                 }
-                level.destroyBlock(pos, true, worker);
+                // What a shaft's digging breaks goes into the hive's inventory.
+                com.projecthivemind.entity.HiveDrops.store(level, heart, pos, existing, level.getBlockEntity(pos), worker, net.minecraft.world.item.ItemStack.EMPTY);
+                level.destroyBlock(pos, false, worker);
                 heart.food().exhaust(com.projecthivemind.HiveFood.BREAK_BLOCK);
             }
+            worker.swing(InteractionHand.MAIN_HAND);
+            claims.remove(pos);
+            return Result.PLACED;
+        }
+        if (placement.torch()) {
+            // A torch comes from the hive's torches, not from what the tower is made of; with none it is left out.
+            BlockState torch = net.minecraft.world.level.block.Blocks.WALL_TORCH.defaultBlockState()
+                    .setValue(net.minecraft.world.level.block.WallTorchBlock.FACING, placement.facing());
+            if (heart.getStorage().countItem(Items.TORCH) <= 0 || !level.getBlockState(pos).isAir() || !torch.canSurvive(level, pos)) {
+                skipped.add(pos);
+                return Result.SKIPPED;
+            }
+            heart.getStorage().removeItemType(Items.TORCH, 1);
+            level.setBlock(pos, torch, Block.UPDATE_ALL);
+            level.playSound(null, pos, torch.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 1.0F, 0.8F);
             worker.swing(InteractionHand.MAIN_HAND);
             claims.remove(pos);
             return Result.PLACED;

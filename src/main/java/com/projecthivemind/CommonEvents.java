@@ -22,6 +22,7 @@ import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.BuildTowerPayload;
+import com.projecthivemind.network.DigStaircasePayload;
 import com.projecthivemind.network.OpenBookPayload;
 import com.projecthivemind.network.OpenSignPayload;
 import com.projecthivemind.network.CancelJobPayload;
@@ -32,6 +33,7 @@ import com.projecthivemind.network.SetJobResumePayload;
 import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.ViewUnitPayload;
 import com.projecthivemind.network.SetCollectorTaskPayload;
+import com.projecthivemind.network.SetWorkerFillPayload;
 import com.projecthivemind.network.SetUnitBehaviorPayload;
 import com.projecthivemind.network.SignTextPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
@@ -47,7 +49,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -55,7 +56,6 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
-import net.neoforged.neoforge.event.entity.living.MobSpawnEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -63,14 +63,6 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 @EventBusSubscriber(modid = ProjectHivemind.MODID)
 public final class CommonEvents {
-    /** Spawns the infection stops. Commands, spawn eggs and the like still work, so builders can place mobs on purpose. */
-    private static final Set<MobSpawnType> BLOCKED_SPAWNS = Set.of(
-            MobSpawnType.NATURAL,
-            MobSpawnType.CHUNK_GENERATION,
-            MobSpawnType.SPAWNER,
-            MobSpawnType.PATROL,
-            MobSpawnType.REINFORCEMENT);
-
     private CommonEvents() {
     }
 
@@ -87,6 +79,7 @@ public final class CommonEvents {
         registrar.playToServer(SetMenuViewPayload.TYPE, SetMenuViewPayload.STREAM_CODEC, ServerPayloads::onSetMenuView);
         registrar.playToServer(FocusUnitPayload.TYPE, FocusUnitPayload.STREAM_CODEC, ServerPayloads::onFocusUnit);
         registrar.playToServer(DropItemPayload.TYPE, DropItemPayload.STREAM_CODEC, ServerPayloads::onDropItem);
+        registrar.playToServer(SetWorkerFillPayload.TYPE, SetWorkerFillPayload.STREAM_CODEC, ServerPayloads::onSetWorkerFill);
         registrar.playToServer(SetCollectorTaskPayload.TYPE, SetCollectorTaskPayload.STREAM_CODEC, ServerPayloads::onSetCollectorTask);
         registrar.playToServer(SetUnitBehaviorPayload.TYPE, SetUnitBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetUnitBehavior);
         registrar.playToServer(CancelJobPayload.TYPE, CancelJobPayload.STREAM_CODEC, ServerPayloads::onCancelJob);
@@ -97,6 +90,7 @@ public final class CommonEvents {
         registrar.playToServer(SignTextPayload.TYPE, SignTextPayload.STREAM_CODEC, ServerPayloads::onSignText);
         registrar.playToClient(OpenBookPayload.TYPE, OpenBookPayload.STREAM_CODEC, ClientPayloads::onOpenBook);
         registrar.playToClient(OpenSignPayload.TYPE, OpenSignPayload.STREAM_CODEC, ClientPayloads::onOpenSign);
+        registrar.playToServer(DigStaircasePayload.TYPE, DigStaircasePayload.STREAM_CODEC, ServerPayloads::onDigStaircase);
         registrar.playToServer(BuildTowerPayload.TYPE, BuildTowerPayload.STREAM_CODEC, ServerPayloads::onBuildTower);
         registrar.playToServer(ScrollStoragePayload.TYPE, ScrollStoragePayload.STREAM_CODEC, ServerPayloads::onScrollStorage);
         registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
@@ -160,13 +154,6 @@ public final class CommonEvents {
         }
     }
 
-    /** Nothing spawns inside an infected area. */
-    @SubscribeEvent
-    static void onSpawnPlacementCheck(MobSpawnEvent.SpawnPlacementCheck event) {
-        if (BLOCKED_SPAWNS.contains(event.getSpawnType()) && HiveArea.contains(event.getLevel(), event.getPos())) {
-            event.setResult(MobSpawnEvent.SpawnPlacementCheck.Result.FAIL);
-        }
-    }
 
 
     /** A hive unit or the Heart took a hit: it costs the hive what it costs a player. */

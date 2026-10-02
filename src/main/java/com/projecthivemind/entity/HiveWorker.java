@@ -41,6 +41,69 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Nullable
     private UnitAction job;
     private boolean resumeJob = true;
+    /** The block this worker fills gaps in the ground with, when set to flatten it. Chosen in the hive menu; saved. */
+    @Nullable
+    private net.minecraft.world.item.Item fillItem;
+
+    @Nullable
+    public net.minecraft.world.item.Item fillItem() {
+        return fillItem;
+    }
+
+    /** Choose the fill block: an item that is not a plain solid block clears the choice instead. */
+    public void setFillItem(@Nullable net.minecraft.world.item.Item item) {
+        this.fillItem = item != null && fillBlock(item) != null ? item : null;
+    }
+
+    /**
+     * The block this item places as a fill: a plain full block with nothing special about it. Nothing that falls, holds items or
+     * is a block entity, so a gap filled with it stays filled and a worker can place it with no more than its own hands.
+     */
+    @Nullable
+    public static net.minecraft.world.level.block.Block fillBlock(net.minecraft.world.item.Item item) {
+        if (!(item instanceof net.minecraft.world.item.BlockItem blockItem)) {
+            return null;
+        }
+        net.minecraft.world.level.block.Block block = blockItem.getBlock();
+        net.minecraft.world.level.block.state.BlockState state = block.defaultBlockState();
+        boolean plain = !(block instanceof net.minecraft.world.level.block.EntityBlock)
+                && !(block instanceof net.minecraft.world.level.block.FallingBlock)
+                && state.isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, BlockPos.ZERO)
+                && state.getFluidState().isEmpty();
+        return plain ? block : null;
+    }
+
+    /** Take a torch from the hive and stand it at the spot; false if the hive has none or it cannot stand there. */
+    private boolean placeTorch(HiveHeart heart, net.minecraft.core.BlockPos pos) {
+        net.minecraft.world.level.block.state.BlockState torch = net.minecraft.world.level.block.Blocks.TORCH.defaultBlockState();
+        if (!torch.canSurvive(this.level(), pos) || heart.getStorage().countItem(net.minecraft.world.item.Items.TORCH) <= 0) {
+            return false;
+        }
+        heart.getStorage().removeItemType(net.minecraft.world.item.Items.TORCH, 1);
+        this.level().setBlock(pos, torch, net.minecraft.world.level.block.Block.UPDATE_ALL);
+        this.level().playSound(null, pos, torch.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 0.8F);
+        this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        return true;
+    }
+
+    /** The staircase this worker is digging down, if it was given one. Saved. */
+    @Nullable
+    private com.projecthivemind.build.StairDig staircase;
+    private int nextStairScan;
+    /** The dig order the staircase last gave this worker, so the digging goal can tell a staircase block from any other. */
+    @Nullable
+    private UnitAction stairAction;
+
+    /** True while the worker is on a block of its staircase: what it breaks goes into the hive. */
+    public boolean onStaircase() {
+        return staircase != null && stairAction != null && stairAction.equals(action);
+    }
+
+    public void setStaircase(@Nullable com.projecthivemind.build.StairDig staircase) {
+        this.staircase = staircase;
+        this.nextStairScan = 0;
+    }
+
     /** This unit's own settings, edited from the hive menu's page for its kind. */
     private WorkerBehavior behavior = WorkerBehavior.DEFAULT;
     private int gearVersion;
@@ -62,9 +125,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        // The last thing a unit does: when idle and set to, walk about inside the border.
+        this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new InteractBlockGoal(this));
         this.goalSelector.addGoal(1, new WorkerBuildGoal(this));
+        this.goalSelector.addGoal(1, new WorkerFillGoal(this));
     }
 
     public void setHeartId(@Nullable UUID heartId) {
@@ -107,6 +173,41 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 action = null;
             }
             resumeJobIfFree(heart);
+            // A staircase being dug is carried on, one block at a time, whenever the worker is free; it comes before its own work.
+            if (action == null && staircase != null && heart != null && !heart.isUnitSelected(this.getId()) && this.tickCount >= nextStairScan) {
+                nextStairScan = this.tickCount + 10;
+                // Nowhere to stand (the staircase broke into a cave): cobblestone from the hive goes under the step, to keep the formation.
+                net.minecraft.core.BlockPos hole = staircase.nextFill((net.minecraft.server.level.ServerLevel) this.level());
+                if (hole != null && heart.getStorage().countItem(net.minecraft.world.item.Items.COBBLESTONE) > 0) {
+                    net.minecraft.core.BlockPos under = hole.below();
+                    if (WorkerDigGoal.inDigReach(this, under)) {
+                        heart.getStorage().removeItemType(net.minecraft.world.item.Items.COBBLESTONE, 1);
+                        net.minecraft.world.level.block.state.BlockState cobble = net.minecraft.world.level.block.Blocks.COBBLESTONE.defaultBlockState();
+                        this.level().setBlock(under, cobble, net.minecraft.world.level.block.Block.UPDATE_ALL);
+                        this.level().playSound(null, under, cobble.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 0.8F);
+                        this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                    } else {
+                        // Go to the step before, which has ground, to reach it.
+                        net.minecraft.core.BlockPos before = hole.relative(staircase.direction().getOpposite()).above();
+                        this.getNavigation().moveTo(before.getX() + 0.5D, before.getY(), before.getZ() + 0.5D, 1.0D);
+                    }
+                    nextStairScan = this.tickCount + 5;
+                    return;
+                }
+                // A torch on the way first, if the staircase is to have them, there is one in the hive, and the spot is in reach.
+                net.minecraft.core.BlockPos torch = staircase.torches() ? staircase.nextTorch((net.minecraft.server.level.ServerLevel) this.level()) : null;
+                if (torch != null && WorkerDigGoal.inDigReach(this, torch) && placeTorch(heart, torch)) {
+                    nextStairScan = this.tickCount + 5;
+                    return;
+                }
+                UnitAction next = staircase.nextDig((net.minecraft.server.level.ServerLevel) this.level());
+                if (next == null) {
+                    staircase = null;
+                } else {
+                    stairAction = next;
+                    setAction(next);
+                }
+            }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
             if (action == null && heart != null && this.tickCount >= nextJobScan) {
                 nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
@@ -122,7 +223,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             return;
         }
         // A grown crop in the hive area comes first, if the worker is set to harvest.
-        if (behavior.harvestCrops()) {
+        if (behavior.harvestCrops() || behavior.clearPlants()) {
             UnitAction harvest = WorkerAutoJobs.findHarvest(this, heart);
             if (harvest != null) {
                 setAction(harvest);
@@ -234,6 +335,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     @Override
     public void cancelJob() {
+        staircase = null;
         UnitAction ended = job;
         job = null;
         if (ended != null && ended.equals(action)) {
@@ -268,6 +370,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             tag.putBoolean("JobActive", job.equals(action));
         }
         tag.putBoolean("ResumeJob", resumeJob);
+        if (staircase != null) {
+            tag.put("Staircase", staircase.save());
+        }
+        if (fillItem != null) {
+            tag.putString("FillItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(fillItem).toString());
+        }
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -280,6 +388,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         loadOwner(tag);
         job = tag.contains("Job") ? UnitAction.load(tag.getCompound("Job")) : null;
         resumeJob = !tag.contains("ResumeJob") || tag.getBoolean("ResumeJob");
+        staircase = tag.contains("Staircase") ? com.projecthivemind.build.StairDig.load(tag.getCompound("Staircase")) : null;
+        net.minecraft.resources.ResourceLocation fillId = tag.contains("FillItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("FillItem")) : null;
+        setFillItem(fillId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(fillId).orElse(null));
         if (job != null && tag.getBoolean("JobActive")) {
             action = job;
         }

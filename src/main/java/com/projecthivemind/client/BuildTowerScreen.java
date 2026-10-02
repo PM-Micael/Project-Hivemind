@@ -23,7 +23,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 public class BuildTowerScreen extends Screen {
     private static final int WIDTH = 300;
-    private static final int HEIGHT = 258;
+    private static final int HEIGHT = 284;
     private static final int ROW = 32;
 
     private final List<Integer> workers;
@@ -34,6 +34,8 @@ public class BuildTowerScreen extends Screen {
     private int materials = TowerSet.bit(TowerMaterial.WOOD);
     private int heightIndex = 1;
     private boolean walls = true;
+    private boolean torches;
+    private Button torchesButton;
     private final Button[] directionButtons = new Button[TowerDirection.values().length];
     private final Button[] shapeButtons = new Button[TowerShape.values().length];
     private final Button[] materialButtons = new Button[TowerMaterial.values().length];
@@ -104,14 +106,22 @@ public class BuildTowerScreen extends Screen {
             refresh();
         }).bounds(left + 16 + halfWidth, rowY(4), halfWidth, 20).build());
 
+        torchesButton = addRenderableWidget(Button.builder(torchesLabel(), button -> {
+            torches = !torches;
+            button.setMessage(torchesLabel());
+        }).bounds(left + 12, rowY(4) + 24, WIDTH - 24, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.build"), button -> {
             PacketDistributor.sendToServer(new BuildTowerPayload(workers, pos, materials, TowerPlan.HEIGHTS[heightIndex],
-                    BuildTowerPayload.pack(walls, direction, shape)));
+                    BuildTowerPayload.pack(walls, direction, shape, torches)));
             onClose();
         }).bounds(left + 12, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.cancel"), button -> onClose())
                 .bounds(left + 16 + (WIDTH - 28) / 2, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());
         refresh();
+    }
+
+    private Component torchesLabel() {
+        return Component.translatable(torches ? "screen.projecthivemind.tower.torches_on" : "screen.projecthivemind.tower.torches_off");
     }
 
     /** A material's button text: its name, marked when it is picked. */
@@ -159,9 +169,9 @@ public class BuildTowerScreen extends Screen {
         Component needs = direction == TowerDirection.DOWN.ordinal()
                 ? Component.translatable("screen.projecthivemind.tower.needs_dig", counts[0], counts[1], counts[2])
                 : Component.translatable("screen.projecthivemind.tower.needs", counts[0], counts[1]);
-        graphics.drawString(font, needs, left + 12, rowY(4) + 26, 0xE0E0E0, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.tower.note"), left + 12, rowY(4) + 38, 0x909090, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.tower.workers"), left + 12, rowY(4) + 50, 0x909090, false);
+        graphics.drawString(font, needs, left + 12, rowY(4) + 50, 0xE0E0E0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.tower.note"), left + 12, rowY(4) + 62, 0x909090, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.tower.workers"), left + 12, rowY(4) + 74, 0x909090, false);
     }
 
     @Override

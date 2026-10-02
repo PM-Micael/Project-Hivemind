@@ -12,20 +12,27 @@ public final class HiveLevels {
                     UnitKind.WORKER, 1,
                     UnitKind.SOLDIER, 1,
                     UnitKind.COLLECTOR, 1),
-                    new HiveLevel.Quest(10, 5, 0, 0)),
-            // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, up to 3 soldiers (still 1 worker).
+                    new HiveLevel.Quest(10, 5, 0, 0, null, 0, 0)),
+            // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, 3 soldiers, 2 workers.
             new HiveLevel(2, 40.0F, 54, 3, 7, 32, Map.of(
-                    UnitKind.SCOUT, 1,
-                    UnitKind.WORKER, 1,
-                    UnitKind.SOLDIER, 3,
-                    UnitKind.COLLECTOR, 1),
-                    new HiveLevel.Quest(0, 0, 10, 24000)),
-            // Level 3: 30 hearts, 81 storage slots (scrolled), and a second worker.
-            new HiveLevel(3, 60.0F, 81, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 2,
                     UnitKind.SOLDIER, 3,
                     UnitKind.COLLECTOR, 1),
+                    new HiveLevel.Quest(0, 0, 10, 24000, null, 0, 0)),
+            // Level 3: 30 hearts, 81 storage slots (scrolled), a 29x29 hive area, 3 workers and 2 collectors.
+            new HiveLevel(3, 60.0F, 81, 3, 14, 32, Map.of(
+                    UnitKind.SCOUT, 1,
+                    UnitKind.WORKER, 3,
+                    UnitKind.SOLDIER, 3,
+                    UnitKind.COLLECTOR, 2),
+                    new HiveLevel.Quest(0, 0, 0, 0, 0, 10, 24)),
+            // Level 4: 40 hearts and 108 storage slots (scrolled). The area and the units stay as they were.
+            new HiveLevel(4, 80.0F, 108, 3, 14, 32, Map.of(
+                    UnitKind.SCOUT, 1,
+                    UnitKind.WORKER, 3,
+                    UnitKind.SOLDIER, 3,
+                    UnitKind.COLLECTOR, 2),
                     null));
 
     /** The level at which the Heart has its own furnace. */

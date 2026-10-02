@@ -75,7 +75,7 @@ public final class WorkerAutoJobs {
     }
 
     /**
-     * The nearest fully grown crop inside the hive area that the worker can get to, as a dig order, or null if none is ready.
+     * The nearest fully grown crop (or wild plant, if the worker is set to clear them) inside the hive area that the worker can get to, as a dig order, or null if none is ready.
      * Only crops near the worker's height are looked at, as farms lie flat; the worker looks again every few seconds.
      */
     @Nullable
@@ -83,6 +83,8 @@ public final class WorkerAutoJobs {
         if (!(worker.level() instanceof ServerLevel level)) {
             return null;
         }
+        boolean crops = worker.behavior().harvestCrops();
+        boolean plants = worker.behavior().clearPlants();
         net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
         BlockPos origin = worker.blockPosition();
         List<BlockPos> ready = new ArrayList<>();
@@ -95,7 +97,8 @@ public final class WorkerAutoJobs {
                 }
                 for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
                     pos.set(x, y, z);
-                    if (isGrown(level.getBlockState(pos))) {
+                    BlockState found = level.getBlockState(pos);
+                    if ((crops && isGrown(found)) || (plants && isWildPlant(found))) {
                         ready.add(pos.immutable());
                     }
                 }
@@ -122,6 +125,18 @@ public final class WorkerAutoJobs {
         }
         return state.getBlock() instanceof net.minecraft.world.level.block.NetherWartBlock
                 && state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE) >= net.minecraft.world.level.block.NetherWartBlock.MAX_AGE;
+    }
+
+    /** True for plants that grow wild and can be cleared: grass, ferns, and every kind of flower (tall ones too). */
+    public static boolean isWildPlant(BlockState state) {
+        return state.is(net.minecraft.tags.BlockTags.FLOWERS)
+                || state.getBlock() instanceof net.minecraft.world.level.block.TallGrassBlock
+                || state.is(net.minecraft.world.level.block.Blocks.TALL_GRASS) || state.is(net.minecraft.world.level.block.Blocks.LARGE_FERN);
+    }
+
+    /** True for what a worker's harvest settings can send it after: a grown crop, or a wild plant. */
+    public static boolean isHarvestable(BlockState state) {
+        return isGrown(state) || isWildPlant(state);
     }
 
     /** Every block of a wanted kind inside the worker's range. Columns in chunks that are not loaded are skipped. */

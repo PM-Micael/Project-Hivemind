@@ -145,7 +145,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_FURNACE_COOK_TOTAL = 18;
     private static final int DATA_UNITS = 19;
     private static final int VALUES_PER_UNIT = 3;
-    public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
+    /** After the units: quest progress for coal, raw iron, and the lowest height reached (sent plus 1000, as it can be negative). */
+    private static final int DATA_QUEST_COAL = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
+    private static final int DATA_QUEST_IRON = DATA_QUEST_COAL + 1;
+    private static final int DATA_QUEST_DEPTH = DATA_QUEST_COAL + 2;
+    private static final int DEPTH_OFFSET = 1000;
+    public static final int DATA_COUNT = DATA_QUEST_DEPTH + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -293,6 +298,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_QUEST_CHUNKS) {
                     return heart.exploredChunkCount();
                 }
+                if (index == DATA_QUEST_COAL) {
+                    return heart.coalProgress();
+                }
+                if (index == DATA_QUEST_IRON) {
+                    return heart.ironProgress();
+                }
+                if (index == DATA_QUEST_DEPTH) {
+                    return Math.min(heart.lowestY(), 30000) + DEPTH_OFFSET;
+                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -406,6 +420,19 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     @Override
     public StorageScroll storageScroll() {
         return scroll;
+    }
+
+    public int questCoal() {
+        return data.get(DATA_QUEST_COAL);
+    }
+
+    public int questIron() {
+        return data.get(DATA_QUEST_IRON);
+    }
+
+    /** The lowest block height a unit has reached, or a very large number if none counted yet. */
+    public int questLowestY() {
+        return data.get(DATA_QUEST_DEPTH) - DEPTH_OFFSET;
     }
 
     /** Quest progress: chunks the hive's units have explored so far. */

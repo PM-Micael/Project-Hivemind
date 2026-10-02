@@ -40,7 +40,8 @@ public class WorkerDigGoal extends Goal {
     private static final int GIVE_UP_TICKS = 200;
     private static final int SWING_INTERVAL = 6;
 
-    private final HiveWorker worker;
+    private final Mob worker;
+    private final HiveUnit unit;
     private int repathCooldown;
     private int stuckTicks;
     private int swingCooldown;
@@ -55,8 +56,10 @@ public class WorkerDigGoal extends Goal {
     @Nullable
     private BlockPos crackPos;
 
-    public WorkerDigGoal(HiveWorker worker) {
+    /** For a worker, which picks the best tool from the hive; or a scout, which digs with whatever it is holding. */
+    public WorkerDigGoal(Mob worker) {
         this.worker = worker;
+        this.unit = (HiveUnit) worker;
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
@@ -67,13 +70,13 @@ public class WorkerDigGoal extends Goal {
 
     @Nullable
     private BlockPos target() {
-        UnitAction action = worker.action();
+        UnitAction action = unit.action();
         return action != null && action.kind() == UnitAction.Kind.DIG ? action.pos() : null;
     }
 
     @Override
     public boolean canUse() {
-        return target() != null && worker.findHeart() != null;
+        return target() != null && unit.findHeart() != null;
     }
 
     @Override
@@ -95,7 +98,7 @@ public class WorkerDigGoal extends Goal {
     public void stop() {
         // Only halt the worker if it has nothing else to do. If it was just given a new order (say, to walk
         // somewhere), that order's path is already set and must not be cancelled here.
-        if (worker.action() == null) {
+        if (unit.action() == null) {
             worker.getNavigation().stop();
         }
         clearCracks();
@@ -104,7 +107,7 @@ public class WorkerDigGoal extends Goal {
     @Override
     public void tick() {
         BlockPos pos = target();
-        HiveHeart heart = worker.findHeart();
+        HiveHeart heart = unit.findHeart();
         if (pos == null || heart == null) {
             return;
         }
@@ -113,7 +116,7 @@ public class WorkerDigGoal extends Goal {
         if (state.isAir() || state.getDestroySpeed(level, pos) < 0.0F) {
             // Already gone (another worker finished it, or something else did).
             heart.clearDigProgress(pos);
-            worker.setAction(null);
+            unit.setAction(null);
             return;
         }
 
@@ -122,7 +125,9 @@ public class WorkerDigGoal extends Goal {
         // broke and the hive has another.
         boolean toolBroke = holdingTool && worker.getMainHandItem().isEmpty();
         if (!pos.equals(equippedFor) || state.getBlock() != equippedForBlock || toolBroke) {
-            HiveEquipment.equipBestTool(worker, heart, state);
+            if (worker instanceof HiveWorker hiveWorker) {
+                HiveEquipment.equipBestTool(hiveWorker, heart, state);
+            }
             equippedFor = pos;
             equippedForBlock = state.getBlock();
             holdingTool = !worker.getMainHandItem().isEmpty();
@@ -131,7 +136,7 @@ public class WorkerDigGoal extends Goal {
         Vec3 center = Vec3.atCenterOf(pos);
         if (!inDigReach(worker, pos)) {
             if (++stuckTicks > GIVE_UP_TICKS) {
-                worker.setAction(null);
+                unit.setAction(null);
             } else if (--repathCooldown <= 0) {
                 worker.getNavigation().moveTo(center.x, pos.getY(), center.z, SPEED);
                 repathCooldown = REPATH_INTERVAL;
@@ -165,7 +170,12 @@ public class WorkerDigGoal extends Goal {
     private void breakBlock(ServerLevel level, HiveHeart heart, BlockPos pos, BlockState state, ItemStack tool, boolean correct) {
         BlockEntity blockEntity = level.getBlockEntity(pos);
         if (correct) {
-            Block.dropResources(state, level, pos, blockEntity, worker, tool);
+            if (worker instanceof HiveWorker hiveWorker && hiveWorker.onStaircase()) {
+                // A staircase being dug down: what comes out goes into the hive.
+                HiveDrops.store(level, heart, pos, state, blockEntity, worker, tool);
+            } else {
+                Block.dropResources(state, level, pos, blockEntity, worker, tool);
+            }
         }
         level.destroyBlock(pos, false, worker);
         heart.food().exhaust(HiveFood.BREAK_BLOCK);
@@ -173,7 +183,7 @@ public class WorkerDigGoal extends Goal {
         tool.hurtAndBreak(1, worker, EquipmentSlot.MAINHAND);
         heart.clearDigProgress(pos);
         clearCracks();
-        worker.setAction(null);
+        unit.setAction(null);
     }
 
     private void clearCracks() {

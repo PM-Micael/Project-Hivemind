@@ -36,13 +36,17 @@ public final class TowerPlan {
 
     /** What is to be done at a block: put a plain block there, put a stair there, or just clear it out (digging). */
     public enum Kind {
-        BLOCK, STAIR, DIG
+        BLOCK, STAIR, DIG, TORCH
     }
 
     /** One block of the build. A stair faces the way it climbs; the layer is how far from the start it is. */
     public record Placement(BlockPos pos, Kind kind, @Nullable Direction facing, int layer) {
         public boolean stair() {
             return kind == Kind.STAIR;
+        }
+
+        public boolean torch() {
+            return kind == Kind.TORCH;
         }
 
         public boolean dig() {
@@ -56,6 +60,7 @@ public final class TowerPlan {
     private final int height;
     private final int groundY;
     private final boolean walls;
+    private final boolean torches;
     private final List<Placement> placements = new ArrayList<>();
 
     /**
@@ -65,12 +70,18 @@ public final class TowerPlan {
      * @param walls     true for walls all round, false for just a pillar in each of the four corners
      */
     public TowerPlan(BlockPos clicked, TowerShape shape, TowerDirection direction, int height, boolean walls) {
+        this(clicked, shape, direction, height, walls, false);
+    }
+
+    /** As above; with {@code torches} a shaft with walls also gets a wall torch on the inside every few rows. */
+    public TowerPlan(BlockPos clicked, TowerShape shape, TowerDirection direction, int height, boolean walls, boolean torches) {
         this.shape = shape;
         this.direction = direction;
         this.base = clicked.immutable();
         this.height = height;
         this.groundY = clicked.getY() + 1;
         this.walls = walls;
+        this.torches = torches;
         if (direction == TowerDirection.UP) {
             planTower(walls);
         } else {
@@ -175,7 +186,35 @@ public final class TowerPlan {
                 }
             }
             addWalls(y, layer, walls, false);
+            if (torches && walls && layer % TORCH_EVERY == 3 && layer < steps) {
+                addTorch(y, layer, insideCorner);
+            }
         }
+    }
+
+    /** A wall torch goes on every this many rows of a shaft. */
+    private static final int TORCH_EVERY = 4;
+
+    /**
+     * A torch on the inside of the wall, in the ring cell a quarter of a turn from where the stairs are this row, so it is never
+     * where a stair is. It faces into the shaft, away from the wall it is on. A cell in a corner is on one of the two walls.
+     */
+    private void addTorch(int y, int layer, int insideCorner) {
+        int[][] ring = shape.ring();
+        int index = (ringIndex(0, layer) + ring.length / 4) % ring.length;
+        int[] cell = ring[index];
+        int last = shape.insideSize() - 1;
+        Direction facing;
+        if (cell[1] == 0) {
+            facing = Direction.SOUTH;
+        } else if (cell[1] == last) {
+            facing = Direction.NORTH;
+        } else if (cell[0] == 0) {
+            facing = Direction.EAST;
+        } else {
+            facing = Direction.WEST;
+        }
+        placements.add(new Placement(cellPos(insideCorner, index, y), Kind.TORCH, facing, layer));
     }
 
     /**
@@ -243,6 +282,10 @@ public final class TowerPlan {
             }
         }
         return -1;
+    }
+
+    public boolean torches() {
+        return torches;
     }
 
     /** True for walls all round, false for just corner pillars. */

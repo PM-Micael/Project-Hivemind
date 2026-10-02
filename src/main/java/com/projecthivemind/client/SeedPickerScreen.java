@@ -3,6 +3,7 @@ package com.projecthivemind.client;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import javax.annotation.Nullable;
 
@@ -25,20 +26,27 @@ public class SeedPickerScreen extends Screen {
     private static final int CELL = 22;
     private static final int COLUMNS = 8;
     private static final int PADDING = 12;
+    /** How many rows of the grid show at once; a longer list scrolls with the mouse wheel. */
+    private static final int MAX_ROWS = 7;
+    private int scrollRow;
 
     private final Screen parent;
-    private final HiveCollector.PlantKind kind;
     private final Consumer<Item> onPick;
     private final List<Item> seeds = new ArrayList<>();
 
     /** @param onPick called with the chosen seed, or null to clear it */
     public SeedPickerScreen(Screen parent, HiveCollector.PlantKind kind, Consumer<Item> onPick) {
-        super(Component.translatable(kind == HiveCollector.PlantKind.SAPLING ? "screen.projecthivemind.sapling.title" : "screen.projecthivemind.seed.title"));
-        this.kind = kind;
+        this(parent, Component.translatable(kind == HiveCollector.PlantKind.SAPLING ? "screen.projecthivemind.sapling.title" : "screen.projecthivemind.seed.title"),
+                item -> HiveCollector.plantBlock(kind, item) != null, onPick);
+    }
+
+    /** A picker for anything: the title, which items are in the list, and what to do with the choice. */
+    public SeedPickerScreen(Screen parent, Component title, Predicate<Item> filter, Consumer<Item> onPick) {
+        super(title);
         this.parent = parent;
         this.onPick = onPick;
         for (Item item : BuiltInRegistries.ITEM) {
-            if (HiveCollector.plantBlock(kind, item) != null) {
+            if (filter.test(item)) {
                 seeds.add(item);
             }
         }
@@ -49,7 +57,7 @@ public class SeedPickerScreen extends Screen {
     }
 
     private int panelHeight() {
-        int rows = (seeds.size() + COLUMNS - 1) / COLUMNS;
+        int rows = Math.min(MAX_ROWS, (seeds.size() + COLUMNS - 1) / COLUMNS);
         return 30 + rows * CELL + 40;
     }
 
@@ -89,7 +97,11 @@ public class SeedPickerScreen extends Screen {
         if (x < 0 || y < 0 || x >= COLUMNS * CELL) {
             return null;
         }
-        int index = (int) (y / CELL) * COLUMNS + (int) (x / CELL);
+        int row = (int) (y / CELL);
+        if (row >= MAX_ROWS) {
+            return null;
+        }
+        int index = (row + scrollRow) * COLUMNS + (int) (x / CELL);
         return index >= 0 && index < seeds.size() ? seeds.get(index) : null;
     }
 
@@ -109,9 +121,9 @@ public class SeedPickerScreen extends Screen {
         HiveStyle.panel(graphics, left(), top(), panelWidth(), panelHeight());
         graphics.drawString(font, title, left() + PADDING, top() + 10, HiveStyle.LABEL, false);
         Item hovered = seedAt(mouseX, mouseY);
-        for (int i = 0; i < seeds.size(); i++) {
+        for (int i = scrollRow * COLUMNS; i < seeds.size() && i < (scrollRow + MAX_ROWS) * COLUMNS; i++) {
             int x = left() + PADDING + (i % COLUMNS) * CELL;
-            int y = top() + 24 + (i / COLUMNS) * CELL;
+            int y = top() + 24 + (i / COLUMNS - scrollRow) * CELL;
             graphics.fill(x, y, x + CELL - 2, y + CELL - 2, seeds.get(i) == hovered ? 0xFF6B2A2A : 0xFF3A2424);
             graphics.renderItem(new ItemStack(seeds.get(i)), x + 2, y + 2);
         }
@@ -124,6 +136,13 @@ public class SeedPickerScreen extends Screen {
         if (hovered != null) {
             graphics.renderTooltip(font, new ItemStack(hovered), mouseX, mouseY);
         }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        int rows = (seeds.size() + COLUMNS - 1) / COLUMNS;
+        scrollRow = Math.max(0, Math.min(Math.max(0, rows - MAX_ROWS), scrollRow - (int) Math.signum(scrollY)));
+        return true;
     }
 
     @Override

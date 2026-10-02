@@ -103,6 +103,12 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onSetWorkerFill(SetWorkerFillPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setWorkerFill(player, payload.unitId(), payload.item());
+        }
+    }
+
     public static void onSetCollectorTask(SetCollectorTaskPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.setCollectorTask(player, payload.unitId(), payload.op(), payload.seed(), payload.pos());
@@ -137,6 +143,12 @@ public final class ServerPayloads {
     public static void onBuildTower(BuildTowerPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HiveActions.buildTower(player, payload);
+        }
+    }
+
+    public static void onDigStaircase(DigStaircasePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.digStaircase(player, payload);
         }
     }
 

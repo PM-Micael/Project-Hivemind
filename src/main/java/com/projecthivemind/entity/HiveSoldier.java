@@ -75,6 +75,8 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        // The last thing a unit does: when idle and set to, walk about inside the border.
+        this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
         // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));

@@ -30,8 +30,13 @@ public record BuildTowerPayload(List<Integer> unitIds, BlockPos pos, int materia
             BuildTowerPayload::new);
 
     /** Pack the walls choice, the direction (0 up, 1 down) and the shape's index: bit 0, bit 1, and the bits above. */
-    public static int pack(boolean walls, int direction, int shape) {
-        return (walls ? 1 : 0) | ((direction & 1) << 1) | (shape << 2);
+    public static int pack(boolean walls, int direction, int shape, boolean torches) {
+        return (walls ? 1 : 0) | ((direction & 1) << 1) | ((shape & 3) << 2) | (torches ? 16 : 0);
+    }
+
+    /** True if a shaft has torches put up in it. */
+    public boolean torches() {
+        return (options & 16) != 0;
     }
 
     /** True for walls all round, false for just four corner pillars. */
@@ -46,7 +51,7 @@ public record BuildTowerPayload(List<Integer> unitIds, BlockPos pos, int materia
 
     /** The index of a TowerShape. */
     public int shape() {
-        return options >> 2;
+        return (options >> 2) & 3;
     }
 
     @Override
