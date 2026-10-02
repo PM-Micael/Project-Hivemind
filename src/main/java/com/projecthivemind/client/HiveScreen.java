@@ -92,6 +92,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int CROP_ROW_Y = BEHAVIOR_TOP + 22;
     private static final int SAPLING_ROW_Y = BEHAVIOR_TOP + 52;
     private static final int BEHAVIOR_ROW = 18;
+    /** The row of the worker page where the "Woodwork" group begins: its heading is drawn there, and its options are the rows after it. */
+    private static final int WOODWORK_ROW = 9;
 
     private enum Tab {
         HIVE, QUESTS, UNITS, TEAM
@@ -148,6 +150,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox flattenGround;
     private Checkbox channelCrops;
     private Checkbox useBoneMeal;
+    private Checkbox channelSaplings;
+    private Checkbox fellTrees;
     /** How far the unit page's settings are scrolled up, in pixels; and how far the widgets have been moved for it so far. */
     private int behaviorScroll;
     private int appliedScroll;
@@ -328,7 +332,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private int behaviorContentBottom() {
         return switch (unitPage) {
             case SOLDIER -> BEHAVIOR_TOP + 4 * BEHAVIOR_ROW;
-            case WORKER -> BEHAVIOR_TOP + 11 * BEHAVIOR_ROW;
+            case WORKER -> BEHAVIOR_TOP + (WOODWORK_ROW + 5) * BEHAVIOR_ROW;
             case SCOUT -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
             default -> 0;
         };
@@ -386,7 +390,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void renderWorkerNote(GuiGraphics graphics) {
-        int y = BEHAVIOR_TOP + 10 * BEHAVIOR_ROW + 4 - behaviorScroll;
+        // The heading of the one group of options so far.
+        int headingY = BEHAVIOR_TOP + WOODWORK_ROW * BEHAVIOR_ROW + 5 - behaviorScroll;
+        if (headingY >= BEHAVIOR_TOP - 4 && headingY + 9 <= behaviorViewBottom()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.group.woodwork"), BEHAVIOR_X + 4, headingY, 0xFFDD55, false);
+        }
+        int y = BEHAVIOR_TOP + (WOODWORK_ROW + 4) * BEHAVIOR_ROW + 4 - behaviorScroll;
         if (y >= BEHAVIOR_TOP - 4 && y + 9 <= behaviorViewBottom()) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"), BEHAVIOR_X + 4, y, 0x909090, false);
         }
@@ -626,28 +635,32 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldierStay = behaviorBox(soldierWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendSoldierBehavior);
         soldierWander = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.wander", this::sendSoldierBehavior);
 
-        // Workers: what to work on, each with how far to look for it.
-        mineOre = behaviorBox(workerWidgets, 0, "screen.projecthivemind.behavior.mine_ore", this::sendWorkerBehavior);
-        workerRadii[0] = radiusBox(workerWidgets, 0, 0, this::sendWorkerBehavior);
-        chopLogs = behaviorBox(workerWidgets, 1, "screen.projecthivemind.behavior.chop_logs", this::sendWorkerBehavior);
-        workerRadii[1] = radiusBox(workerWidgets, 1, 1, this::sendWorkerBehavior);
-        digThrough = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
-        workerStay = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.stay_inside", this::sendWorkerBehavior);
+        // Workers: what to work on, with how far to look for it where that applies. Related options are grouped under a heading (see
+        // WOODWORK_ROW): so far there is the one group, woodwork.
         // The widgets are made at their unscrolled places.
         behaviorScroll = 0;
         appliedScroll = 0;
-        harvestCrops = behaviorBox(workerWidgets, 4, "screen.projecthivemind.behavior.harvest_crops", this::sendWorkerBehavior);
-        clearPlants = behaviorBox(workerWidgets, 5, "screen.projecthivemind.behavior.clear_plants", this::sendWorkerBehavior);
-        workerWander = behaviorBox(workerWidgets, 6, "screen.projecthivemind.behavior.wander", this::sendWorkerBehavior);
+        mineOre = behaviorBox(workerWidgets, 0, "screen.projecthivemind.behavior.mine_ore", this::sendWorkerBehavior);
+        workerRadii[0] = radiusBox(workerWidgets, 0, 0, this::sendWorkerBehavior);
+        digThrough = behaviorBox(workerWidgets, 1, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
+        workerStay = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendWorkerBehavior);
+        harvestCrops = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.harvest_crops", this::sendWorkerBehavior);
+        clearPlants = behaviorBox(workerWidgets, 4, "screen.projecthivemind.behavior.clear_plants", this::sendWorkerBehavior);
+        workerWander = behaviorBox(workerWidgets, 5, "screen.projecthivemind.behavior.wander", this::sendWorkerBehavior);
         // Flatten the ground: the box, and at the end of its row the block that fills the gaps (chosen from a list).
-        flattenGround = behaviorBox(workerWidgets, 7, "screen.projecthivemind.behavior.flatten_ground", this::sendWorkerBehavior);
-        fillButton = addRenderableWidget(new SeedButton(leftPos + imageWidth - 12 - 22, topPos + BEHAVIOR_TOP + 7 * BEHAVIOR_ROW - 2, 20, 20,
+        flattenGround = behaviorBox(workerWidgets, 6, "screen.projecthivemind.behavior.flatten_ground", this::sendWorkerBehavior);
+        fillButton = addRenderableWidget(new SeedButton(leftPos + imageWidth - 12 - 22, topPos + BEHAVIOR_TOP + 6 * BEHAVIOR_ROW - 2, 20, 20,
                 this::currentFill, button -> openFillPicker()));
         fillButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.behavior.flatten_ground.tooltip")));
         workerWidgets.add(fillButton);
-        channelCrops = behaviorBox(workerWidgets, 8, "screen.projecthivemind.behavior.channel_crops", this::sendWorkerBehavior);
+        channelCrops = behaviorBox(workerWidgets, 7, "screen.projecthivemind.behavior.channel_crops", this::sendWorkerBehavior);
         // Bound to channelling: it can only be ticked while that is.
-        useBoneMeal = behaviorBox(workerWidgets, 9, "screen.projecthivemind.behavior.use_bone_meal", this::sendWorkerBehavior);
+        useBoneMeal = behaviorBox(workerWidgets, 8, "screen.projecthivemind.behavior.use_bone_meal", this::sendWorkerBehavior);
+        // Woodwork (its heading is row 9), most important first: felling trees comes before channelling on saplings.
+        chopLogs = behaviorBox(workerWidgets, WOODWORK_ROW + 1, "screen.projecthivemind.behavior.chop_logs", this::sendWorkerBehavior);
+        workerRadii[1] = radiusBox(workerWidgets, WOODWORK_ROW + 1, 1, this::sendWorkerBehavior);
+        fellTrees = behaviorBox(workerWidgets, WOODWORK_ROW + 2, "screen.projecthivemind.behavior.fell_trees", this::sendWorkerBehavior);
+        channelSaplings = behaviorBox(workerWidgets, WOODWORK_ROW + 3, "screen.projecthivemind.behavior.channel_saplings", this::sendWorkerBehavior);
 
         // Collectors: two planting tasks, crops and saplings. For each, the item (picked from a list) and the soil blocks it is
         // planted on (set in the world). Their rows: the item, how many spots, and a button to clear them.
@@ -723,7 +736,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             }
         }
         if (enabled && useBoneMeal != null) {
-            useBoneMeal.active = channelCrops.selected();
+            useBoneMeal.active = channelCrops.selected() || channelSaplings.selected();
         }
     }
 
@@ -752,6 +765,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(flattenGround, worker.flattenGround());
                 setChecked(channelCrops, worker.channelCrops());
                 setChecked(useBoneMeal, worker.useBoneMeal());
+                setChecked(channelSaplings, worker.channelSaplings());
+                setChecked(fellTrees, worker.fellTrees());
                 int[] values = worker.radii();
                 for (int i = 0; i < workerRadii.length; i++) {
                     workerRadii[i].setValue(String.valueOf(values[i]));
@@ -797,10 +812,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void sendWorkerBehavior() {
         // The bone meal tick belongs to channelling: it can only be changed while that is ticked.
-        useBoneMeal.active = channelCrops.selected();
+        useBoneMeal.active = channelCrops.selected() || channelSaplings.selected();
         if (canSend()) {
             WorkerBehavior behavior = new WorkerBehavior(mineOre.selected(), number(workerRadii[0]), chopLogs.selected(),
-                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected(), channelCrops.selected(), useBoneMeal.selected());
+                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected(), channelCrops.selected(), useBoneMeal.selected(), channelSaplings.selected(), fellTrees.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }

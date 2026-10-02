@@ -216,6 +216,12 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onBuildBridge(com.projecthivemind.network.BuildBridgePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.buildBridge(player, payload);
+        }
+    }
+
     public static void onOpenHiveMenu(OpenHiveMenuPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.openMenu(player);

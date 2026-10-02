@@ -34,6 +34,8 @@ public class WorkerDigGoal extends Goal {
      * 3 blocks up, so the upper logs of a tree were out of reach.) This is a little over a survival player's 4.5.
      */
     public static final double DIG_REACH = 5.0D;
+    /** How far a worker set to fell trees can reach a log or a leaf of a tree: about the height of a tall tree. */
+    public static final double FELLING_REACH = 16.0D;
     private static final double SPEED = 1.0D;
     private static final int REPATH_INTERVAL = 10;
     /** Ticks a worker may spend unable to get within reach before it gives up on the block. */
@@ -65,7 +67,10 @@ public class WorkerDigGoal extends Goal {
 
     /** True if the block is close enough to dig from where the mob stands. */
     public static boolean inDigReach(Mob digger, BlockPos pos) {
-        return new AABB(pos).distanceToSqr(digger.getEyePosition()) <= DIG_REACH * DIG_REACH;
+        // A worker set to fell trees (or to chop them by range) can chop a tree from its foot, all the way up: the trunk is far taller than an arm reaches.
+        double reach = digger instanceof HiveWorker worker && (worker.behavior().fellTrees() || worker.behavior().chopLogs()) && TreeFelling.isTreeBlock(digger.level().getBlockState(pos))
+                ? FELLING_REACH : DIG_REACH;
+        return new AABB(pos).distanceToSqr(digger.getEyePosition()) <= reach * reach;
     }
 
     @Nullable

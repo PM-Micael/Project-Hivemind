@@ -19,7 +19,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * A worker set to channel walks up to a crop that is not fully grown and channels on it until it is: while it does, the crop
+ * A worker set to channel walks up to a crop (or a sapling, if set to) that is not fully grown and channels on it until it is: while it does, it
  * grows 300 times as fast. Only a worker that is not selected does this, and nothing but staying inside the border comes before it.
  *
  * <p>That is done by giving the crop extra helpings of the game's own random ticks, the ones that make crops grow: the extra rate is
@@ -30,6 +30,8 @@ public class WorkerChannelGoal extends Goal {
     private static final double SPEED = 1.0D;
     /** How many times faster than normal a channelled crop grows, when it is able to grow at all. */
     private static final int GROWTH_MULTIPLIER = 300;
+    /** The same for a sapling: 50 times faster. */
+    private static final int SAPLING_MULTIPLIER = 50;
     /** A crop that has not grown for this long (10 seconds) while channelled cannot (too dark, too dry): the worker leaves it. */
     private static final int STALL_TICKS = 200;
     private static final int SCAN_INTERVAL = 20;
@@ -43,6 +45,8 @@ public class WorkerChannelGoal extends Goal {
     @Nullable
     private BlockPos target;
     private int nextScan;
+    /** The next time a sapling being channelled is checked against there being a tree to fell instead. */
+    private int nextFellCheck;
     private int repathCooldown;
     private int stuckTicks;
     /** The tick of the worker the extra growth was last given on, so that it is the same however often the goal gets to tick. */
@@ -61,7 +65,7 @@ public class WorkerChannelGoal extends Goal {
     @Nullable
     private HiveHeart allowedHeart() {
         HiveHeart heart = worker.findHeart();
-        return heart != null && worker.behavior().channelCrops() && !heart.isUnitSelected(worker.getId()) ? heart : null;
+        return heart != null && (worker.behavior().channelCrops() || worker.behavior().channelSaplings()) && !heart.isUnitSelected(worker.getId()) ? heart : null;
     }
 
     @Override
@@ -73,13 +77,22 @@ public class WorkerChannelGoal extends Goal {
         }
         nextScan = worker.tickCount + SCAN_INTERVAL;
         ignored.values().removeIf(until -> until <= worker.tickCount);
-        target = WorkerAutoJobs.findGrowing(worker, heart, ignored.keySet());
+        target = WorkerAutoJobs.findGrowing(worker, heart, ignored.keySet(), !worker.hasTreeToFell(heart));
         return target != null;
     }
 
     @Override
     public boolean canContinueToUse() {
-        return allowedHeart() != null && target != null && WorkerAutoJobs.isGrowing(worker.level().getBlockState(target));
+        HiveHeart heart = allowedHeart();
+        if (heart == null || target == null || !WorkerAutoJobs.channelable(worker, worker.level().getBlockState(target))) {
+            return false;
+        }
+        // A sapling gives way to a tree to fell: every so often, see if one has come up.
+        if (WorkerAutoJobs.isSapling(worker.level().getBlockState(target)) && worker.tickCount >= nextFellCheck) {
+            nextFellCheck = worker.tickCount + 20;
+            return !worker.hasTreeToFell(heart);
+        }
+        return true;
     }
 
     @Override
@@ -128,12 +141,12 @@ public class WorkerChannelGoal extends Goal {
         int elapsed = Math.max(1, Math.min(worker.tickCount - lastGrowTick, 10));
         lastGrowTick = worker.tickCount;
         int ageBefore = ageOf(level.getBlockState(target));
-        growthCarry += GROWTH_MULTIPLIER * level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING) / 4096.0D * elapsed;
+        growthCarry += (WorkerAutoJobs.isSapling(level.getBlockState(target)) ? SAPLING_MULTIPLIER : GROWTH_MULTIPLIER) * level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING) / 4096.0D * elapsed;
         int extraTicks = (int) growthCarry;
         growthCarry -= extraTicks;
         for (int i = 0; i < extraTicks; i++) {
             BlockState state = level.getBlockState(target);
-            if (!WorkerAutoJobs.isGrowing(state)) {
+            if (!WorkerAutoJobs.channelable(worker, state)) {
                 break;
             }
             state.randomTick(level, target, worker.getRandom());
@@ -143,7 +156,7 @@ public class WorkerChannelGoal extends Goal {
             // It grew: a burst of green, so growth is seen when it happens.
             lastAdvanceTick = worker.tickCount;
             level.sendParticles(ParticleTypes.HAPPY_VILLAGER, center.x, center.y, center.z, 6, 0.3D, 0.3D, 0.3D, 0.0D);
-        } else if (WorkerAutoJobs.isGrowing(after)) {
+        } else if (WorkerAutoJobs.channelable(worker, after)) {
             if (worker.tickCount - lastAdvanceTick > STALL_TICKS) {
                 // Ten seconds and not a stage: it cannot grow here (dark, dry), so go and find another.
                 ignored.put(target, worker.tickCount + IGNORE_TICKS);
@@ -172,6 +185,9 @@ public class WorkerChannelGoal extends Goal {
     private static int ageOf(BlockState state) {
         if (state.getBlock() instanceof net.minecraft.world.level.block.CropBlock crop) {
             return crop.getAge(state);
+        }
+        if (state.getBlock() instanceof net.minecraft.world.level.block.SaplingBlock) {
+            return state.getValue(net.minecraft.world.level.block.SaplingBlock.STAGE);
         }
         if (state.getBlock() instanceof net.minecraft.world.level.block.NetherWartBlock) {
             return state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE);

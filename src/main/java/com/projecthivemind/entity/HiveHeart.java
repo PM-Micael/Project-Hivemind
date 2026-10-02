@@ -76,6 +76,8 @@ public class HiveHeart extends Mob {
     private int coalProgress;
     private int ironProgress;
     private int lowestY = Integer.MAX_VALUE;
+    /** What the storage held of logs, coal and raw iron at the last quest check (-1 before the first), to see how much came in since. Not saved. */
+    private final int[] lastHeld = {-1, -1, -1};
     /** Quest progress: mobs the hive's units have killed. */
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
@@ -360,6 +362,17 @@ public class HiveHeart extends Mob {
 
     public void setLogsProgress(int logs) {
         this.logsProgress = logs;
+    }
+
+    /**
+     * Quest progress for something collected: whatever the storage holds now beyond what it held at the last check counts as collected,
+     * up to {@code limit}. What is taken out (melted, crafted, used) is never taken off, and putting it back counts again. {@code slot}
+     * 0 is logs, 1 coal, 2 raw iron; returns the new progress.
+     */
+    public int collected(int slot, int heldNow, int progress, int limit) {
+        int gained = lastHeld[slot] < 0 ? 0 : Math.max(0, heldNow - lastHeld[slot]);
+        lastHeld[slot] = heldNow;
+        return Math.min(limit, progress + gained);
     }
 
     public int coalProgress() {

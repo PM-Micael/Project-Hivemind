@@ -314,6 +314,12 @@ public final class HiveSelection {
                 ClientSelection.deselect(ownEntity.getId());
                 PacketDistributor.sendToServer(new ReturnToBasePayload(ownEntity.getId()));
             })));
+            // A unit with a job (or a bridge, wall or staircase to build) can be told to drop it.
+            com.projecthivemind.network.SyncUnitsPayload.Entry ownEntry = ClientUnits.entry(ownEntity.getId());
+            if (ownEntry != null && ownEntry.hasJob()) {
+                unitOptions.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.cancel_job"),
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.CancelJobPayload(ownEntity.getId()))));
+            }
             if (ownUnit.kind() == UnitKind.WORKER) {
                 // A worker can be given the wall round the hive: pick what it is built from.
                 unitOptions.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_wall"),
@@ -382,6 +388,8 @@ public final class HiveSelection {
                         () -> minecraft.setScreen(new DigStaircaseScreen(builders, pos))));
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_tower"),
                         () -> minecraft.setScreen(new BuildTowerScreen(builders, pos))));
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_bridge"),
+                        () -> minecraft.setScreen(new BuildBridgeScreen(builders, pos))));
             }
             // Workers put up a torch from the hive against the face that was clicked, unless it is the underside.
             if (hasWorker && hit.getDirection() != Direction.DOWN) {

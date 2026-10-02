@@ -337,11 +337,8 @@ public final class HivemindManager {
         return Component.empty();
     }
 
-    /** The player confirmed cancelling a unit's job. Only valid with the hive menu open, for the player's own units. */
+    /** The player confirmed cancelling a unit's job (from its page, or its right-click menu). Only for the player's own units. */
     public static void cancelUnitJob(ServerPlayer player, int unitId) {
-        if (!(player.containerMenu instanceof HiveMenu)) {
-            return;
-        }
         if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                 && player.getUUID().equals(unit.ownerId())) {
             unit.cancelJob();
@@ -472,7 +469,8 @@ public final class HivemindManager {
                     HiveUnit unit = mob instanceof HiveUnit found ? found : null;
                     UnitAction job = unit == null ? null : unit.job();
                     HiveHeart heart = findHeart(owner);
-                    Component text = job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
+                    Component task = job == null && mob instanceof HiveWorker taskWorker ? taskWorker.taskText() : null;
+                    Component text = task != null ? task : job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
                             SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart != null && heart.teams().isMember(mob.getUUID())),
@@ -818,7 +816,7 @@ public final class HivemindManager {
 
     /**
      * Once a second, from the Heart: work out how far the hive is through its level-up quest, and level it up when
-     * every part is done. Logs: the most the hive's storage has held at once counts, and it never goes back down.
+     * every part is done. Logs, coal and raw iron: everything that comes into the hive's storage counts, and using it up never takes it off.
      * Exploring: every chunk a unit of the hive has stood in counts once, except the chunks of the hive area itself.
      * Kills and survival are counted as they happen (see {@link #onUnitKill} and the age added here).
      */
@@ -850,9 +848,10 @@ public final class HivemindManager {
                 logs += stack.getCount();
             }
         }
-        heart.setLogsProgress(Math.max(heart.logsProgress(), Math.min(logs, quest.logs())));
-        heart.setCoalProgress(Math.max(heart.coalProgress(), Math.min(coal, quest.coal())));
-        heart.setIronProgress(Math.max(heart.ironProgress(), Math.min(rawIron, quest.rawIron())));
+        // Collected means what came into the hive, not what is in it now: melting or using it does not take it off the count.
+        heart.setLogsProgress(heart.collected(0, logs, heart.logsProgress(), quest.logs()));
+        heart.setCoalProgress(heart.collected(1, coal, heart.coalProgress(), quest.coal()));
+        heart.setIronProgress(heart.collected(2, rawIron, heart.ironProgress(), quest.rawIron()));
 
         AABB area = HiveArea.areaBox(level, heart);
         int areaMinX = Mth.floor(area.minX) >> 4;

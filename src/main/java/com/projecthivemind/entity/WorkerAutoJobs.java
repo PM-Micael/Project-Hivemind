@@ -137,11 +137,86 @@ public final class WorkerAutoJobs {
     }
 
     /**
-     * The nearest crop inside the hive area that is not fully grown and that the worker can get to, other than the ones to leave
+     * The nearest tree this worker can start on, as a dig order for its bottom log, or null if there is none. Only natural trees whose foot
+     * is inside the hive area, near the worker's height, and that it can walk up to. When the log breaks the whole tree comes down (see
+     * {@link TreeFelling}); the worker is told which log that is.
+     */
+    @Nullable
+    public static UnitAction findFelling(HiveWorker worker, HiveHeart heart) {
+        if (!(worker.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        WorkerBehavior behavior = worker.behavior();
+        // Where trees are looked for: the hive area if it fells trees there, and the area round the worker if it chops by range. Both can be on.
+        net.minecraft.world.phys.AABB search = null;
+        if (behavior.fellTrees()) {
+            search = HiveArea.areaBox(level, heart);
+        }
+        if (behavior.chopLogs()) {
+            net.minecraft.world.phys.AABB range = worker.getBoundingBox().inflate(behavior.logRadius());
+            search = search == null ? range : search.minmax(range);
+        }
+        if (search == null) {
+            return null;
+        }
+        BlockPos origin = worker.blockPosition();
+        int height = Math.max(HARVEST_HEIGHT, Math.min(behavior.chopLogs() ? behavior.logRadius() : 0, 12));
+        List<BlockPos> logs = new ArrayList<>();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = (int) Math.floor(search.minX); x < (int) Math.ceil(search.maxX); x++) {
+            for (int z = (int) Math.floor(search.minZ); z < (int) Math.ceil(search.maxZ); z++) {
+                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                    continue;
+                }
+                for (int y = origin.getY() - height; y <= origin.getY() + height; y++) {
+                    pos.set(x, y, z);
+                    if (TreeFelling.isNaturalLog(level.getBlockState(pos)) && !TreeFelling.isNaturalLog(level.getBlockState(pos.below()))
+                            && fellingScope(worker, heart, pos)) {
+                        logs.add(pos.immutable());
+                    }
+                }
+            }
+        }
+        logs.sort(Comparator.comparingDouble(log -> log.distSqr(origin)));
+        int checked = 0;
+        for (BlockPos log : logs) {
+            if (checked++ >= MAX_CANDIDATES) {
+                break;
+            }
+            if (TreeFelling.isTreeFoot(level, log) && reachable(worker, log)) {
+                return new UnitAction(UnitAction.Kind.DIG, log);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether a tree with its foot here is one this worker fells: inside the hive area if it is set to fell trees there, or within its
+     * range of itself if it is set to chop by range.
+     */
+    public static boolean fellingScope(HiveWorker worker, HiveHeart heart, BlockPos foot) {
+        WorkerBehavior behavior = worker.behavior();
+        return (behavior.fellTrees() && HiveArea.containsCube(heart, foot.getX() + 0.5D, foot.getY() + 0.5D, foot.getZ() + 0.5D))
+                || (behavior.chopLogs() && foot.distSqr(worker.blockPosition()) <= (double) behavior.logRadius() * behavior.logRadius());
+    }
+
+    /** True for a sapling (or a propagule) that has not grown into a tree yet. */
+    public static boolean isSapling(BlockState state) {
+        return state.getBlock() instanceof net.minecraft.world.level.block.SaplingBlock;
+    }
+
+    /** True for what this worker is set to channel on right now: young crops, saplings, or both, according to its settings. */
+    public static boolean channelable(HiveWorker worker, BlockState state) {
+        WorkerBehavior behavior = worker.behavior();
+        return (behavior.channelCrops() && isGrowing(state)) || (behavior.channelSaplings() && isSapling(state));
+    }
+
+    /**
+     * The nearest crop or sapling (as the worker is set to channel on) inside the hive area that is not grown and that the worker can get to, other than the ones to leave
      * alone for now, or null if there is none. Only crops near the worker's height are looked at.
      */
     @Nullable
-    public static BlockPos findGrowing(HiveWorker worker, HiveHeart heart, java.util.Set<BlockPos> leaveAlone) {
+    public static BlockPos findGrowing(HiveWorker worker, HiveHeart heart, java.util.Set<BlockPos> leaveAlone, boolean includeSaplings) {
         if (!(worker.level() instanceof ServerLevel level)) {
             return null;
         }
@@ -156,7 +231,8 @@ public final class WorkerAutoJobs {
                 }
                 for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
                     pos.set(x, y, z);
-                    if (isGrowing(level.getBlockState(pos)) && !leaveAlone.contains(pos)) {
+                    BlockState found = level.getBlockState(pos);
+                    if ((channelable(worker, found) && (includeSaplings || !isSapling(found))) && !leaveAlone.contains(pos)) {
                         growing.add(pos.immutable());
                     }
                 }
@@ -212,9 +288,7 @@ public final class WorkerAutoJobs {
     }
 
     private static boolean isWanted(WorkerBehavior behavior, BlockState state, double distanceSqr) {
-        return (behavior.mineOre() && state.is(Tags.Blocks.ORES) && distanceSqr <= (double) behavior.oreRadius() * behavior.oreRadius())
-                // Natural logs only, so a worker never takes apart something the player built out of logs.
-                || (behavior.chopLogs() && state.is(BlockTags.OVERWORLD_NATURAL_LOGS) && distanceSqr <= (double) behavior.logRadius() * behavior.logRadius());
+        return behavior.mineOre() && state.is(Tags.Blocks.ORES) && distanceSqr <= (double) behavior.oreRadius() * behavior.oreRadius();
     }
 
     /** True if the worker is already within digging reach, or can walk to within a block or two of the target. */

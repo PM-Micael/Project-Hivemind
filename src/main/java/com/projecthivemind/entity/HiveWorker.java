@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveArea;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
@@ -140,6 +141,132 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             this.getNavigation().moveTo(place.getX() + 0.5D, place.getY(), place.getZ() + 0.5D, 1.0D);
         }
     }
+
+    /** The bridge this worker is building, if it was given one. Saved. */
+    @Nullable
+    private com.projecthivemind.build.BridgeJob bridge;
+    private int nextBridgeScan;
+    private int bridgeStuck;
+
+    public void setBridge(@Nullable com.projecthivemind.build.BridgeJob bridge) {
+        this.bridge = bridge;
+        this.nextBridgeScan = 0;
+        this.bridgeStuck = 0;
+    }
+
+    /** The block this item places as a fence: any wooden or nether brick fence. Null for anything else. */
+    @Nullable
+    public static net.minecraft.world.level.block.Block fenceBlock(net.minecraft.world.item.Item item) {
+        return item instanceof net.minecraft.world.item.BlockItem blockItem && blockItem.getBlock() instanceof net.minecraft.world.level.block.FenceBlock
+                ? blockItem.getBlock() : null;
+    }
+
+    /**
+     * One step of the bridge when the worker is free: the first block still missing, in building order. Within reach it is placed,
+     * from the hive's stock; otherwise the worker walks to the deck beside it (and, if the walk is not getting there, is carried the last
+     * of the way). Out of material it waits. The job ends when nothing is missing.
+     */
+    private void tickBridge(HiveHeart heart) {
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) this.level();
+        nextBridgeScan = this.tickCount + 5;
+        com.projecthivemind.build.BridgeJob job = bridge;
+        com.projecthivemind.build.BridgeJob.Placement next = null;
+        net.minecraft.world.level.block.state.BlockState state = null;
+        net.minecraft.world.item.Item item = null;
+        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+            if (!level.isLoaded(placement.pos())) {
+                continue;
+            }
+            net.minecraft.world.level.block.state.BlockState existing = level.getBlockState(placement.pos());
+            // Done once there is something there; a deck only replaces what a block can replace (air, water, plants).
+            if (!existing.canBeReplaced() || (placement.kind() != com.projecthivemind.build.BridgeJob.Kind.DECK && !existing.isAir())) {
+                continue;
+            }
+            item = switch (placement.kind()) {
+                case DECK -> job.deck();
+                case FENCE -> job.fence();
+                case TORCH -> net.minecraft.world.item.Items.TORCH;
+            };
+            net.minecraft.world.level.block.Block block = placement.kind() == com.projecthivemind.build.BridgeJob.Kind.TORCH
+                    ? net.minecraft.world.level.block.Blocks.TORCH
+                    : placement.kind() == com.projecthivemind.build.BridgeJob.Kind.FENCE ? fenceBlock(item) : fillBlock(item);
+            if (block == null || !level.isUnobstructed(block.defaultBlockState(), placement.pos(), net.minecraft.world.phys.shapes.CollisionContext.empty())) {
+                continue;
+            }
+            state = block.defaultBlockState();
+            next = placement;
+            break;
+        }
+        if (next == null) {
+            bridge = null;
+            if (heart.getServer() != null && heart.ownerId() != null) {
+                net.minecraft.server.level.ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+                if (owner != null) {
+                    owner.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.projecthivemind.bridge_finished"), false);
+                }
+            }
+            return;
+        }
+        if (heart.getStorage().countItem(item) <= 0) {
+            // Out of what this block is made of: wait for the hive to get some.
+            nextBridgeScan = this.tickCount + 40;
+            return;
+        }
+        if (WorkerDigGoal.inDigReach(this, next.pos())) {
+            this.getNavigation().stop();
+            if (next.kind() == com.projecthivemind.build.BridgeJob.Kind.FENCE) {
+                state = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(state, level, next.pos());
+            }
+            heart.getStorage().removeItemType(item, 1);
+            level.setBlock(next.pos(), state, net.minecraft.world.level.block.Block.UPDATE_ALL);
+            level.playSound(null, next.pos(), state.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 0.8F);
+            this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+            bridgeStuck = 0;
+            nextBridgeScan = this.tickCount + 2;
+        } else if (++bridgeStuck > 40) {
+            // The walk is not getting there: be carried the last of the way, to the deck beside the block.
+            this.getNavigation().stop();
+            this.moveTo(next.stand().x, next.stand().y, next.stand().z, this.getYRot(), this.getXRot());
+            bridgeStuck = 0;
+        } else {
+            this.getNavigation().moveTo(next.stand().x, next.stand().y, next.stand().z, 1.0D);
+        }
+    }
+
+    /**
+     * What larger task this worker has been given, in words for the hive menu (a bridge, the border wall or a staircase), or null. These
+     * are not single dig orders, so they have no job of their own to show; this is shown in its place, and cancelling the job ends them.
+     */
+    @Nullable
+    public net.minecraft.network.chat.Component taskText() {
+        if (bridge != null) {
+            return net.minecraft.network.chat.Component.translatable("job.projecthivemind.bridge");
+        }
+        if (wallItem != null) {
+            return net.minecraft.network.chat.Component.translatable("job.projecthivemind.wall");
+        }
+        if (staircase != null) {
+            return net.minecraft.network.chat.Component.translatable("job.projecthivemind.staircase");
+        }
+        return null;
+    }
+
+    /** The rest of a tree that is coming down, in the order it is taken: one log, or a few leaves, at a time. Not saved. */
+    /**
+     * True if this worker is set to fell trees and has one to fell: one it is in the middle of, or one it could start on. Channelling on
+     * saplings gives way to that, so a worker with both ticked fells trees first.
+     */
+    public boolean hasTreeToFell(HiveHeart heart) {
+        return (behavior.fellTrees() || behavior.chopLogs()) && (!fellQueue.isEmpty() || WorkerAutoJobs.findFelling(this, heart) != null);
+    }
+
+    /** The blocks of the tree this worker is felling, still to dig, in order: its logs from the bottom, then its leaves. Not saved. */
+    private final java.util.ArrayDeque<BlockPos> fellQueue = new java.util.ArrayDeque<>();
+    /** The block it last set out to dig and how many times running, so one it can never get at is given up on. */
+    @Nullable
+    private BlockPos lastFell;
+    private int fellRepeats;
+
 
     /** The staircase this worker is digging down, if it was given one. Saved. */
     @Nullable
@@ -277,12 +404,16 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                     setAction(next);
                 }
             }
+            // A bridge, if the worker was given one: after a staircase, before its own work.
+            if (action == null && bridge != null && heart != null && !heart.isUnitSelected(this.getId()) && this.tickCount >= nextBridgeScan) {
+                tickBridge(heart);
+            }
             // The border wall, if the worker was given it: second to a staircase, before its own work.
             if (action == null && wallItem != null && heart != null && !heart.isUnitSelected(this.getId()) && this.tickCount >= nextWallScan) {
                 tickWall(heart);
             }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
-            if (action == null && heart != null && this.tickCount >= nextJobScan) {
+            if (action == null && heart != null && (this.tickCount >= nextJobScan || !fellQueue.isEmpty())) {
                 nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
                 findOwnWork(heart);
             }
@@ -290,9 +421,47 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     }
 
 
+    /**
+     * The next block of the tree being felled, as a dig order, or null if the tree is down. Blocks already gone, and leaves another tree's
+     * logs now hold up, are passed over; one that has been set out for three times without coming down (out of reach, say) is given up on.
+     */
+    @Nullable
+    private UnitAction nextFellOrder() {
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) this.level();
+        while (!fellQueue.isEmpty()) {
+            BlockPos next = fellQueue.peek();
+            if (!level.isLoaded(next) || !TreeFelling.stillToTake(level, next)) {
+                fellQueue.poll();
+                continue;
+            }
+            if (next.equals(lastFell)) {
+                fellRepeats++;
+            } else {
+                lastFell = next;
+                fellRepeats = 1;
+            }
+            if (fellRepeats > 3) {
+                fellQueue.poll();
+                lastFell = null;
+                continue;
+            }
+            return new UnitAction(UnitAction.Kind.DIG, next);
+        }
+        return null;
+    }
+
     /** With no orders and not selected, look for work the hive's worker settings allow. */
     private void findOwnWork(HiveHeart heart) {
         if (heart.isUnitSelected(this.getId())) {
+            return;
+        }
+        // A tree being felled is finished before anything else: its next block is dug, as long as that takes with the tool in hand.
+        if (!behavior.fellTrees() && !behavior.chopLogs()) {
+            fellQueue.clear();
+        }
+        UnitAction continuing = nextFellOrder();
+        if (continuing != null) {
+            setAction(continuing);
             return;
         }
         // A grown crop in the hive area comes first, if the worker is set to harvest.
@@ -300,6 +469,21 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             UnitAction harvest = WorkerAutoJobs.findHarvest(this, heart);
             if (harvest != null) {
                 setAction(harvest);
+                return;
+            }
+        }
+        // Felling trees inside the border: start on the nearest tree. Its foot is dug first, then the rest of it, block by block.
+        if (behavior.fellTrees() || behavior.chopLogs()) {
+            UnitAction foot = WorkerAutoJobs.findFelling(this, heart);
+            if (foot != null) {
+                fellQueue.clear();
+                // The tree's blocks: within the hive area if it is a tree the worker fells there, otherwise round the tree's own foot.
+                net.minecraft.server.level.ServerLevel fellLevel = (net.minecraft.server.level.ServerLevel) this.level();
+                net.minecraft.world.phys.AABB bounds = behavior.fellTrees() && HiveArea.containsCube(heart, foot.pos().getX() + 0.5D, foot.pos().getY() + 0.5D, foot.pos().getZ() + 0.5D)
+                        ? HiveArea.areaBox(fellLevel, heart) : new net.minecraft.world.phys.AABB(foot.pos()).inflate(10.0D, 0.0D, 10.0D).expandTowards(0.0D, 28.0D, 0.0D);
+                fellQueue.addAll(TreeFelling.plan(fellLevel, bounds, foot.pos()));
+                lastFell = null;
+                setAction(foot);
                 return;
             }
         }
@@ -410,6 +594,10 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     public void cancelJob() {
         staircase = null;
         wallItem = null;
+        fellQueue.clear();
+        bridge = null;
+        // Whatever it was walking to for them, it stops.
+        this.getNavigation().stop();
         UnitAction ended = job;
         job = null;
         if (ended != null && ended.equals(action)) {
@@ -444,6 +632,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             tag.putBoolean("JobActive", job.equals(action));
         }
         tag.putBoolean("ResumeJob", resumeJob);
+        if (bridge != null) {
+            tag.put("Bridge", bridge.save());
+        }
         if (wallItem != null) {
             tag.putString("WallItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(wallItem).toString());
         }
@@ -465,6 +656,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         loadOwner(tag);
         job = tag.contains("Job") ? UnitAction.load(tag.getCompound("Job")) : null;
         resumeJob = !tag.contains("ResumeJob") || tag.getBoolean("ResumeJob");
+        bridge = tag.contains("Bridge") ? com.projecthivemind.build.BridgeJob.load(tag.getCompound("Bridge")) : null;
         staircase = tag.contains("Staircase") ? com.projecthivemind.build.StairDig.load(tag.getCompound("Staircase")) : null;
         net.minecraft.resources.ResourceLocation fillId = tag.contains("FillItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("FillItem")) : null;
         setFillItem(fillId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(fillId).orElse(null));

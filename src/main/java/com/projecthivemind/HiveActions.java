@@ -161,6 +161,56 @@ public final class HiveActions {
         }
     }
 
+    /**
+     * Workers build a bridge from where the nearest of them stands to the block clicked. Checked here: the items are a plain full block
+     * (and a fence, if one is asked for), the block is loaded and not too far, and the slope can be walked.
+     */
+    public static void buildBridge(ServerPlayer player, com.projecthivemind.network.BuildBridgePayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos dest = request.dest();
+        if (HivemindManager.findHeart(player) == null || !level.isInWorldBounds(dest) || !level.isLoaded(dest)) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        net.minecraft.world.item.Item deck = itemOf(request.deck());
+        net.minecraft.world.item.Item fence = request.fence().isEmpty() ? null : itemOf(request.fence());
+        if (deck == null || HiveWorker.fillBlock(deck) == null || (!request.fence().isEmpty() && (fence == null || HiveWorker.fenceBlock(fence) == null))) {
+            return;
+        }
+        // It starts from the block under the nearest worker.
+        Vec3 target = Vec3.atCenterOf(dest);
+        Mob nearest = workers.stream().min(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(target))).orElseThrow();
+        BlockPos start = BlockPos.containing(nearest.getX(), Math.floor(nearest.getY()) - 1.0D, nearest.getZ());
+        com.projecthivemind.build.BridgeJob job = new com.projecthivemind.build.BridgeJob(start, dest.immutable(), deck, fence, request.torches(), request.width());
+        if (job.length() > com.projecthivemind.build.BridgeJob.MAX_LENGTH) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_too_long", com.projecthivemind.build.BridgeJob.MAX_LENGTH), true);
+            return;
+        }
+        if (!job.walkable()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_too_steep"), true);
+            return;
+        }
+        for (Mob worker : workers) {
+            worker.getNavigation().stop();
+            ((HiveUnit) worker).setAction(null);
+            ((HiveWorker) worker).setBridge(job);
+        }
+        player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_started"), true);
+    }
+
+    @Nullable
+    private static net.minecraft.world.item.Item itemOf(String name) {
+        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(name);
+        return id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null);
+    }
+
     /** Selected workers place a torch from the hive against the face of the block that was clicked (not the underside). */
     public static void placeTorch(ServerPlayer player, com.projecthivemind.network.PlaceTorchPayload request) {
         if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {

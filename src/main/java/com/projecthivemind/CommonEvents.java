@@ -24,6 +24,7 @@ import com.projecthivemind.network.ToggleTeamPayload;
 import com.projecthivemind.network.ReturnToBasePayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.BuildTowerPayload;
+import com.projecthivemind.network.BuildBridgePayload;
 import com.projecthivemind.network.DigStaircasePayload;
 import com.projecthivemind.network.OpenBookPayload;
 import com.projecthivemind.network.OpenSignPayload;
@@ -77,6 +78,7 @@ public final class CommonEvents {
         registrar.playToServer(ReturnToBasePayload.TYPE, ReturnToBasePayload.STREAM_CODEC, ServerPayloads::onReturnToBase);
         registrar.playToServer(ToggleTeamPayload.TYPE, ToggleTeamPayload.STREAM_CODEC, ServerPayloads::onToggleTeam);
         registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
+        registrar.playToServer(BuildBridgePayload.TYPE, BuildBridgePayload.STREAM_CODEC, ServerPayloads::onBuildBridge);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
