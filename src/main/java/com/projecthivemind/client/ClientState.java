@@ -15,6 +15,7 @@ public final class ClientState {
     private static boolean canSwapInventory;
     private static float heartHealth;
     private static float heartMaxHealth;
+    private static int heartArmor;
 
     private ClientState() {
     }
@@ -32,6 +33,7 @@ public final class ClientState {
         canSwapInventory = false;
         heartHealth = 0.0F;
         heartMaxHealth = 0.0F;
+        heartArmor = 0;
     }
 
     /** Null until the server has told us. */
@@ -55,9 +57,14 @@ public final class ClientState {
     }
 
     /** The Hive Heart's health, as last told by the server, for the health bar. */
-    public static void updateHeartHealth(float health, float maxHealth) {
+    public static void updateHeartHealth(float health, float maxHealth, int armor) {
+        heartArmor = armor;
         heartHealth = health;
         heartMaxHealth = maxHealth;
+    }
+
+    public static int heartArmor() {
+        return heartArmor;
     }
 
     public static float heartHealth() {

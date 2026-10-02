@@ -254,6 +254,7 @@ public final class HivemindManager {
         Containers.dropContents(level, center, heart.getArmorGear());
         Containers.dropContents(level, center, heart.getToolGear());
         Containers.dropContents(level, center, heart.furnace().items());
+        Containers.dropContents(level, center, heart.scoutHand());
         HiveInfection.clear(level, heart);
         setHeartChunksForced(level, center, false);
 
@@ -661,9 +662,11 @@ public final class HivemindManager {
             return;
         }
         float health = heart.getHealth();
-        if (health != heart.syncedHealth() || heart.tickCount % 20 == 0) {
+        int armor = heart.getArmorValue();
+        if (health != heart.syncedHealth() || armor != heart.syncedArmor() || heart.tickCount % 20 == 0) {
+            heart.setSyncedArmor(armor);
             heart.setSyncedHealth(health);
-            PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth()));
+            PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor));
         }
     }
 

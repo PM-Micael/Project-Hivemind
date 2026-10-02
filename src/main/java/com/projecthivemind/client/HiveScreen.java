@@ -615,6 +615,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, LABEL_Y, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, LABEL_Y, 0xA0A0A0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.scout_hand"), HiveMenu.STORAGE_X + 22,
+                HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
         // The workstation on the right is named for the open tab.
         String workstation = tab == Tab.FURNACE ? "screen.projecthivemind.hive.furnace" : "screen.projecthivemind.hive.crafting";
         graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);

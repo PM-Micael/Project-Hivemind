@@ -3,6 +3,7 @@ package com.projecthivemind.network;
 import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HivemindManager;
+import com.projecthivemind.ScoutItems;
 import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.WorkerBehavior;
@@ -79,6 +80,18 @@ public final class ServerPayloads {
                 && menu.stillValid(player)) {
             menu.trade(payload.offerIndex(), player);
             menu.broadcastChanges();
+        }
+    }
+
+    public static void onScoutUse(ScoutUsePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.scoutUse(player, payload);
+        }
+    }
+
+    public static void onSignText(SignTextPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            ScoutItems.writeSign(player, payload.pos(), payload.lines());
         }
     }
 

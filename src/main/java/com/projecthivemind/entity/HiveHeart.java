@@ -22,6 +22,7 @@ import com.projecthivemind.build.TowerBuild;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
 import com.projecthivemind.ScoutBehavior;
+import com.projecthivemind.ScoutItems;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.WorkerBehavior;
@@ -34,6 +35,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -60,6 +62,7 @@ public class HiveHeart extends Mob {
     private static final String KILLS_TAG = "QuestKills";
     private static final String AGE_TAG = "HiveAge";
     private static final String FURNACE_TAG = "HiveFurnace";
+    private static final String SCOUT_HAND_TAG = "ScoutHand";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
@@ -85,8 +88,11 @@ public class HiveHeart extends Mob {
     private TowerBuild activeBuild;
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
+    private int syncedArmor = -1;
     /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
+    /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
+    private final SimpleContainer scoutHand = new SimpleContainer(1);
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
     private final Set<Long> exploredChunks = new HashSet<>();
     private SimpleContainer storage = new SimpleContainer(HiveLevels.get(1).storageSlots());
@@ -331,6 +337,10 @@ public class HiveHeart extends Mob {
 
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
         super(type, level);
+        // The armor it wears is the hive's: it is dropped with the rest of the hive's things (see HivemindManager), not here too.
+        for (net.minecraft.world.entity.EquipmentSlot slot : HiveEquipment.ARMOR_SLOTS) {
+            this.setDropChance(slot, 0.0F);
+        }
     }
 
     @Override
@@ -350,6 +360,15 @@ public class HiveHeart extends Mob {
             HivemindManager.tickHealthSync(this);
         }
         HivemindManager.tickNaturalSpawning(this);
+        if (this.tickCount % 10 == 0) {
+            wearHiveArmor();
+            if (ownerId != null && this.getServer() != null) {
+                ServerPlayer owner = this.getServer().getPlayerList().getPlayer(ownerId);
+                if (owner != null) {
+                    ScoutItems.tickBook(this, owner);
+                }
+            }
+        }
         if (hiveLevel >= HiveLevels.FURNACE_LEVEL && this.level() instanceof ServerLevel serverLevel) {
             furnace.tick(serverLevel);
         }
@@ -393,6 +412,14 @@ public class HiveHeart extends Mob {
         kills++;
     }
 
+    public int syncedArmor() {
+        return syncedArmor;
+    }
+
+    public void setSyncedArmor(int armor) {
+        this.syncedArmor = armor;
+    }
+
     public float syncedHealth() {
         return syncedHealth;
     }
@@ -416,6 +443,24 @@ public class HiveHeart extends Mob {
 
     public void addAge(int ticks) {
         ageTicks += ticks;
+    }
+
+    /**
+     * The Heart wears the armor in the hive's armor slots: the very same stacks, so it gets what armor gives (armor and
+     * toughness points, knockback resistance, protection enchantments) and the armor wears down as the Heart takes
+     * hits. The game works the armor's attributes out from what is equipped, so this is all it takes.
+     */
+    private void wearHiveArmor() {
+        for (int i = 0; i < HiveEquipment.ARMOR_SLOTS.length; i++) {
+            ItemStack stored = armorSlots.getItem(i);
+            if (this.getItemBySlot(HiveEquipment.ARMOR_SLOTS[i]) != stored) {
+                this.setItemSlot(HiveEquipment.ARMOR_SLOTS[i], stored);
+            }
+        }
+    }
+
+    public SimpleContainer scoutHand() {
+        return scoutHand;
     }
 
     public HiveFurnace furnace() {
@@ -538,6 +583,7 @@ public class HiveHeart extends Mob {
         tag.putInt(KILLS_TAG, kills);
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
+        tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
@@ -571,6 +617,10 @@ public class HiveHeart extends Mob {
         logsProgress = tag.getInt(LOGS_TAG);
         kills = tag.getInt(KILLS_TAG);
         ageTicks = tag.getInt(AGE_TAG);
+        scoutHand.clearContent();
+        if (tag.contains(SCOUT_HAND_TAG)) {
+            ContainerHelper.loadAllItems(tag.getCompound(SCOUT_HAND_TAG), scoutHand.getItems(), registryAccess());
+        }
         if (tag.contains(FURNACE_TAG)) {
             furnace.load(tag.getCompound(FURNACE_TAG), registryAccess());
         }

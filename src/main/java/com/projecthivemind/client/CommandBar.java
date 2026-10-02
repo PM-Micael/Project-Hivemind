@@ -36,9 +36,9 @@ public final class CommandBar {
             new Group(UnitKind.WORKER, "command.projecthivemind.workers"));
 
     private static final int SLOT_WIDTH = 72;
-    private static final int SLOT_HEIGHT = 24;
+    private static final int SLOT_HEIGHT = 22;
     private static final int GAP = 4;
-    private static final int BOTTOM_MARGIN = 6;
+    private static final int BOTTOM_MARGIN = 1;
     private static final int BACKGROUND = 0xC0201414;
     private static final int BORDER_NONE = 0xFF3A2A2A;
     private static final int BORDER_EMPTY = 0xFF241818;
@@ -137,8 +137,8 @@ public final class CommandBar {
 
             String key = minecraft.options.keyHotbarSlots[i].getTranslatedKeyMessage().getString();
             graphics.drawString(minecraft.font, key + " " + Component.translatable(GROUPS.get(i).labelKey()).getString(),
-                    x + 4, top + 4, text, false);
-            graphics.drawString(minecraft.font, SELECTED[i] + "/" + TOTAL[i], x + 4, top + 14, all ? 0xFFFF55 : 0xA0A0A0, false);
+                    x + 4, top + 3, text, false);
+            graphics.drawString(minecraft.font, SELECTED[i] + "/" + TOTAL[i], x + 4, top + 12, all ? 0xFFFF55 : 0xA0A0A0, false);
         }
     }
 }

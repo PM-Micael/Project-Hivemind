@@ -14,11 +14,14 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
@@ -46,6 +49,8 @@ public class HiveScout extends Husk implements HiveUnit {
 
     public HiveScout(EntityType<? extends HiveScout> type, Level level) {
         super(type, level);
+        // What it holds is the hive's, and stays in the hive when the scout dies.
+        this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
     }
 
     /**
@@ -76,6 +81,7 @@ public class HiveScout extends Husk implements HiveUnit {
         // Running away comes before collecting items, so it can interrupt a trip to an item.
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
         this.goalSelector.addGoal(1, new ScoutInteractGoal(this));
+        this.goalSelector.addGoal(1, new ScoutUseItemGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
     }
 
@@ -102,6 +108,16 @@ public class HiveScout extends Husk implements HiveUnit {
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
         // one that is not selected walks to items and takes them on arrival.
         HiveHeart heart = findHeart();
+        if (heart != null && this.tickCount % 10 == 0) {
+            // The scout holds a copy of what is in its hand slot in the hive menu.
+            ItemStack wanted = heart.scoutHand().getItem(0);
+            if (!ItemStack.matches(this.getMainHandItem(), wanted)) {
+                this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
+            }
+        }
+        if (heart != null && this.tickCount % 2 == 0) {
+            pickUpNearbyExperience();
+        }
         if (heart != null && heart.scoutBehavior().collectItems()) {
             pickUpNearbyItems(heart);
         }
@@ -112,6 +128,25 @@ public class HiveScout extends Husk implements HiveUnit {
      * up: whatever fits goes in, and what does not stays on the ground. Items that have only just been dropped are
      * left alone until their pickup delay ends.
      */
+    /**
+     * Experience orbs the scout touches go to the hivemind, as they would to a player: onto its experience bar. The
+     * hivemind is far from the scout, so the orb is added directly rather than flying to it.
+     */
+    private void pickUpNearbyExperience() {
+        ServerPlayer owner = this.ownerId() == null || this.level().getServer() == null ? null
+                : this.level().getServer().getPlayerList().getPlayer(this.ownerId());
+        if (owner == null) {
+            return;
+        }
+        for (ExperienceOrb orb : this.level().getEntitiesOfClass(ExperienceOrb.class, this.getBoundingBox().inflate(1.0D, 0.5D, 1.0D), ExperienceOrb::isAlive)) {
+            owner.giveExperiencePoints(orb.getValue());
+            this.take(orb, 1);
+            this.level().playSound(null, this.blockPosition(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.NEUTRAL,
+                    0.1F, 0.5F * ((this.random.nextFloat() - this.random.nextFloat()) * 0.7F + 1.8F));
+            orb.discard();
+        }
+    }
+
     private void pickUpNearbyItems(HiveHeart heart) {
         for (ItemEntity item : this.level().getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(1.0D, 0.5D, 1.0D),
                 candidate -> candidate.isAlive() && !candidate.hasPickUpDelay())) {

@@ -20,6 +20,7 @@ import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
 import com.projecthivemind.network.BuildTowerPayload;
+import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
@@ -229,6 +230,37 @@ public final class HiveActions {
         if (heart.activeBuild() != null && heart.activeBuild().plan().base().equals(pos)) {
             heart.setActiveBuild(null);
         }
+    }
+
+    // ---- the scout's hand ----
+
+    /**
+     * The player's scout uses the item in its hand on this face of this block. The order is checked here: the sender's
+     * own scout, something in its hand slot that can be used, and a block that is loaded.
+     */
+    public static void scoutUse(ServerPlayer player, ScoutUsePayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        BlockPos pos = request.pos();
+        if (heart == null || !level.isInWorldBounds(pos) || !level.isLoaded(pos)) {
+            return;
+        }
+        List<Mob> scouts = commandable(player, level, request.unitIds(), UnitKind.SCOUT);
+        if (scouts.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts_use"), true);
+            return;
+        }
+        if (!ScoutItems.usable(heart.scoutHand().getItem(0))) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.scout_hand_empty"), true);
+            return;
+        }
+        Mob scout = scouts.get(0);
+        scout.getNavigation().stop();
+        ((HiveUnit) scout).setAction(UnitAction.useItem(pos, request.face()));
+        syncActions(player, heart);
     }
 
     // ---- orders about a mob ----

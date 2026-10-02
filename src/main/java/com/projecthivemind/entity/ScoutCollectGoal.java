@@ -1,5 +1,6 @@
 package com.projecthivemind.entity;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -9,6 +10,8 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
 
 /**
@@ -28,7 +31,7 @@ public class ScoutCollectGoal extends Goal {
 
     private final HiveScout scout;
     @Nullable
-    private ItemEntity target;
+    private Entity target;
     private int nextScanTick;
     private int repathCooldown;
     private int tripTicks;
@@ -90,23 +93,27 @@ public class ScoutCollectGoal extends Goal {
         }
     }
 
+    /** The nearest dropped item the hive can take, or experience orb, that the scout can walk to. */
     @Nullable
-    private ItemEntity findItem(HiveHeart heart) {
+    private Entity findItem(HiveHeart heart) {
         ignored.values().removeIf(until -> until <= scout.tickCount);
         double radius = heart.scoutBehavior().unitAreaRadius();
-        List<ItemEntity> items = scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(radius),
+        List<Entity> candidates = new ArrayList<>(scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(radius),
                 item -> item.isAlive() && !item.getItem().isEmpty() && !isIgnored(item)
                         && item.distanceToSqr(scout) <= radius * radius
-                        && heart.getStorage().canAddItem(item.getItem()));
-        return items.stream()
+                        && heart.getStorage().canAddItem(item.getItem())));
+        // Experience is picked up like a player would: it goes to the hivemind's experience bar.
+        candidates.addAll(scout.level().getEntitiesOfClass(ExperienceOrb.class, scout.getBoundingBox().inflate(radius),
+                orb -> orb.isAlive() && !isIgnored(orb) && orb.distanceToSqr(scout) <= radius * radius));
+        return candidates.stream()
                 .sorted(Comparator.comparingDouble(scout::distanceToSqr))
-                .filter(item -> scout.getNavigation().createPath(item, 0) != null)
+                .filter(candidate -> scout.getNavigation().createPath(candidate, 0) != null)
                 .findFirst()
                 .orElse(null);
     }
 
-    private boolean isIgnored(ItemEntity item) {
-        Integer until = ignored.get(item.getId());
+    private boolean isIgnored(Entity entity) {
+        Integer until = ignored.get(entity.getId());
         return until != null && scout.tickCount < until;
     }
 }

@@ -55,6 +55,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int toolsEnd;
     private final int furnaceStart;
     private final int furnaceEnd;
+    private final int handIndex;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -88,7 +89,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** The panel's height: the tool row, then the unit counts underneath. */
     public static int panelHeight(int storageRows) {
-        return toolsY(storageRows) + 70;
+        return toolsY(storageRows) + 72;
+    }
+
+    /** Where the scout's hand slot is: under the row of unit counters, the scout's being the first. */
+    public static int scoutHandY(int storageRows) {
+        return toolsY(storageRows) + 52;
     }
 
     public int storageSlots() {
@@ -165,11 +171,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
+                new SimpleContainer(3), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, boolean hasFurnace, ContainerData data, @Nullable HiveHeart heart) {
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, boolean hasFurnace, ContainerData data,
+                     @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
         this.storageSlots = scroll.visibleSlots(scroll.total());
@@ -182,6 +189,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.hasFurnace = hasFurnace;
         this.furnaceStart = toolsEnd;
         this.furnaceEnd = furnaceStart + (hasFurnace ? 3 : 0);
+        this.handIndex = furnaceEnd;
         this.storage = storage;
         this.data = data;
         this.player = inventory.player;
@@ -212,6 +220,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addSlot(new FuelSlot(furnace, HiveFurnace.FUEL, FURNACE_FUEL_X, FURNACE_FUEL_Y));
             this.addSlot(new OutputSlot(furnace, HiveFurnace.OUTPUT, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
         }
+        // The scout's hand: under the scout's unit counter. What is put here is what the scout holds.
+        this.addSlot(new HiveSlot(scoutHand, 0, STORAGE_X, scoutHandY(scroll.visibleRows()), GROUP_GEAR));
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
     }
@@ -298,7 +308,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
+                heart.furnace().items(), heart.scoutHand(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
     }
 
     // ---- values for the screen ----

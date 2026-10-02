@@ -15,7 +15,10 @@ import javax.annotation.Nullable;
 import com.projecthivemind.BlockAction;
 import com.projecthivemind.MobAction;
 import com.projecthivemind.ProjectHivemind;
+import com.projecthivemind.ScoutItems;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.entity.HiveScout;
+import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
@@ -27,7 +30,10 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.core.Direction;
 import net.minecraft.world.Container;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.level.ClipContext;
@@ -299,6 +305,14 @@ public final class HiveSelection {
             // A scout opens containers (chests, furnaces, hoppers...) for the player.
             boolean scoutCanOpen = selectionHas(minecraft, selected, UnitKind.SCOUT)
                     && minecraft.level.getBlockEntity(pos) instanceof Container;
+            // A scout holding something can use it here: place it as a block, or use it.
+            ItemStack scoutItem = scoutHandItem(minecraft, selected);
+            if (ScoutItems.usable(scoutItem)) {
+                Direction face = hit.getDirection();
+                options.add(new ContextMenu.Option(Component.translatable(scoutItem.getItem() instanceof BlockItem
+                        ? "action.projecthivemind.place_block" : "action.projecthivemind.use_item"),
+                        () -> PacketDistributor.sendToServer(new ScoutUsePayload(selected, pos, face))));
+            }
             // Workers can build a tower on the block: one for the single staircase, two or more for the double.
             List<Integer> builders = unitsOfKind(minecraft, selected, UnitKind.WORKER);
             if (!builders.isEmpty()) {
@@ -379,6 +393,16 @@ public final class HiveSelection {
     private static ContextMenu.Option mobOption(String labelKey, List<Integer> units, Mob mob, MobAction action) {
         return new ContextMenu.Option(Component.translatable(labelKey),
                 () -> PacketDistributor.sendToServer(new MobActionPayload(units, mob.getId(), action)));
+    }
+
+    /** What the selected scout is holding: the first of the selected units that is a scout and has something in its hand. */
+    private static ItemStack scoutHandItem(Minecraft minecraft, List<Integer> selected) {
+        for (int id : selected) {
+            if (minecraft.level.getEntity(id) instanceof HiveScout scout && !scout.getMainHandItem().isEmpty()) {
+                return scout.getMainHandItem();
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     /** True if any of the selected units is of this kind. */

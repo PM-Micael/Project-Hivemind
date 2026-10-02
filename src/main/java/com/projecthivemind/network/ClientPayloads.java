@@ -6,9 +6,11 @@ import com.projecthivemind.client.ChooseModeScreen;
 import com.projecthivemind.client.ClientActions;
 import com.projecthivemind.client.ClientSight;
 import com.projecthivemind.client.ClientState;
+import com.projecthivemind.client.ScoutSignScreen;
 import com.projecthivemind.menu.ScoutTradeMenu;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.BookViewScreen;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -37,6 +39,17 @@ public final class ClientPayloads {
         ClientSight.update(payload.visibleMobs());
     }
 
+    public static void onOpenBook(OpenBookPayload payload, IPayloadContext context) {
+        BookViewScreen.BookAccess access = BookViewScreen.BookAccess.fromItem(payload.book());
+        if (access != null) {
+            Minecraft.getInstance().setScreen(new BookViewScreen(access));
+        }
+    }
+
+    public static void onOpenSign(OpenSignPayload payload, IPayloadContext context) {
+        Minecraft.getInstance().setScreen(new ScoutSignScreen(payload.pos()));
+    }
+
     public static void onTradeOffers(TradeOffersPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null && minecraft.player.containerMenu instanceof ScoutTradeMenu menu
@@ -46,7 +59,7 @@ public final class ClientPayloads {
     }
 
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
-        ClientState.updateHeartHealth(payload.health(), payload.maxHealth());
+        ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor());
     }
 
     public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {
