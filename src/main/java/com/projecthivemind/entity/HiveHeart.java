@@ -14,6 +14,7 @@ import javax.annotation.Nullable;
 import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveFood;
 import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
@@ -63,6 +64,7 @@ public class HiveHeart extends Mob {
     private static final String AGE_TAG = "HiveAge";
     private static final String FURNACE_TAG = "HiveFurnace";
     private static final String SCOUT_HAND_TAG = "ScoutHand";
+    private static final String FOOD_SLOT_TAG = "FoodSlot";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
@@ -89,10 +91,15 @@ public class HiveHeart extends Mob {
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
     private int syncedArmor = -1;
+    private int syncedFood = -1;
     /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
     private final SimpleContainer scoutHand = new SimpleContainer(1);
+    /** The food the hive eats from: put in the hive menu, under the armor slots. Only food goes in. */
+    private final SimpleContainer foodSlot = new SimpleContainer(1);
+    /** The hive's hunger: see HiveFood. */
+    private final HiveFood food = new HiveFood();
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
     private final Set<Long> exploredChunks = new HashSet<>();
     private SimpleContainer storage = new SimpleContainer(HiveLevels.get(1).storageSlots());
@@ -360,6 +367,9 @@ public class HiveHeart extends Mob {
             HivemindManager.tickHealthSync(this);
         }
         HivemindManager.tickNaturalSpawning(this);
+        if (this.level() instanceof ServerLevel foodLevel) {
+            food.tick(this, foodLevel);
+        }
         if (this.tickCount % 10 == 0) {
             wearHiveArmor();
             if (ownerId != null && this.getServer() != null) {
@@ -412,6 +422,14 @@ public class HiveHeart extends Mob {
         kills++;
     }
 
+    public int syncedFood() {
+        return syncedFood;
+    }
+
+    public void setSyncedFood(int food) {
+        this.syncedFood = food;
+    }
+
     public int syncedArmor() {
         return syncedArmor;
     }
@@ -457,6 +475,14 @@ public class HiveHeart extends Mob {
                 this.setItemSlot(HiveEquipment.ARMOR_SLOTS[i], stored);
             }
         }
+    }
+
+    public HiveFood food() {
+        return food;
+    }
+
+    public SimpleContainer foodSlot() {
+        return foodSlot;
     }
 
     public SimpleContainer scoutHand() {
@@ -583,7 +609,9 @@ public class HiveHeart extends Mob {
         tag.putInt(KILLS_TAG, kills);
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
+        food.save(tag);
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
+        tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
@@ -617,6 +645,11 @@ public class HiveHeart extends Mob {
         logsProgress = tag.getInt(LOGS_TAG);
         kills = tag.getInt(KILLS_TAG);
         ageTicks = tag.getInt(AGE_TAG);
+        food.load(tag);
+        foodSlot.clearContent();
+        if (tag.contains(FOOD_SLOT_TAG)) {
+            ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());
+        }
         scoutHand.clearContent();
         if (tag.contains(SCOUT_HAND_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(SCOUT_HAND_TAG), scoutHand.getItems(), registryAccess());

@@ -20,6 +20,9 @@ public final class HiveHud {
     private static final ResourceLocation ARMOR_EMPTY = ResourceLocation.withDefaultNamespace("hud/armor_empty");
     private static final ResourceLocation ARMOR_HALF = ResourceLocation.withDefaultNamespace("hud/armor_half");
     private static final ResourceLocation ARMOR_FULL = ResourceLocation.withDefaultNamespace("hud/armor_full");
+    private static final ResourceLocation FOOD_EMPTY = ResourceLocation.withDefaultNamespace("hud/food_empty");
+    private static final ResourceLocation FOOD_HALF = ResourceLocation.withDefaultNamespace("hud/food_half");
+    private static final ResourceLocation FOOD_FULL = ResourceLocation.withDefaultNamespace("hud/food_full");
     private static final ResourceLocation XP_BACKGROUND = ResourceLocation.withDefaultNamespace("hud/experience_bar_background");
     private static final ResourceLocation XP_PROGRESS = ResourceLocation.withDefaultNamespace("hud/experience_bar_progress");
     private static final int HEARTS_PER_ROW = 10;
@@ -56,6 +59,19 @@ public final class HiveHud {
                 graphics.blitSprite(FULL, x, y, 9, 9);
             } else if (health == i * 2 + 1) {
                 graphics.blitSprite(HALF, x, y, 9, 9);
+            }
+        }
+
+        // The hive's hunger, on the right as a player's is: ten drumsticks, filling from the right.
+        int food = ClientState.hiveFood();
+        for (int i = 0; i < 10; i++) {
+            int x = graphics.guiWidth() / 2 + 91 - 9 - i * 8;
+            int point = i * 2 + 1;
+            graphics.blitSprite(FOOD_EMPTY, x, bottom, 9, 9);
+            if (point < food) {
+                graphics.blitSprite(FOOD_FULL, x, bottom, 9, 9);
+            } else if (point == food) {
+                graphics.blitSprite(FOOD_HALF, x, bottom, 9, 9);
             }
         }
 

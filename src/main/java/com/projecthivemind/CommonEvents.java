@@ -49,6 +49,7 @@ import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.MobSpawnEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -159,6 +160,16 @@ public final class CommonEvents {
         }
     }
 
+
+    /** A hive unit or the Heart took a hit: it costs the hive what it costs a player. */
+    @SubscribeEvent
+    static void onLivingDamaged(LivingDamageEvent.Post event) {
+        HiveHeart heart = event.getEntity() instanceof HiveHeart own ? own
+                : event.getEntity() instanceof HiveUnit unit ? unit.findHeart() : null;
+        if (heart != null && event.getNewDamage() > 0.0F) {
+            heart.food().exhaust(event.getSource().getFoodExhaustion());
+        }
+    }
     @SubscribeEvent
     static void onLivingDeath(LivingDeathEvent event) {
         HivemindManager.onKill(event.getEntity(), event.getSource());

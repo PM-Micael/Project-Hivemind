@@ -6,6 +6,7 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveFood;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -106,6 +107,10 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         ItemStack weapon = this.getMainHandItem();
         this.swing(InteractionHand.MAIN_HAND);
         boolean hit = this.doHurtTarget(target);
+        HiveHeart hive = findHeart();
+        if (hive != null) {
+            hive.food().exhaust(HiveFood.ATTACK);
+        }
         if (hit && !weapon.isEmpty()) {
             // Mobs do not wear their weapons in vanilla, but a player does: a hit costs the weapon durability. The gear
             // mirror then charges the same to the original in the hive.

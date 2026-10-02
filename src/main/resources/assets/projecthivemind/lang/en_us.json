@@ -84,6 +84,7 @@
   "action.projecthivemind.place_block": "Place block",
   "action.projecthivemind.use_item": "Use item",
   "screen.projecthivemind.hive.scout_hand": "Scout's hand",
+  "screen.projecthivemind.hive.food": "Food",
   "screen.projecthivemind.sign.title": "Write on the sign",
   "message.projecthivemind.no_scouts_use": "Select a scout to use an item",
   "message.projecthivemind.scout_hand_empty": "The scout's hand is empty or holds nothing it can use",

@@ -59,7 +59,7 @@ public final class ClientPayloads {
     }
 
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
-        ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor());
+        ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food());
     }
 
     public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {

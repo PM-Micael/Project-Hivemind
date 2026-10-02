@@ -16,6 +16,7 @@ public final class ClientState {
     private static float heartHealth;
     private static float heartMaxHealth;
     private static int heartArmor;
+    private static int hiveFood = 20;
 
     private ClientState() {
     }
@@ -34,6 +35,7 @@ public final class ClientState {
         heartHealth = 0.0F;
         heartMaxHealth = 0.0F;
         heartArmor = 0;
+        hiveFood = 20;
     }
 
     /** Null until the server has told us. */
@@ -57,10 +59,15 @@ public final class ClientState {
     }
 
     /** The Hive Heart's health, as last told by the server, for the health bar. */
-    public static void updateHeartHealth(float health, float maxHealth, int armor) {
+    public static void updateHeartHealth(float health, float maxHealth, int armor, int food) {
+        hiveFood = food;
         heartArmor = armor;
         heartHealth = health;
         heartMaxHealth = maxHealth;
+    }
+
+    public static int hiveFood() {
+        return hiveFood;
     }
 
     public static int heartArmor() {

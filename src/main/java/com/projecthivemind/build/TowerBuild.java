@@ -209,6 +209,7 @@ public final class TowerBuild {
                     return Result.SKIPPED;
                 }
                 level.destroyBlock(pos, true, worker);
+                heart.food().exhaust(com.projecthivemind.HiveFood.BREAK_BLOCK);
             }
             worker.swing(InteractionHand.MAIN_HAND);
             claims.remove(pos);
@@ -226,6 +227,7 @@ public final class TowerBuild {
                 return Result.SKIPPED;
             }
             level.destroyBlock(pos, true, worker);
+            heart.food().exhaust(com.projecthivemind.HiveFood.BREAK_BLOCK);
         }
 
         BlockState state = blockItem.getBlock().defaultBlockState();

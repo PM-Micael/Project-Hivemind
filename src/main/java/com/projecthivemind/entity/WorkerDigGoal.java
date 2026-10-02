@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import javax.annotation.Nullable;
 
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveFood;
 import com.projecthivemind.UnitAction;
 
 import net.minecraft.core.BlockPos;
@@ -167,6 +168,7 @@ public class WorkerDigGoal extends Goal {
             Block.dropResources(state, level, pos, blockEntity, worker, tool);
         }
         level.destroyBlock(pos, false, worker);
+        heart.food().exhaust(HiveFood.BREAK_BLOCK);
         // Wears the copy; the gear mirror charges the same wear to the original in the hive.
         tool.hurtAndBreak(1, worker, EquipmentSlot.MAINHAND);
         heart.clearDigProgress(pos);

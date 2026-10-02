@@ -56,6 +56,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int furnaceStart;
     private final int furnaceEnd;
     private final int handIndex;
+    private final int foodIndex;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -171,11 +172,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
+                new SimpleContainer(3), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, boolean hasFurnace, ContainerData data,
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, ContainerData data,
                      @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
@@ -190,6 +191,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.furnaceStart = toolsEnd;
         this.furnaceEnd = furnaceStart + (hasFurnace ? 3 : 0);
         this.handIndex = furnaceEnd;
+        this.foodIndex = handIndex + 1;
         this.storage = storage;
         this.data = data;
         this.player = inventory.player;
@@ -222,6 +224,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
         // The scout's hand: under the scout's unit counter. What is put here is what the scout holds.
         this.addSlot(new HiveSlot(scoutHand, 0, STORAGE_X, scoutHandY(scroll.visibleRows()), GROUP_GEAR));
+        // The food the hive eats from, under the armor slots: only food goes in.
+        this.addSlot(new FoodSlot(foodSlot, 0, ARMOR_X, ARMOR_Y + HiveEquipment.ARMOR_SLOTS.length * 18 + 2));
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
     }
@@ -308,7 +312,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.scoutHand(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
+                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
     }
 
     // ---- values for the screen ----
@@ -484,7 +488,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             }
         } else if (!(shown(armorStart, toolsEnd) && this.moveItemStackTo(stack, armorStart, toolsEnd, false))
                 && !(shown(gridStart, gridEnd) && this.moveItemStackTo(stack, gridStart, gridEnd, false))
-                && !(shown(furnaceStart, furnaceEnd) && this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false))) {
+                && !(shown(furnaceStart, furnaceEnd) && this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false))
+                && !(shown(foodIndex, foodIndex + 1) && this.moveItemStackTo(stack, foodIndex, foodIndex + 1, false))) {
             // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace,
             // but only those the open tab is showing.
             return ItemStack.EMPTY;
@@ -605,6 +610,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public Pair<ResourceLocation, ResourceLocation> getNoItemIcon() {
             return Pair.of(InventoryMenu.BLOCK_ATLAS, ARMOR_ICONS[position]);
+        }
+    }
+
+    /** The hive's food slot: only food goes in. */
+    private class FoodSlot extends HiveSlot {
+        FoodSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_GEAR);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return stack.getFoodProperties(player) != null;
         }
     }
 
