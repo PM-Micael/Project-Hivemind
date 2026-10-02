@@ -150,7 +150,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button clearSpotButton;
 
     // Scout settings: the radius and two checkboxes.
-    private final EditBox[] scoutRadii = new EditBox[3];
+    private final EditBox[] scoutRadii = new EditBox[2];
     private Checkbox pickUpItems;
     private Checkbox fleeHostiles;
     private Checkbox scoutStay;
