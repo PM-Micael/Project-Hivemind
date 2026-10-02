@@ -20,6 +20,7 @@ import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
 import com.projecthivemind.network.BuildTowerPayload;
+import com.projecthivemind.network.DropItemPayload;
 import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SyncActionsPayload;
@@ -88,7 +89,7 @@ public final class HiveActions {
             double angle = units.size() == 1 ? 0.0D : i * (2.0D * Math.PI / units.size());
             double radius = units.size() == 1 ? 0.0D : FORMATION_SPACING * Math.max(1.0D, units.size() / 4.0D);
             Mob unit = units.get(i);
-            ((HiveUnit) unit).setAction(null);
+
             boolean pathFound = unit.getNavigation().moveTo(target.x + Math.cos(angle) * radius, target.y, target.z + Math.sin(angle) * radius, 1.0D);
             if (pathFound) {
                 ((HiveUnit) unit).setAction(new UnitAction(UnitAction.Kind.WALK, pos));
@@ -261,6 +262,44 @@ public final class HiveActions {
         scout.getNavigation().stop();
         ((HiveUnit) scout).setAction(UnitAction.useItem(pos, request.face()));
         syncActions(player, heart);
+    }
+
+    /**
+     * The selected scouts each drop one item from the stack in their hand, in the order of their numbers (Scout 1 first).
+     * The hand is one stack, so with several scouts and a short stack the first ones drop and the rest have nothing left:
+     * a single item is dropped by Scout 1 alone. Each item is thrown a little way in front of the scout, and cannot be
+     * picked up again for two seconds.
+     */
+    public static void scoutDrop(ServerPlayer player, DropItemPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null) {
+            return;
+        }
+        List<UUID> numbered = HivemindManager.get(player).units().getOrDefault(UnitKind.SCOUT, List.of());
+        List<Mob> scouts = new ArrayList<>(commandable(player, level, request.unitIds(), UnitKind.SCOUT));
+        scouts.sort(java.util.Comparator.comparingInt(scout -> numbered.indexOf(scout.getUUID())));
+        for (Mob scout : scouts) {
+            ItemStack hand = heart.scoutHand().getItem(0);
+            if (hand.isEmpty()) {
+                break;
+            }
+            ItemStack one = hand.split(1);
+            if (hand.isEmpty()) {
+                heart.scoutHand().setItem(0, ItemStack.EMPTY);
+            }
+            heart.scoutHand().setChanged();
+            Vec3 look = scout.getLookAngle();
+            net.minecraft.world.entity.item.ItemEntity dropped = new net.minecraft.world.entity.item.ItemEntity(level,
+                    scout.getX(), scout.getEyeY() - 0.3D, scout.getZ(), one);
+            dropped.setDeltaMovement(look.x * 0.3D, 0.1D, look.z * 0.3D);
+            dropped.setPickUpDelay(40);
+            level.addFreshEntity(dropped);
+            scout.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        }
     }
 
     // ---- orders about a mob ----

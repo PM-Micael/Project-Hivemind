@@ -1,12 +1,8 @@
 package com.projecthivemind.network;
 
-import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ScoutItems;
-import com.projecthivemind.ScoutBehavior;
-import com.projecthivemind.SoldierBehavior;
-import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.menu.ScoutTradeMenu;
 import com.projecthivemind.menu.ScrollableStorage;
@@ -95,6 +91,37 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onDropItem(DropItemPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.scoutDrop(player, payload);
+        }
+    }
+
+    public static void onSetUnitBehavior(SetUnitBehaviorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setUnitBehavior(player, payload.unitId(), payload.flags(), payload.radii());
+        }
+    }
+
+    public static void onCancelJob(CancelJobPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.cancelUnitJob(player, payload.unitId());
+        }
+    }
+
+    public static void onSetJobResume(SetJobResumePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setJobResume(player, payload.unitId(), payload.resume());
+        }
+    }
+
+    public static void onViewUnit(ViewUnitPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.viewUnit(payload.unitId(), payload.seq());
+        }
+    }
+
     public static void onBuildTower(BuildTowerPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HiveActions.buildTower(player, payload);
@@ -107,32 +134,9 @@ public final class ServerPayloads {
         }
     }
 
-    public static void onSetBehavior(SetBehaviorPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            // The constructor clamps the radius, so a bad client cannot set a silly one.
-            HivemindManager.setSoldierBehavior(player, SoldierBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
-        }
-    }
 
-    public static void onSetWorkerBehavior(SetWorkerBehaviorPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            // The constructor clamps the radius, so a bad client cannot set a silly one.
-            HivemindManager.setWorkerBehavior(player, WorkerBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
-        }
-    }
 
-    public static void onSetCollectorBehavior(SetCollectorBehaviorPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            // The constructor clamps the range, so a bad client cannot set a silly one.
-            HivemindManager.setCollectorBehavior(player, new CollectorBehavior(payload.extraRange()));
-        }
-    }
 
-    public static void onSetScoutBehavior(SetScoutBehaviorPayload payload, IPayloadContext context) {
-        if (context.player() instanceof ServerPlayer player) {
-            HivemindManager.setScoutBehavior(player, ScoutBehavior.fromFlags(payload.flags(), payload.unitAreaRadius()));
-        }
-    }
 
     public static void onMobAction(MobActionPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {

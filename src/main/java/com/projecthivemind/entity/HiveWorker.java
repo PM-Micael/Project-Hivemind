@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -35,6 +36,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     @Nullable
     private UnitAction action;
+    /** The job this unit is on or has set aside (see HiveUnit#job). Not saved. */
+    @Nullable
+    private UnitAction job;
+    private boolean resumeJob = true;
+    /** This unit's own settings, edited from the hive menu's page for its kind. */
+    private WorkerBehavior behavior = WorkerBehavior.DEFAULT;
     private int gearVersion;
     private final GearMirror gearMirror = new GearMirror();
 
@@ -76,6 +83,13 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     private static final int JOB_SCAN_INTERVAL = 40;
 
     private int nextJobScan;
+    /** Take a set-aside job up again once the unit has nothing to do and the player has let go of it. */
+    private void resumeJobIfFree(@Nullable HiveHeart heart) {
+        if (action == null && job != null && resumeJob && heart != null && !heart.isUnitSelected(this.getId())) {
+            setAction(job);
+        }
+    }
+
 
     @Override
     public void tick() {
@@ -89,6 +103,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
                 action = null;
             }
+            resumeJobIfFree(heart);
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
             if (action == null && heart != null && this.tickCount >= nextJobScan) {
                 nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
@@ -99,12 +114,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     /** With no orders and not selected, look for work the hive's worker settings allow. */
     private void findOwnWork(HiveHeart heart) {
-        if (heart.isUnitSelected(this.getId()) || !heart.workerBehavior().any()) {
+        if (heart.isUnitSelected(this.getId()) || !behavior.any()) {
             return;
         }
         UnitAction job = WorkerAutoJobs.findJob(this, heart);
         if (job != null) {
-            action = job;
+            setAction(job);
         }
     }
 
@@ -151,6 +166,27 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
     }
 
+    public WorkerBehavior behavior() {
+        return behavior;
+    }
+
+    @Override
+    public int behaviorFlags() {
+        return behavior.flags();
+    }
+
+    @Override
+    public int[] behaviorRadii() {
+        int[] radii = new int[4];
+        System.arraycopy(behavior.radii(), 0, radii, 0, behavior.radii().length);
+        return radii;
+    }
+
+    @Override
+    public void setBehavior(int flags, int[] radii) {
+        this.behavior = WorkerBehavior.from(flags, radii);
+    }
+
     @Nullable
     @Override
     public UnitAction action() {
@@ -158,8 +194,42 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     }
 
     @Override
-    public void setAction(@Nullable UnitAction action) {
-        this.action = action;
+    public void setAction(@Nullable UnitAction next) {
+        // A job ending, or being cancelled, ends the job. Giving the unit another order does not: it is set aside, and
+        // comes back when the unit is released. Giving it a new job replaces the old one.
+        if (next == null && action != null && action.equals(job)) {
+            job = null;
+        }
+        if (next != null && next.kind().isJob()) {
+            job = next;
+        }
+        this.action = next;
+    }
+
+    @Nullable
+    @Override
+    public UnitAction job() {
+        return job;
+    }
+
+    @Override
+    public boolean resumeJob() {
+        return resumeJob;
+    }
+
+    @Override
+    public void cancelJob() {
+        UnitAction ended = job;
+        job = null;
+        if (ended != null && ended.equals(action)) {
+            action = null;
+            this.getNavigation().stop();
+        }
+    }
+
+    @Override
+    public void setResumeJob(boolean resume) {
+        this.resumeJob = resume;
     }
 
     @Override
@@ -176,6 +246,13 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
+        tag.put("Behavior", behavior.save());
+        // The job, and whether the unit was on it, so that it carries on after the game has been closed.
+        if (job != null) {
+            tag.put("Job", job.save());
+            tag.putBoolean("JobActive", job.equals(action));
+        }
+        tag.putBoolean("ResumeJob", resumeJob);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -186,6 +263,14 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
+        job = tag.contains("Job") ? UnitAction.load(tag.getCompound("Job")) : null;
+        resumeJob = !tag.contains("ResumeJob") || tag.getBoolean("ResumeJob");
+        if (job != null && tag.getBoolean("JobActive")) {
+            action = job;
+        }
+        if (tag.contains("Behavior")) {
+            behavior = WorkerBehavior.load(tag.getCompound("Behavior"));
+        }
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }

@@ -1,11 +1,16 @@
 package com.projecthivemind.client;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.projecthivemind.ProjectHivemind;
+import com.projecthivemind.UnitKind;
+import com.projecthivemind.entity.HiveUnit;
+import com.projecthivemind.network.DropItemPayload;
 
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
@@ -18,6 +23,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
@@ -70,6 +76,28 @@ public final class HiveCamera {
     private static boolean rotating;
     private static double cursorXBeforeRotate;
     private static double cursorYBeforeRotate;
+
+    /**
+     * The drop key (Q) in the RTS view: every selected scout drops one item from its hand. (It used to turn the camera;
+     * R still does, and so does dragging with the middle mouse button.)
+     */
+    @SubscribeEvent
+    static void onKey(InputEvent.Key event) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (event.getAction() != GLFW.GLFW_PRESS || event.getKey() != GLFW.GLFW_KEY_Q || !controlling(minecraft)
+                || minecraft.level == null) {
+            return;
+        }
+        List<Integer> scouts = new ArrayList<>();
+        for (int id : ClientSelection.selected()) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit unit && unit.kind() == UnitKind.SCOUT) {
+                scouts.add(id);
+            }
+        }
+        if (!scouts.isEmpty()) {
+            PacketDistributor.sendToServer(new DropItemPayload(scouts));
+        }
+    }
 
     private HiveCamera() {
     }
@@ -184,9 +212,6 @@ public final class HiveCamera {
         long window = minecraft.getWindow().getWindow();
 
         float direction = 0.0F;
-        if (InputConstants.isKeyDown(window, GLFW.GLFW_KEY_Q)) {
-            direction -= 1.0F;
-        }
         if (InputConstants.isKeyDown(window, GLFW.GLFW_KEY_R)) {
             direction += 1.0F;
         }

@@ -19,6 +19,7 @@ import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHeartHealthPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
+import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.SyncSightPayload;
 
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -290,6 +291,75 @@ public final class HivemindManager {
 
     // ---- the hive menu ----
 
+    /** What a job is, in words, for the unit's page of the hive menu. Empty if there is none to speak of. */
+    private static net.minecraft.network.chat.Component describeJob(ServerLevel level, HiveHeart heart, UnitAction job) {
+        switch (job.kind()) {
+            case DIG:
+                if (job.pos() != null) {
+                    return Component.translatable("job.projecthivemind.mine", level.getBlockState(job.pos()).getBlock().getName());
+                }
+                break;
+            case ATTACK:
+                if (job.target() != null) {
+                    net.minecraft.world.entity.Entity target = level.getEntity(job.target());
+                    return Component.translatable("job.projecthivemind.attack", target == null ? Component.translatable("job.projecthivemind.a_mob") : target.getName());
+                }
+                break;
+            case BUILD:
+                return Component.translatable(heart.activeBuild() != null && heart.activeBuild().plan().direction() == com.projecthivemind.build.TowerDirection.DOWN
+                        ? "job.projecthivemind.build_shaft" : "job.projecthivemind.build_tower");
+            default:
+                break;
+        }
+        return Component.empty();
+    }
+
+    /** The player confirmed cancelling a unit's job. Only valid with the hive menu open, for the player's own units. */
+    public static void cancelUnitJob(ServerPlayer player, int unitId) {
+        if (!(player.containerMenu instanceof HiveMenu)) {
+            return;
+        }
+        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                && player.getUUID().equals(unit.ownerId())) {
+            unit.cancelJob();
+            HiveHeart heart = findHeart(player);
+            if (heart != null) {
+                HiveActions.syncActions(player, heart);
+            }
+        }
+    }
+
+    /** The player ticked or unticked "go back to this job" on a unit's page. Only valid with the hive menu open. */
+    public static void setJobResume(ServerPlayer player, int unitId, boolean resume) {
+        if (!(player.containerMenu instanceof HiveMenu)) {
+            return;
+        }
+        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                && player.getUUID().equals(unit.ownerId())) {
+            unit.setResumeJob(resume);
+        }
+    }
+
+    /** Tell the owner who their units are, for the unit pages of the hive menu. */
+    public static void sendUnits(ServerPlayer owner) {
+        ServerLevel level = owner.serverLevel();
+        List<SyncUnitsPayload.Entry> entries = new ArrayList<>();
+        for (UnitKind kind : UnitKind.values()) {
+            for (UUID id : get(owner).units().getOrDefault(kind, List.of())) {
+                if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && entries.size() < SyncUnitsPayload.MAX_ENTRIES) {
+                    HiveUnit unit = mob instanceof HiveUnit found ? found : null;
+                    UnitAction job = unit == null ? null : unit.job();
+                    HiveHeart heart = findHeart(owner);
+                    Component text = job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
+                    boolean paused = job != null && !job.equals(unit.action());
+                    entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob()), mob.getHealth(), mob.getMaxHealth()));
+                }
+            }
+        }
+        PacketDistributor.sendToPlayer(owner, new SyncUnitsPayload(entries));
+    }
+
     public static void openMenu(ServerPlayer player) {
         if (get(player).stage() != HivemindStage.HIVE) {
             return;
@@ -303,8 +373,10 @@ public final class HivemindManager {
                 (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
                 Component.translatable("screen.projecthivemind.hive.title")), buf -> {
             buf.writeVarInt(heart.getStorage().getContainerSize());
-            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL);
+            // The built-in furnace is not offered in the menu any more.
+            buf.writeBoolean(false);
         });
+        sendUnits(player);
     }
 
     // ---- units ----
@@ -428,6 +500,8 @@ public final class HivemindManager {
         unit.setPersistenceRequired();
         level.addFreshEntity(unit);
 
+        // Summoning a unit costs the hive 2 saturation (a saturation point is 4 exhaustion, as in the game's own food).
+        heart.food().payForUnit();
         set(player, get(player).withUnit(kind, unit.getUUID()));
         sync(player);
     }
@@ -440,8 +514,10 @@ public final class HivemindManager {
         ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
         if (owner != null && get(owner).stage() == HivemindStage.HIVE) {
             HiveActions.syncActions(owner, heart);
+            // The names of the units (Soldier 1, Soldier 2...) are shown over them in the world, so the list is kept up to date.
+            sendUnits(owner);
             // Only bother looking for threats if the soldiers are set to respond to them.
-            heart.setThreats(heart.soldierBehavior().threats() ? findThreats(owner, heart) : Set.of());
+            heart.setThreats(anySoldierRespondsToThreats(owner) ? findThreats(owner, heart) : Set.of());
         }
     }
 
@@ -673,29 +749,8 @@ public final class HivemindManager {
         }
     }
 
-    /** The player edited the scout settings on the menu. Only valid with the hive menu open. */
-    public static void setScoutBehavior(ServerPlayer player, ScoutBehavior behavior) {
-        HiveHeart heart = findHeart(player);
-        if (heart != null && player.containerMenu instanceof HiveMenu) {
-            heart.setScoutBehavior(behavior);
-        }
-    }
 
-    /** The player edited the collector range on the menu. Only valid with the hive menu open. */
-    public static void setCollectorBehavior(ServerPlayer player, CollectorBehavior behavior) {
-        HiveHeart heart = findHeart(player);
-        if (heart != null && player.containerMenu instanceof HiveMenu) {
-            heart.setCollectorBehavior(behavior);
-        }
-    }
 
-    /** The player edited the worker behaviour settings on the menu. Only valid with the hive menu open. */
-    public static void setWorkerBehavior(ServerPlayer player, WorkerBehavior behavior) {
-        HiveHeart heart = findHeart(player);
-        if (heart != null && player.containerMenu instanceof HiveMenu) {
-            heart.setWorkerBehavior(behavior);
-        }
-    }
 
     /** How far around each hive member to look for mobs that are coming for it. */
     private static final double THREAT_SCAN_RADIUS = 24.0D;
@@ -736,6 +791,36 @@ public final class HivemindManager {
         return mob.isAlive() && !isHiveMember(mob);
     }
 
+    /** True if any of the owner's soldiers is set to respond to mobs that threaten the hive. */
+    private static boolean anySoldierRespondsToThreats(ServerPlayer owner) {
+        ServerLevel level = owner.serverLevel();
+        for (UUID id : get(owner).allUnits()) {
+            if (level.getEntity(id) instanceof HiveSoldier soldier && soldier.isAlive() && soldier.behavior().threats()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The player edited one unit's behaviour settings on its page of the hive menu. Only valid with the hive menu open,
+     * and only for the player's own units.
+     */
+    public static void setUnitBehavior(ServerPlayer player, int unitId, int flags, List<Integer> radii) {
+        if (!(player.containerMenu instanceof HiveMenu)) {
+            return;
+        }
+        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                && player.getUUID().equals(unit.ownerId())) {
+            // Every kind's settings clamp a bad radius, so a bad client cannot set a silly one.
+            int[] padded = new int[4];
+            for (int i = 0; i < Math.min(4, radii.size()); i++) {
+                padded[i] = radii.get(i);
+            }
+            unit.setBehavior(flags, padded);
+        }
+    }
+
     /** The client reports which units the player has selected; those follow orders only, not the hive's defaults. */
     public static void setSelection(ServerPlayer player, List<Integer> unitIds) {
         HiveHeart heart = findHeart(player);
@@ -744,15 +829,11 @@ public final class HivemindManager {
         }
     }
 
-    /** The player edited the soldier behaviour settings on the menu. Only valid with the hive menu open. */
-    public static void setSoldierBehavior(ServerPlayer player, SoldierBehavior behavior) {
-        HiveHeart heart = findHeart(player);
-        if (heart != null && player.containerMenu instanceof HiveMenu) {
-            heart.setSoldierBehavior(behavior);
-        }
-    }
 
     /** A unit died: free its owner's slot so they can spawn a replacement. */
+    /** What it costs the Heart when one of its units dies: 4 health points, 2 hearts. */
+    public static final float UNIT_DEATH_DAMAGE = 4.0F;
+
     public static void onUnitDied(ServerLevel level, Mob unit) {
         if (!(unit instanceof HiveUnit hiveUnit) || hiveUnit.ownerId() == null) {
             return;
@@ -760,6 +841,13 @@ public final class HivemindManager {
         ServerPlayer owner = level.getServer().getPlayerList().getPlayer(hiveUnit.ownerId());
         if (owner == null) {
             return;
+        }
+        // Losing a unit hurts the hive: the Heart loses 2 hearts. Armor and invulnerability do not count, it is exactly that.
+        // (When the Heart itself was destroyed it is not alive, and its units dying with it cost it nothing.)
+        HiveHeart heart = hiveUnit.findHeart();
+        if (heart != null && heart.isAlive()) {
+            heart.invulnerableTime = 0;
+            heart.hurt(level.damageSources().genericKill(), UNIT_DEATH_DAMAGE);
         }
         set(owner, get(owner).withoutUnit(hiveUnit.kind(), unit.getUUID()));
         sync(owner);

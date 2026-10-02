@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -29,6 +30,9 @@ import net.minecraft.world.level.Level;
  * and delivers them into the hive's inventory.
  */
 public class HiveCollector extends Silverfish implements HiveUnit {
+    /** This unit's own settings, edited from the hive menu's page for its kind. */
+    private CollectorBehavior behavior = CollectorBehavior.DEFAULT;
+
     private static final String HEART_TAG = "HiveHeartId";
     private static final String CARRIED_TAG = "Carried";
 
@@ -88,6 +92,25 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     }
 
     /** Collectors cannot be commanded: they never have an action. */
+    public CollectorBehavior behavior() {
+        return behavior;
+    }
+
+    @Override
+    public int behaviorFlags() {
+        return 0;
+    }
+
+    @Override
+    public int[] behaviorRadii() {
+        return new int[] {behavior.extraRange(), 0, 0, 0};
+    }
+
+    @Override
+    public void setBehavior(int flags, int[] radii) {
+        this.behavior = new CollectorBehavior(radii[0]);
+    }
+
     @Nullable
     @Override
     public UnitAction action() {
@@ -148,6 +171,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
+        tag.put("Behavior", behavior.save());
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -160,6 +184,9 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
+        if (tag.contains("Behavior")) {
+            behavior = CollectorBehavior.load(tag.getCompound("Behavior"));
+        }
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }

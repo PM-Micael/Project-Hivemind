@@ -199,7 +199,7 @@ public class CollectItemsGoal extends Goal {
     private ItemEntity findItem(HiveHeart heart) {
         // The collector's job is the hive area, whether or not the creep is still there, plus however far past its edge
         // the player has allowed. The extra range only reaches sideways: the area already covers every height.
-        int extra = heart.collectorBehavior().extraRange();
+        int extra = collector.behavior().extraRange();
         ignored.values().removeIf(until -> until <= collector.tickCount);
         List<ItemEntity> items = collector.level().getEntitiesOfClass(ItemEntity.class,
                 HiveInfection.areaBox((ServerLevel) collector.level(), heart).inflate(extra, 0.0D, extra),

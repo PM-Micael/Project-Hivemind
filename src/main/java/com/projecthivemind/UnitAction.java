@@ -6,6 +6,8 @@ import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 
 /**
  * What a commanded unit is currently doing. Lives on the unit and is not saved.
@@ -28,7 +30,46 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Building a tower with other workers: {@code pos} is the block it stands on (workers only). */
         BUILD,
         /** Using the item in the scout's hand on a face of a block: placing it, reading it, throwing it (scouts only). */
-        USE_ITEM
+        USE_ITEM;
+
+        /**
+         * Whether this is a job: something a unit keeps at until it is done, like mining a block, fighting a mob or building.
+         * Anything else (walking somewhere, one use of a block or item) is an order that only pauses a job.
+         */
+        public boolean isJob() {
+            return this == DIG || this == ATTACK || this == BUILD;
+        }
+    }
+
+    /** Written for a unit's saved data, so that its job survives the game being closed. */
+    public CompoundTag save() {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("Kind", kind.name());
+        if (pos != null) {
+            tag.put("Pos", NbtUtils.writeBlockPos(pos));
+        }
+        if (target != null) {
+            tag.putUUID("Target", target);
+        }
+        if (face != null) {
+            tag.putString("Face", face.getName());
+        }
+        return tag;
+    }
+
+    /** Read back by {@link #save}; null if it is not something that can be read. */
+    @Nullable
+    public static UnitAction load(CompoundTag tag) {
+        Kind kind;
+        try {
+            kind = Kind.valueOf(tag.getString("Kind"));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        BlockPos pos = NbtUtils.readBlockPos(tag, "Pos").orElse(null);
+        UUID target = tag.hasUUID("Target") ? tag.getUUID("Target") : null;
+        Direction face = tag.contains("Face") ? Direction.byName(tag.getString("Face")) : null;
+        return new UnitAction(kind, pos, target, face);
     }
 
     public UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID target) {

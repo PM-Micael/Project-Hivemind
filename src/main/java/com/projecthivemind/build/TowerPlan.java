@@ -55,6 +55,7 @@ public final class TowerPlan {
     private final BlockPos base;
     private final int height;
     private final int groundY;
+    private final boolean walls;
     private final List<Placement> placements = new ArrayList<>();
 
     /**
@@ -69,6 +70,7 @@ public final class TowerPlan {
         this.base = clicked.immutable();
         this.height = height;
         this.groundY = clicked.getY() + 1;
+        this.walls = walls;
         if (direction == TowerDirection.UP) {
             planTower(walls);
         } else {
@@ -241,6 +243,11 @@ public final class TowerPlan {
             }
         }
         return -1;
+    }
+
+    /** True for walls all round, false for just corner pillars. */
+    public boolean walls() {
+        return walls;
     }
 
     public TowerShape shape() {

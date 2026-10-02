@@ -1,6 +1,8 @@
 package com.projecthivemind;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -74,6 +76,14 @@ public final class HiveFood {
         return saturation;
     }
 
+    /** What summoning a unit costs: this much saturation (spent before food, as everything the hive does is). */
+    public static final float SUMMON_SATURATION = 2.0F;
+
+    /** The hive pays for a new unit. */
+    public void payForUnit() {
+        exhaust(SUMMON_SATURATION * 4.0F);
+    }
+
     public void exhaust(float amount) {
         exhaustion = Math.min(exhaustion + amount, 40.0F);
     }
@@ -87,10 +97,11 @@ public final class HiveFood {
     /** One tick, from the Heart. */
     public void tick(HiveHeart heart, ServerLevel level) {
         Difficulty difficulty = level.getDifficulty();
+        List<LivingEntity> hurtMembers = new ArrayList<>();
         ServerPlayer owner = heart.ownerId() == null || heart.getServer() == null ? null
                 : heart.getServer().getPlayerList().getPlayer(heart.ownerId());
         if (owner != null) {
-            chargeUnits(heart, level, owner);
+            hurtMembers.addAll(chargeUnits(heart, level, owner));
         }
 
         // Exhaustion turns into lost saturation, and when there is none, into lost food.
@@ -104,19 +115,27 @@ public final class HiveFood {
         }
 
         boolean regenerates = level.getGameRules().getBoolean(GameRules.RULE_NATURAL_REGENERATION);
-        boolean hurt = heart.getHealth() < heart.getMaxHealth();
+        // The Heart and every unit heal from the one hunger, each costing what a player's healing costs.
+        if (heart.getHealth() < heart.getMaxHealth()) {
+            hurtMembers.add(heart);
+        }
+        boolean hurt = !hurtMembers.isEmpty();
         if (regenerates && saturation > 0.0F && hurt && foodLevel >= 20) {
             // Full and saturated: fast healing, which costs what it heals.
             if (++tickTimer >= 10) {
                 float used = Math.min(saturation, 6.0F);
-                heart.heal(used / 6.0F);
-                exhaust(used);
+                for (LivingEntity member : hurtMembers) {
+                    member.heal(used / 6.0F);
+                    exhaust(used);
+                }
                 tickTimer = 0;
             }
         } else if (regenerates && foodLevel >= 18 && hurt) {
             if (++tickTimer >= 80) {
-                heart.heal(1.0F);
-                exhaust(6.0F);
+                for (LivingEntity member : hurtMembers) {
+                    member.heal(1.0F);
+                    exhaust(6.0F);
+                }
                 tickTimer = 0;
             }
         } else if (foodLevel <= 0) {
@@ -131,7 +150,7 @@ public final class HiveFood {
         // On Peaceful the game heals a player and refills their food on its own.
         if (difficulty == Difficulty.PEACEFUL && regenerates) {
             if (hurt && heart.tickCount % 20 == 0) {
-                heart.heal(1.0F);
+                hurtMembers.forEach(member -> member.heal(1.0F));
             }
             if (foodLevel < 20 && heart.tickCount % 10 == 0) {
                 foodLevel++;
@@ -164,9 +183,10 @@ public final class HiveFood {
 
     /**
      * Charge the hive for what its units are doing this tick: swimming and sprinting by the distance, jumps, as a
-     * player's would cost.
+     * player's would cost. Returns the units that are hurt, which heal from the hive's hunger.
      */
-    private void chargeUnits(HiveHeart heart, ServerLevel level, ServerPlayer owner) {
+    private List<LivingEntity> chargeUnits(HiveHeart heart, ServerLevel level, ServerPlayer owner) {
+        List<LivingEntity> hurt = new ArrayList<>();
         for (UUID id : HivemindManager.get(owner).allUnits()) {
             if (!(level.getEntity(id) instanceof Mob unit) || !unit.isAlive() || !(unit instanceof HiveUnit)) {
                 continue;
@@ -195,9 +215,13 @@ public final class HiveFood {
                 }
             }
             unitStates.put(id, new UnitState(unit.getX(), unit.getZ(), onGround));
+            if (unit.getHealth() < unit.getMaxHealth()) {
+                hurt.add(unit);
+            }
         }
         // Forget units that are gone.
         unitStates.keySet().removeIf(id -> !(level.getEntity(id) instanceof Mob));
+        return hurt;
     }
 
     /**

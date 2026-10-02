@@ -12,6 +12,7 @@ import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModMenus;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveHeart;
+import com.projecthivemind.entity.HiveUnit;
 
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.resources.ResourceLocation;
@@ -19,6 +20,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -123,13 +125,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_HEALTH = 1;
     private static final int DATA_MAX_HEALTH = 2;
     private static final int DATA_TIMER = 3;
-    private static final int DATA_BEHAVIOR_FLAGS = 4;
-    private static final int DATA_UNIT_AREA = 5;
-    private static final int DATA_WORKER_FLAGS = 6;
-    private static final int DATA_WORKER_AREA = 7;
-    private static final int DATA_COLLECTOR_RANGE = 8;
-    private static final int DATA_SCOUT_FLAGS = 9;
-    private static final int DATA_SCOUT_AREA = 10;
+    /**
+     * The unit whose page is open (see {@link #viewUnit}): the number the player's screen asked for, echoed back so the
+     * screen knows the values after it are that unit's, then that unit's kind, behaviour flags and radius or range.
+     * All sent plus one, so that 0 means "not arrived yet".
+     */
+    private static final int DATA_VIEW_SEQ = 4;
+    private static final int DATA_VIEW_KIND = 5;
+    private static final int DATA_VIEW_FLAGS = 6;
+    private static final int DATA_VIEW_RADIUS = 7;
+    private static final int VIEW_RADII = 4;
     private static final int DATA_QUEST_LOGS = 11;
     private static final int DATA_QUEST_CHUNKS = 12;
     private static final int DATA_QUEST_KILLS = 13;
@@ -159,6 +164,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     @Nullable
     private final SimpleContainer storage;
     private final ContainerData data;
+    /** Server side: the entity id of the unit whose page is open, and the number the screen asked about it with. */
+    private final int[] view;
     private final Player player;
     @Nullable
     private final HiveHeart heart;
@@ -172,11 +179,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
+                new SimpleContainer(3), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT),
+                new int[] {-1, -1}, null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, ContainerData data,
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, ContainerData data, int[] view,
                      @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
@@ -194,6 +202,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.foodIndex = handIndex + 1;
         this.storage = storage;
         this.data = data;
+        this.view = view;
         this.player = inventory.player;
         this.heart = heart;
 
@@ -232,6 +241,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** Server constructor: backed by the Heart's real storage, with live stats for the screen. */
     public static HiveMenu create(int containerId, Inventory inventory, HiveHeart heart, ServerPlayer player) {
+        int[] view = {-1, -1};
         ContainerData data = new ContainerData() {
             @Override
             public int get(int index) {
@@ -247,24 +257,17 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_TIMER) {
                     return heart.ticksUntilSpawn();
                 }
-                // Both behaviour values are sent plus one, so a value of 0 means "not received yet" on the client.
-                if (index == DATA_BEHAVIOR_FLAGS) {
-                    return heart.soldierBehavior().flags() + 1;
+                if (index == DATA_VIEW_SEQ) {
+                    return view[1] + 1;
                 }
-                if (index == DATA_UNIT_AREA) {
-                    return heart.soldierBehavior().unitAreaRadius() + 1;
-                }
-                if (index == DATA_WORKER_FLAGS) {
-                    return heart.workerBehavior().flags() + 1;
-                }
-                if (index == DATA_WORKER_AREA) {
-                    return heart.workerBehavior().unitAreaRadius() + 1;
-                }
-                if (index == DATA_COLLECTOR_RANGE) {
-                    return heart.collectorBehavior().extraRange() + 1;
-                }
-                if (index == DATA_SCOUT_FLAGS) {
-                    return heart.scoutBehavior().flags() + 1;
+                if (index == DATA_VIEW_KIND || index == DATA_VIEW_FLAGS || (index >= DATA_VIEW_RADIUS && index < DATA_VIEW_RADIUS + VIEW_RADII)) {
+                    // The page's unit: only the player's own, and only while it is alive.
+                    if (player.serverLevel().getEntity(view[0]) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                            && player.getUUID().equals(unit.ownerId())) {
+                        return (index == DATA_VIEW_KIND ? unit.kind().ordinal() : index == DATA_VIEW_FLAGS ? unit.behaviorFlags()
+                                : unit.behaviorRadii()[index - DATA_VIEW_RADIUS]) + 1;
+                    }
+                    return 0;
                 }
                 if (index == DATA_QUEST_LOGS) {
                     return heart.logsProgress();
@@ -290,9 +293,6 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_QUEST_CHUNKS) {
                     return heart.exploredChunkCount();
                 }
-                if (index == DATA_SCOUT_AREA) {
-                    return heart.scoutBehavior().unitAreaRadius() + 1;
-                }
                 UnitKind kind = UnitKind.values()[(index - DATA_UNITS) / VALUES_PER_UNIT];
                 return switch ((index - DATA_UNITS) % VALUES_PER_UNIT) {
                     case 0 -> HivemindManager.get(player).count(kind);
@@ -312,7 +312,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
+                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), false, data, view, heart);
     }
 
     // ---- values for the screen ----
@@ -343,20 +343,34 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     /**
-     * True once the server's behaviour settings have reached the client. A new menu's data starts at zero and the
-     * real values arrive a moment after the screen opens; reading them before then would show wrong settings.
+     * True once the values of the unit the screen asked about (with this number) have reached the client. A new menu's
+     * data starts at zero and the real values arrive a moment after; reading them before then would show wrong settings.
      */
-    public boolean behaviorReady() {
-        return data.get(DATA_BEHAVIOR_FLAGS) > 0 && data.get(DATA_UNIT_AREA) > 0
-                && data.get(DATA_WORKER_FLAGS) > 0 && data.get(DATA_WORKER_AREA) > 0
-                && data.get(DATA_COLLECTOR_RANGE) > 0 && data.get(DATA_SCOUT_FLAGS) > 0
-                && data.get(DATA_SCOUT_AREA) > 0;
+    public boolean viewReady(int seq) {
+        return data.get(DATA_VIEW_SEQ) == seq + 1 && data.get(DATA_VIEW_KIND) > 0 && data.get(DATA_VIEW_FLAGS) > 0 && data.get(DATA_VIEW_RADIUS) > 0;
     }
 
-    /** The scout behaviour checkboxes, packed into one number (see ScoutBehavior). Only valid once ready. */
-    public int scoutFlags() {
-        return data.get(DATA_SCOUT_FLAGS) - 1;
+    /** The kind of the unit being viewed, once ready. */
+    public UnitKind viewKind() {
+        return UnitKind.values()[data.get(DATA_VIEW_KIND) - 1];
     }
+
+    /** The viewed unit's behaviour checkboxes as flags, once ready. */
+    public int viewFlags() {
+        return data.get(DATA_VIEW_FLAGS) - 1;
+    }
+
+    /** One of the viewed unit's radii (or its range), once ready: see HiveUnit#behaviorRadii. */
+    public int viewRadius(int index) {
+        return data.get(DATA_VIEW_RADIUS + index) - 1;
+    }
+
+    /** Server side: which unit's page is open, and the number the screen asked about it with. */
+    public void viewUnit(int entityId, int seq) {
+        view[0] = entityId;
+        view[1] = seq;
+    }
+
 
     /** Quest progress: logs the hive has collected so far (counting up to what the quest asks). */
     public int questLogs() {
@@ -399,35 +413,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return data.get(DATA_QUEST_CHUNKS);
     }
 
-    /** The scouts' own-area radius setting. Only valid once ready. */
-    public int scoutAreaRadius() {
-        return data.get(DATA_SCOUT_AREA) - 1;
-    }
 
-    /** How far past the hive area collectors may reach. Only valid once ready. */
-    public int collectorRange() {
-        return data.get(DATA_COLLECTOR_RANGE) - 1;
-    }
 
-    /** The worker behaviour checkboxes, packed into one number (see WorkerBehavior). Only valid once ready. */
-    public int workerFlags() {
-        return data.get(DATA_WORKER_FLAGS) - 1;
-    }
 
-    /** The workers' own-area radius setting. Only valid once ready. */
-    public int workerAreaRadius() {
-        return data.get(DATA_WORKER_AREA) - 1;
-    }
 
-    /** The soldier behaviour checkboxes, packed into one number (see SoldierBehavior). Only valid once ready. */
-    public int behaviorFlags() {
-        return data.get(DATA_BEHAVIOR_FLAGS) - 1;
-    }
 
-    /** The soldiers' own-area radius setting. Only valid once ready. */
-    public int unitAreaRadius() {
-        return data.get(DATA_UNIT_AREA) - 1;
-    }
 
     /** Whole seconds until the next spawning interval, rounded up so it never shows 0 before it fires. */
     public int secondsUntilSpawn() {

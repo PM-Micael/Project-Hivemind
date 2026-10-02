@@ -43,7 +43,7 @@ public class SoldierDefaultAttackGoal extends Goal {
     /** Idle, not selected, and the hive has something enabled to look for. */
     private boolean mayAct(@Nullable HiveHeart heart) {
         return heart != null && soldier.action() == null && !heart.isUnitSelected(soldier.getId())
-                && heart.soldierBehavior().any();
+                && soldier.behavior().any();
     }
 
     @Override
@@ -100,7 +100,7 @@ public class SoldierDefaultAttackGoal extends Goal {
     @Nullable
     private Mob findTarget(HiveHeart heart) {
         ServerLevel level = (ServerLevel) soldier.level();
-        SoldierBehavior behavior = heart.soldierBehavior();
+        SoldierBehavior behavior = soldier.behavior();
 
         if (behavior.threats()) {
             Mob nearestThreat = null;
@@ -116,36 +116,43 @@ public class SoldierDefaultAttackGoal extends Goal {
         }
 
         // Every other trigger needs the mob inside the soldier's own range, so that is all there is to search.
-        AABB search = soldier.getBoundingBox().inflate(behavior.unitAreaRadius());
+        AABB search = soldier.getBoundingBox().inflate(behavior.maxRadius());
         List<Mob> candidates = level.getEntitiesOfClass(Mob.class, search, mob -> matches(heart, mob));
         return candidates.stream().min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
     }
 
     /** Whether this mob is a valid target for this soldier under the hive's current settings. */
+    private static double square(int radius) {
+        return (double) radius * radius;
+    }
+
     private boolean matches(HiveHeart heart, Mob mob) {
         // Never hive members, and never itself.
         if (!mob.isAlive() || mob == soldier || mob instanceof HiveUnit || mob instanceof HiveHeart) {
             return false;
         }
-        SoldierBehavior behavior = heart.soldierBehavior();
+        SoldierBehavior behavior = soldier.behavior();
 
         // The one global trigger: a mob that is hostile to the hive is a target wherever it is.
         if (behavior.threats() && heart.isThreat(mob.getUUID())) {
             return true;
         }
 
-        // Every other trigger only counts inside this soldier's own range.
-        double radius = behavior.unitAreaRadius();
-        if (soldier.distanceToSqr(mob) > radius * radius) {
-            return false;
-        }
+        // Every other option only counts inside its own radius around this soldier.
+        double distance = soldier.distanceToSqr(mob);
         boolean hostile = mob instanceof Enemy;
 
         // The hive-area options also need the mob to be inside the hive area itself.
         boolean inHiveArea = HiveInfection.areaBox((ServerLevel) soldier.level(), heart).contains(mob.position());
-        if (inHiveArea && (behavior.allInHiveArea() || (behavior.hostileInHiveArea() && hostile))) {
-            return true;
+        if (inHiveArea) {
+            if (behavior.allInHiveArea() && distance <= square(behavior.allInHiveRadius())) {
+                return true;
+            }
+            if (behavior.hostileInHiveArea() && hostile && distance <= square(behavior.hostileInHiveRadius())) {
+                return true;
+            }
         }
-        return behavior.allInUnitArea() || (behavior.hostileInUnitArea() && hostile);
+        return (behavior.allInUnitArea() && distance <= square(behavior.allInUnitRadius()))
+                || (behavior.hostileInUnitArea() && hostile && distance <= square(behavior.hostileInUnitRadius()));
     }
 }

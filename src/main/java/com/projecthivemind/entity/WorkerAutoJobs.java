@@ -37,7 +37,7 @@ public final class WorkerAutoJobs {
 
     @Nullable
     public static UnitAction findJob(HiveWorker worker, HiveHeart heart) {
-        WorkerBehavior behavior = heart.workerBehavior();
+        WorkerBehavior behavior = worker.behavior();
         ServerLevel level = (ServerLevel) worker.level();
         BlockPos origin = worker.blockPosition();
 
@@ -69,7 +69,7 @@ public final class WorkerAutoJobs {
 
     /** Every block of a wanted kind inside the worker's range. Columns in chunks that are not loaded are skipped. */
     private static List<BlockPos> scan(ServerLevel level, BlockPos origin, WorkerBehavior behavior) {
-        int radius = behavior.unitAreaRadius();
+        int radius = behavior.maxRadius();
         double radiusSqr = (double) radius * radius;
         List<BlockPos> found = new ArrayList<>();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
@@ -82,7 +82,7 @@ public final class WorkerAutoJobs {
                 for (int y = Math.max(level.getMinBuildHeight(), origin.getY() - radius);
                      y <= Math.min(level.getMaxBuildHeight() - 1, origin.getY() + radius); y++) {
                     pos.set(x, y, z);
-                    if (pos.distSqr(origin) <= radiusSqr && isWanted(behavior, level.getBlockState(pos))) {
+                    if (pos.distSqr(origin) <= radiusSqr && isWanted(behavior, level.getBlockState(pos), pos.distSqr(origin))) {
                         found.add(pos.immutable());
                     }
                 }
@@ -91,10 +91,10 @@ public final class WorkerAutoJobs {
         return found;
     }
 
-    private static boolean isWanted(WorkerBehavior behavior, BlockState state) {
-        return (behavior.mineOre() && state.is(Tags.Blocks.ORES))
+    private static boolean isWanted(WorkerBehavior behavior, BlockState state, double distanceSqr) {
+        return (behavior.mineOre() && state.is(Tags.Blocks.ORES) && distanceSqr <= (double) behavior.oreRadius() * behavior.oreRadius())
                 // Natural logs only, so a worker never takes apart something the player built out of logs.
-                || (behavior.chopLogs() && state.is(BlockTags.OVERWORLD_NATURAL_LOGS));
+                || (behavior.chopLogs() && state.is(BlockTags.OVERWORLD_NATURAL_LOGS) && distanceSqr <= (double) behavior.logRadius() * behavior.logRadius());
     }
 
     /** True if the worker is already within digging reach, or can walk to within a block or two of the target. */

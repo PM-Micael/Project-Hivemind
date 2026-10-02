@@ -44,7 +44,7 @@ public class ScoutCollectGoal extends Goal {
 
     /** Setting on, no orders, and not selected. */
     private boolean allowed(@Nullable HiveHeart heart) {
-        return heart != null && heart.scoutBehavior().collectItems() && scout.action() == null
+        return heart != null && scout.behavior().collectItems() && scout.action() == null
                 && !heart.isUnitSelected(scout.getId());
     }
 
@@ -97,7 +97,7 @@ public class ScoutCollectGoal extends Goal {
     @Nullable
     private Entity findItem(HiveHeart heart) {
         ignored.values().removeIf(until -> until <= scout.tickCount);
-        double radius = heart.scoutBehavior().unitAreaRadius();
+        double radius = scout.behavior().collectRadius();
         List<Entity> candidates = new ArrayList<>(scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(radius),
                 item -> item.isAlive() && !item.getItem().isEmpty() && !isIgnored(item)
                         && item.distanceToSqr(scout) <= radius * radius

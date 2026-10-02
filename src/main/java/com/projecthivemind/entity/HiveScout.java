@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -45,6 +46,8 @@ public class HiveScout extends Husk implements HiveUnit {
     private UUID heartId;
     @Nullable
     private UnitAction action;
+    /** This unit's own settings, edited from the hive menu's page for its kind. */
+    private ScoutBehavior behavior = ScoutBehavior.DEFAULT;
     private final SpeedProbe speedProbe = new SpeedProbe("scout");
 
     public HiveScout(EntityType<? extends HiveScout> type, Level level) {
@@ -118,7 +121,7 @@ public class HiveScout extends Husk implements HiveUnit {
         if (heart != null && this.tickCount % 2 == 0) {
             pickUpNearbyExperience();
         }
-        if (heart != null && heart.scoutBehavior().collectItems()) {
+        if (heart != null && behavior.collectItems()) {
             pickUpNearbyItems(heart);
         }
     }
@@ -224,6 +227,27 @@ public class HiveScout extends Husk implements HiveUnit {
         this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
     }
 
+    public ScoutBehavior behavior() {
+        return behavior;
+    }
+
+    @Override
+    public int behaviorFlags() {
+        return behavior.flags();
+    }
+
+    @Override
+    public int[] behaviorRadii() {
+        int[] radii = new int[4];
+        System.arraycopy(behavior.radii(), 0, radii, 0, behavior.radii().length);
+        return radii;
+    }
+
+    @Override
+    public void setBehavior(int flags, int[] radii) {
+        this.behavior = ScoutBehavior.from(flags, radii);
+    }
+
     @Nullable
     @Override
     public UnitAction action() {
@@ -239,6 +263,7 @@ public class HiveScout extends Husk implements HiveUnit {
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
+        tag.put("Behavior", behavior.save());
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -248,6 +273,9 @@ public class HiveScout extends Husk implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
+        if (tag.contains("Behavior")) {
+            behavior = ScoutBehavior.load(tag.getCompound("Behavior"));
+        }
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }

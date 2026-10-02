@@ -17,7 +17,7 @@ public class ScoutFleeGoal extends AvoidEntityGoal<Mob> {
      * The furthest the game's avoid behaviour is asked to look. How close a hostile mob has to be before the scout
      * actually runs is the hive's scout radius setting, checked in {@link #canUse()}.
      */
-    private static final float FLEE_DISTANCE = ScoutBehavior.MAX_UNIT_AREA;
+    private static final float FLEE_DISTANCE = ScoutBehavior.MAX_RADIUS;
 
     private final HiveScout scout;
 
@@ -31,7 +31,7 @@ public class ScoutFleeGoal extends AvoidEntityGoal<Mob> {
     /** Only when the setting is on, and only a scout that is idle and not selected: a selected one obeys the player. */
     private boolean allowed() {
         HiveHeart heart = scout.findHeart();
-        ScoutBehavior behavior = heart == null ? ScoutBehavior.DEFAULT : heart.scoutBehavior();
+        ScoutBehavior behavior = heart == null ? ScoutBehavior.DEFAULT : scout.behavior();
         return heart != null && behavior.fleeHostiles() && scout.action() == null && !heart.isUnitSelected(scout.getId());
     }
 
@@ -42,7 +42,7 @@ public class ScoutFleeGoal extends AvoidEntityGoal<Mob> {
         }
         // super picked the closest hostile mob within the maximum distance; it only counts inside the setting.
         HiveHeart heart = scout.findHeart();
-        double radius = heart == null ? 0.0D : heart.scoutBehavior().unitAreaRadius();
+        double radius = heart == null ? 0.0D : scout.behavior().fleeRadius();
         return toAvoid != null && scout.distanceToSqr(toAvoid) <= radius * radius;
     }
 

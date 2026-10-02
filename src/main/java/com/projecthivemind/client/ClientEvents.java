@@ -66,6 +66,7 @@ public final class ClientEvents {
         event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);
         event.registerAboveAll(ProjectHivemind.id("command_bar"), CommandBar::render);
         event.registerAboveAll(ProjectHivemind.id("hive_health"), HiveHud::render);
+        event.registerAboveAll(ProjectHivemind.id("unit_hover"), UnitHover::render);
     }
 
     // ---- game bus ----

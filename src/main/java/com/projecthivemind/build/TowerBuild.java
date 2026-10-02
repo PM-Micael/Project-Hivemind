@@ -13,6 +13,13 @@ import javax.annotation.Nullable;
 import com.projecthivemind.entity.HiveHeart;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
@@ -72,6 +79,52 @@ public final class TowerBuild {
     /** How far from its eye a block can be when a worker places it. */
     public double placeReach() {
         return PLACE_REACH;
+    }
+
+    /** Written for the Heart's saved data: what was ordered, which is all that is needed to make the plan again. */
+    public CompoundTag save() {
+        CompoundTag tag = new CompoundTag();
+        tag.put("Pos", NbtUtils.writeBlockPos(plan.base()));
+        tag.putInt("Shape", plan.shape().ordinal());
+        tag.putInt("Direction", plan.direction().ordinal());
+        tag.putInt("Height", plan.height());
+        tag.putBoolean("Walls", plan.walls());
+        tag.put("WallItems", itemNames(set.walls()));
+        tag.put("StairItems", itemNames(set.stairs()));
+        return tag;
+    }
+
+    private static ListTag itemNames(List<Item> items) {
+        ListTag list = new ListTag();
+        for (Item item : items) {
+            list.add(StringTag.valueOf(BuiltInRegistries.ITEM.getKey(item).toString()));
+        }
+        return list;
+    }
+
+    private static List<Item> items(ListTag names) {
+        List<Item> items = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) {
+            ResourceLocation id = ResourceLocation.tryParse(names.getString(i));
+            if (id != null) {
+                BuiltInRegistries.ITEM.getOptional(id).ifPresent(items::add);
+            }
+        }
+        return items;
+    }
+
+    /** Read back by {@link #save}, or null if it cannot be. What was already built is read from the world as ever. */
+    @Nullable
+    public static TowerBuild load(CompoundTag tag) {
+        BlockPos pos = NbtUtils.readBlockPos(tag, "Pos").orElse(null);
+        if (pos == null) {
+            return null;
+        }
+        TowerPlan plan = new TowerPlan(pos, TowerShape.byIndex(tag.getInt("Shape")), TowerDirection.byIndex(tag.getInt("Direction")),
+                tag.getInt("Height"), tag.getBoolean("Walls"));
+        List<Item> walls = items(tag.getList("WallItems", Tag.TAG_STRING));
+        List<Item> stairs = items(tag.getList("StairItems", Tag.TAG_STRING));
+        return walls.isEmpty() || stairs.isEmpty() ? null : new TowerBuild(plan, new TowerSet(walls, stairs));
     }
 
     public TowerPlan plan() {

@@ -5,6 +5,7 @@ import com.projecthivemind.HivemindStage;
 import com.projecthivemind.client.ChooseModeScreen;
 import com.projecthivemind.client.ClientActions;
 import com.projecthivemind.client.ClientSight;
+import com.projecthivemind.client.ClientUnits;
 import com.projecthivemind.client.ClientState;
 import com.projecthivemind.client.ScoutSignScreen;
 import com.projecthivemind.menu.ScoutTradeMenu;
@@ -60,6 +61,10 @@ public final class ClientPayloads {
 
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
         ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food());
+    }
+
+    public static void onSyncUnits(SyncUnitsPayload payload, IPayloadContext context) {
+        ClientUnits.update(payload.units());
     }
 
     public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {

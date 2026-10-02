@@ -11,7 +11,6 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveFood;
@@ -22,11 +21,8 @@ import com.projecthivemind.HiveSight;
 import com.projecthivemind.build.TowerBuild;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
-import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.ScoutItems;
-import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
-import com.projecthivemind.WorkerBehavior;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
@@ -71,10 +67,6 @@ public class HiveHeart extends Mob {
     private static final String CONSUMED_TAG = "ConsumedGround";
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
     private static final String TOOL_VERSION_TAG = "ToolVersion";
-    private static final String BEHAVIOR_TAG = "SoldierBehavior";
-    private static final String WORKER_BEHAVIOR_TAG = "WorkerBehavior";
-    private static final String COLLECTOR_BEHAVIOR_TAG = "CollectorBehavior";
-    private static final String SCOUT_BEHAVIOR_TAG = "ScoutBehavior";
 
     @Nullable
     private UUID ownerId;
@@ -85,7 +77,7 @@ public class HiveHeart extends Mob {
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
     private int ageTicks;
-    /** The tower the hive's workers are building, if any. Not saved: it is ordered again after a restart. */
+    /** The tower the hive's workers are building, if any. Saved, so that the workers' build jobs carry on after a restart. */
     @Nullable
     private TowerBuild activeBuild;
     /** The health last sent to the owner for the health bar. */
@@ -108,44 +100,12 @@ public class HiveHeart extends Mob {
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
     private final SimpleContainer toolSlots = new SimpleContainer(HiveEquipment.TOOL_SLOTS);
 
-    /** How the hive's idle, unselected soldiers behave. Edited on the menu's Behavior tab; saved. */
-    private SoldierBehavior soldierBehavior = SoldierBehavior.DEFAULT;
-    /** How the hive's idle, unselected workers behave. Edited on the menu's Behavior tab; saved. */
-    private WorkerBehavior workerBehavior = WorkerBehavior.DEFAULT;
-    /** How the hive's scouts behave. Edited on the menu's Behavior tab; saved. */
-    private ScoutBehavior scoutBehavior = ScoutBehavior.DEFAULT;
-
-    public ScoutBehavior scoutBehavior() {
-        return scoutBehavior;
-    }
-
-    public void setScoutBehavior(ScoutBehavior behavior) {
-        this.scoutBehavior = behavior;
-    }
-
-    /** How far past the hive area the hive's collectors may reach. Edited on the menu's Behavior tab; saved. */
-    private CollectorBehavior collectorBehavior = CollectorBehavior.DEFAULT;
-
-    public CollectorBehavior collectorBehavior() {
-        return collectorBehavior;
-    }
-
-    public void setCollectorBehavior(CollectorBehavior behavior) {
-        this.collectorBehavior = behavior;
-    }
-
     /** What the hive can see from, refreshed several times a second. Not saved. */
     private List<HiveSight.Eye> sightEyes = List.of();
     /** The mobs the owner's client was last told are in sight. Not saved. */
     private Set<Integer> syncedSight = Set.of();
 
-    public WorkerBehavior workerBehavior() {
-        return workerBehavior;
-    }
 
-    public void setWorkerBehavior(WorkerBehavior behavior) {
-        this.workerBehavior = behavior;
-    }
 
     public List<HiveSight.Eye> sightEyes() {
         return sightEyes;
@@ -168,13 +128,7 @@ public class HiveHeart extends Mob {
     /** Mobs that have hurt the hive or its units, or are trying to, as of the last look. Not saved. */
     private Set<UUID> threats = Set.of();
 
-    public SoldierBehavior soldierBehavior() {
-        return soldierBehavior;
-    }
 
-    public void setSoldierBehavior(SoldierBehavior behavior) {
-        this.soldierBehavior = behavior;
-    }
 
     /** Units the player has selected follow orders only; they ignore the hive's default behaviour. */
     public boolean isUnitSelected(int entityId) {
@@ -485,6 +439,12 @@ public class HiveHeart extends Mob {
         return foodSlot;
     }
 
+    /** Like a player, the Heart wears down the armor it wears (the hive's own pieces) when it takes a hit. */
+    @Override
+    protected void hurtArmor(DamageSource source, float damage) {
+        this.doHurtEquipment(source, damage, HiveEquipment.ARMOR_SLOTS);
+    }
+
     public SimpleContainer scoutHand() {
         return scoutHand;
     }
@@ -610,6 +570,9 @@ public class HiveHeart extends Mob {
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
         food.save(tag);
+        if (activeBuild != null) {
+            tag.put("TowerBuild", activeBuild.save());
+        }
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
@@ -618,10 +581,6 @@ public class HiveHeart extends Mob {
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
         tag.putInt(TOOL_VERSION_TAG, toolVersion);
-        tag.put(BEHAVIOR_TAG, soldierBehavior.save());
-        tag.put(WORKER_BEHAVIOR_TAG, workerBehavior.save());
-        tag.put(COLLECTOR_BEHAVIOR_TAG, collectorBehavior.save());
-        tag.put(SCOUT_BEHAVIOR_TAG, scoutBehavior.save());
 
         ListTag consumed = new ListTag();
         consumedBlocks.forEach((pos, state) -> {
@@ -646,6 +605,7 @@ public class HiveHeart extends Mob {
         kills = tag.getInt(KILLS_TAG);
         ageTicks = tag.getInt(AGE_TAG);
         food.load(tag);
+        activeBuild = tag.contains("TowerBuild") ? TowerBuild.load(tag.getCompound("TowerBuild")) : null;
         foodSlot.clearContent();
         if (tag.contains(FOOD_SLOT_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());
@@ -673,11 +633,6 @@ public class HiveHeart extends Mob {
         }
         armorVersion = tag.getInt(ARMOR_VERSION_TAG);
         toolVersion = tag.getInt(TOOL_VERSION_TAG);
-        soldierBehavior = tag.contains(BEHAVIOR_TAG) ? SoldierBehavior.load(tag.getCompound(BEHAVIOR_TAG)) : SoldierBehavior.DEFAULT;
-        workerBehavior = tag.contains(WORKER_BEHAVIOR_TAG) ? WorkerBehavior.load(tag.getCompound(WORKER_BEHAVIOR_TAG)) : WorkerBehavior.DEFAULT;
-        collectorBehavior = tag.contains(COLLECTOR_BEHAVIOR_TAG)
-                ? CollectorBehavior.load(tag.getCompound(COLLECTOR_BEHAVIOR_TAG)) : CollectorBehavior.DEFAULT;
-        scoutBehavior = tag.contains(SCOUT_BEHAVIOR_TAG) ? ScoutBehavior.load(tag.getCompound(SCOUT_BEHAVIOR_TAG)) : ScoutBehavior.DEFAULT;
         // The signatures are not saved: the first look after loading becomes the baseline.
         lastArmorSignature = null;
         lastToolSignature = null;

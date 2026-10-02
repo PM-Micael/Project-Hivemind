@@ -38,6 +38,44 @@ public interface HiveUnit {
         return 0;
     }
 
+    /**
+     * This one unit's behaviour settings, packed as the hive menu edits them: the checkboxes as flags, and the radii (or
+     * range) beside them. Each kind of unit has its own set (see SoldierBehavior and the others); a kind with none has 0.
+     */
+    default int behaviorFlags() {
+        return 0;
+    }
+
+    /** The radii (or the range) beside the settings, in the order of the options that have one. Four slots, padded with 0. */
+    default int[] behaviorRadii() {
+        return new int[4];
+    }
+
+    default void setBehavior(int flags, int[] radii) {
+    }
+
+    /**
+     * The job this unit is on, or null: its current activity if that is a job (see {@link UnitAction.Kind#isJob}), or the one
+     * that was set aside when the player gave it another order. A paused job comes back when the unit is free and no
+     * longer selected, if {@link #resumeJob} allows.
+     */
+    @Nullable
+    default UnitAction job() {
+        return null;
+    }
+
+    /** Whether a paused job is taken up again when the unit is deselected. The player can switch it off per unit. */
+    default boolean resumeJob() {
+        return true;
+    }
+
+    /** End the job for good: the job, set aside or not, is dropped, and if the unit is on it, it stops. */
+    default void cancelJob() {
+    }
+
+    default void setResumeJob(boolean resume) {
+    }
+
     default void setGearVersion(int version) {
     }
 

@@ -4,30 +4,32 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.Mth;
 
 /**
- * How the hive's workers behave when they have no orders and are not selected by the player. One set of settings for
- * the whole hive, saved with its Heart and edited on the menu's Behavior tab.
+ * How one worker behaves when it has no orders and is not selected by the player. Each worker has its own settings,
+ * edited from its page of the hive menu.
  *
- * <p>A worker only goes after blocks that are inside its own range, that the hive can see (see HiveSight), and that
- * the hive's tools can harvest.
+ * <p>A worker only goes after blocks that are inside the radius of the option that wants them, that the hive can see
+ * (see HiveSight), and that the hive's tools can harvest.
  *
- * @param unitAreaRadius how far around itself a worker looks for work, in blocks
- * @param mineOre        mine ore blocks
- * @param chopLogs       chop the logs of natural trees
- * @param digThrough     if a block it wants cannot be reached on foot, dig toward it in a straight line
+ * @param mineOre    mine ore blocks
+ * @param oreRadius  how far around itself a worker looks for ore, in blocks
+ * @param chopLogs   chop the logs of natural trees
+ * @param logRadius  how far around itself a worker looks for logs, in blocks
+ * @param digThrough if a block it wants cannot be reached on foot, dig toward it in a straight line
  */
-public record WorkerBehavior(int unitAreaRadius, boolean mineOre, boolean chopLogs, boolean digThrough) {
+public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough) {
     /** Kept lower than the soldiers' limit because workers scan every block in their range for work. */
-    public static final int MAX_UNIT_AREA = 32;
+    public static final int MAX_RADIUS = 32;
 
     /** Workers do nothing on their own until the player turns something on. */
-    public static final WorkerBehavior DEFAULT = new WorkerBehavior(8, false, false, false);
+    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false);
 
     private static final int MINE_ORE = 1;
     private static final int CHOP_LOGS = 2;
     private static final int DIG_THROUGH = 4;
 
     public WorkerBehavior {
-        unitAreaRadius = Mth.clamp(unitAreaRadius, 0, MAX_UNIT_AREA);
+        oreRadius = Mth.clamp(oreRadius, 0, MAX_RADIUS);
+        logRadius = Mth.clamp(logRadius, 0, MAX_RADIUS);
     }
 
     /** The three checkboxes packed into one number. */
@@ -35,8 +37,13 @@ public record WorkerBehavior(int unitAreaRadius, boolean mineOre, boolean chopLo
         return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0);
     }
 
-    public static WorkerBehavior fromFlags(int flags, int unitAreaRadius) {
-        return new WorkerBehavior(unitAreaRadius, (flags & MINE_ORE) != 0, (flags & CHOP_LOGS) != 0, (flags & DIG_THROUGH) != 0);
+    /** The radii, in the order of the options above that have one. */
+    public int[] radii() {
+        return new int[] {oreRadius, logRadius};
+    }
+
+    public static WorkerBehavior from(int flags, int[] radii) {
+        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0);
     }
 
     /** True if there is any kind of work for an idle worker to look for. Digging through alone is not work. */
@@ -44,10 +51,15 @@ public record WorkerBehavior(int unitAreaRadius, boolean mineOre, boolean chopLo
         return mineOre || chopLogs;
     }
 
+    /** The furthest any ticked option reaches: how far a worker has to look. */
+    public int maxRadius() {
+        return Math.max(mineOre ? oreRadius : 0, chopLogs ? logRadius : 0);
+    }
+
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("Flags", flags());
-        tag.putInt("UnitArea", unitAreaRadius);
+        tag.putIntArray("Radii", radii());
         return tag;
     }
 
@@ -55,6 +67,11 @@ public record WorkerBehavior(int unitAreaRadius, boolean mineOre, boolean chopLo
         if (!tag.contains("Flags")) {
             return DEFAULT;
         }
-        return fromFlags(tag.getInt("Flags"), tag.getInt("UnitArea"));
+        int[] radii = tag.getIntArray("Radii");
+        if (radii.length < 2) {
+            int shared = tag.contains("UnitArea") ? tag.getInt("UnitArea") : 8;
+            radii = new int[] {shared, shared};
+        }
+        return from(tag.getInt("Flags"), radii);
     }
 }

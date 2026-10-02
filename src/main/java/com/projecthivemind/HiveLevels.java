@@ -20,7 +20,7 @@ public final class HiveLevels {
                     UnitKind.SOLDIER, 3,
                     UnitKind.COLLECTOR, 1),
                     new HiveLevel.Quest(0, 0, 10, 24000)),
-            // Level 3: 30 hearts, 81 storage slots (scrolled), and a furnace built into the Heart.
+            // Level 3: 30 hearts, 81 storage slots (scrolled), and a second worker.
             new HiveLevel(3, 60.0F, 81, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 2,

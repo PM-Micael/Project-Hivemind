@@ -20,6 +20,10 @@ public record CollectorBehavior(int extraRange) {
         extraRange = Mth.clamp(extraRange, 0, MAX_EXTRA_RANGE);
     }
 
+    public int[] radii() {
+        return new int[] {extraRange};
+    }
+
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("ExtraRange", extraRange);

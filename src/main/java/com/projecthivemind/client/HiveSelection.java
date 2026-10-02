@@ -18,6 +18,7 @@ import com.projecthivemind.ProjectHivemind;
 import com.projecthivemind.ScoutItems;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveScout;
+import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
@@ -271,6 +272,17 @@ public final class HiveSelection {
         if (ray.isEmpty()) {
             return;
         }
+        // One of the player's own units under the cursor: its menu is offered, whatever is behind it.
+        HiveUnit ownUnit = unitUnderCursor(minecraft);
+        if (ownUnit instanceof Entity ownEntity) {
+            List<ContextMenu.Option> unitOptions = List.of(new ContextMenu.Option(Component.translatable("action.projecthivemind.open_menu"), () -> {
+                HiveScreen.requestUnitPage(ownUnit.kind(), ownEntity.getId());
+                PacketDistributor.sendToServer(new OpenHiveMenuPayload());
+            }));
+            int[] unitCursor = ContextMenu.cursor(minecraft);
+            ContextMenu.open(minecraft, unitCursor[0], unitCursor[1], unitOptions, null, ownEntity.getId());
+            return;
+        }
         List<Integer> selected = List.copyOf(ClientSelection.selected());
 
         // OUTLINE, not COLLIDER: thin things like flowers and tall grass can be picked too.
@@ -436,6 +448,34 @@ public final class HiveSelection {
     }
 
     // ---- cursor to world ----
+
+    /**
+     * The player's own unit under the cursor, or null: the nearest one the cursor ray passes through, of any kind. Used
+     * for the name that shows when the cursor rests on a unit. Units show through walls, so no block check.
+     */
+    @Nullable
+    public static HiveUnit unitUnderCursor(Minecraft minecraft) {
+        Optional<Ray> ray = cursorRay(minecraft);
+        if (ray.isEmpty()) {
+            return null;
+        }
+        HiveUnit closest = null;
+        double closestDistance = Double.MAX_VALUE;
+        for (Entity entity : minecraft.level.entitiesForRendering()) {
+            if (!(entity instanceof HiveUnit unit) || !minecraft.player.getUUID().equals(unit.ownerId())) {
+                continue;
+            }
+            Optional<Vec3> hit = entity.getBoundingBox().inflate(PICK_MARGIN).clip(ray.get().from(), ray.get().to());
+            if (hit.isPresent()) {
+                double distance = ray.get().from().distanceToSqr(hit.get());
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closest = unit;
+                }
+            }
+        }
+        return closest;
+    }
 
     private static Optional<Ray> cursorRay(Minecraft minecraft) {
         if (!haveCamera || minecraft.level == null || minecraft.player == null) {
