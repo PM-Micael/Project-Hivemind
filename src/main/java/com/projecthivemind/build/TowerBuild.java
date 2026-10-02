@@ -253,6 +253,17 @@ public final class TowerBuild {
         return best;
     }
 
+    /** Let go of the claim on a block once it has been dealt with (dug out). */
+    public void releaseClaim(BlockPos pos) {
+        claims.remove(pos);
+    }
+
+    /** Leave a block out of the build: it cannot be built or dug (something unbreakable is there). */
+    public void skip(BlockPos pos) {
+        skipped.add(pos);
+        claims.remove(pos);
+    }
+
     /** Give back whatever this worker had claimed. */
     public void release(UUID worker) {
         claims.values().removeIf(claim -> claim.worker().equals(worker));
@@ -307,7 +318,8 @@ public final class TowerBuild {
                 skipped.add(pos);
                 return Result.SKIPPED;
             }
-            level.destroyBlock(pos, true, worker);
+            com.projecthivemind.entity.HiveDrops.store(level, heart, pos, existing, level.getBlockEntity(pos), worker, net.minecraft.world.item.ItemStack.EMPTY);
+            level.destroyBlock(pos, false, worker);
             heart.food().exhaust(com.projecthivemind.HiveFood.BREAK_BLOCK);
         }
 

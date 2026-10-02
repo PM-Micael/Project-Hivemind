@@ -97,11 +97,15 @@ public class HiveScout extends Husk implements HiveUnit {
      * second.
      */
     public static final double MOVEMENT_SPEED = 0.339D;
+    /** How high the scout steps up in one go, in blocks: a little over two, so a two-block rise is a step. (A mob's own is 0.6.) */
+    public static final double STEP_HEIGHT = 2.1D;
 
     public static AttributeSupplier.Builder createScoutAttributes() {
         return Zombie.createAttributes()
                 .add(Attributes.SPAWN_REINFORCEMENTS_CHANCE, 0.0D)
-                .add(Attributes.MOVEMENT_SPEED, MOVEMENT_SPEED);
+                .add(Attributes.MOVEMENT_SPEED, MOVEMENT_SPEED)
+                // Steps up 2 blocks without jumping, and the pathfinder plans routes that way: more mobility than the usual one-block hop.
+                .add(Attributes.STEP_HEIGHT, STEP_HEIGHT);
     }
 
     @Override

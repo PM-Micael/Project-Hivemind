@@ -12,6 +12,7 @@ import com.projecthivemind.client.ClientState;
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveTeams;
+import com.projecthivemind.entity.SlotConfigs;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
@@ -312,6 +313,14 @@ public final class HivemindManager {
     // ---- the hive menu ----
 
     /** What a job is, in words, for the unit's page of the hive menu. Empty if there is none to speak of. */
+    /** "Worker 2": the unit's kind and its place in the list of that kind, as the menus name it. */
+    private static Component unitName(ServerLevel level, HiveHeart heart, UnitKind kind, UUID id) {
+        Component kindName = Component.translatable("unit." + ProjectHivemind.MODID + "." + kind.name().toLowerCase(java.util.Locale.ROOT));
+        ServerPlayer owner = heart.ownerId() == null || level.getServer() == null ? null : level.getServer().getPlayerList().getPlayer(heart.ownerId());
+        int number = owner == null ? 0 : get(owner).units().getOrDefault(kind, List.of()).indexOf(id) + 1;
+        return number <= 0 ? kindName : Component.translatable("screen.projecthivemind.unit.numbered", kindName, number);
+    }
+
     private static net.minecraft.network.chat.Component describeJob(ServerLevel level, HiveHeart heart, UnitAction job) {
         switch (job.kind()) {
             case DIG:
@@ -326,6 +335,13 @@ public final class HivemindManager {
                 if (job.target() != null) {
                     net.minecraft.world.entity.Entity target = level.getEntity(job.target());
                     return Component.translatable("job.projecthivemind.attack", target == null ? Component.translatable("job.projecthivemind.a_mob") : target.getName());
+                }
+                break;
+            case GUARD:
+                if (job.target() != null) {
+                    net.minecraft.world.entity.Entity ward = level.getEntity(job.target());
+                    Component wardName = ward instanceof HiveUnit wardUnit ? unitName(level, heart, wardUnit.kind(), ward.getUUID()) : Component.translatable("job.projecthivemind.a_unit");
+                    return Component.translatable("job.projecthivemind.guard", wardName);
                 }
                 break;
             case BUILD:
@@ -373,6 +389,18 @@ public final class HivemindManager {
         }
     }
 
+    /** The player chose the item one of their workers puts in composters (empty for none). */
+    public static void setWorkerCompost(ServerPlayer player, int unitId, String item) {
+        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+                || !player.getUUID().equals(worker.ownerId())) {
+            return;
+        }
+        ResourceLocation id = item.isEmpty() ? null : ResourceLocation.tryParse(item);
+        worker.setCompostItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        rememberConfig(player, worker);
+        sendUnits(player);
+    }
+
     /** The player chose the block one of their workers fills gaps in the ground with (empty for none). */
     public static void setWorkerFill(ServerPlayer player, int unitId, String item) {
         if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
@@ -381,6 +409,7 @@ public final class HivemindManager {
         }
         ResourceLocation id = item.isEmpty() ? null : ResourceLocation.tryParse(item);
         worker.setFillItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        rememberConfig(player, worker);
         sendUnits(player);
     }
 
@@ -394,7 +423,7 @@ public final class HivemindManager {
         }
         if (mob instanceof HiveWorker worker) {
             // A worker has one thing of the kind: the block it fills gaps with, carried where a collector's seed goes.
-            return new SyncUnitsPayload.Task(itemName(worker.fillItem()), List.of(), "", List.of());
+            return new SyncUnitsPayload.Task(itemName(worker.fillItem()), List.of(), itemName(worker.compostItem()), List.of());
         }
         return SyncUnitsPayload.Task.NONE;
     }
@@ -441,6 +470,55 @@ public final class HivemindManager {
         if (heart != null) {
             heart.teams().setRadius(team, radius);
             sendUnits(player);
+        }
+    }
+
+    // ---- unit settings, kept by number ----
+
+    private static SlotConfigs.Config captureConfig(HiveUnit unit) {
+        String fill = "";
+        String compost = "";
+        if (unit instanceof HiveWorker worker) {
+            fill = itemName(worker.fillItem());
+            compost = itemName(worker.compostItem());
+        }
+        return new SlotConfigs.Config(unit.behaviorFlags(), unit.behaviorRadii(), fill, compost);
+    }
+
+    private static void applyConfig(HiveUnit unit, SlotConfigs.Config config) {
+        unit.setBehavior(config.flags(), config.radii());
+        if (unit instanceof HiveWorker worker) {
+            worker.setFillItem(itemOf(config.fill()));
+            worker.setCompostItem(itemOf(config.compost()));
+        }
+    }
+
+    @Nullable
+    private static net.minecraft.world.item.Item itemOf(String name) {
+        ResourceLocation id = name.isEmpty() ? null : ResourceLocation.tryParse(name);
+        return id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null);
+    }
+
+    /** The unit's settings changed: remember them for the number it has in the list of its kind. */
+    private static void rememberConfig(ServerPlayer owner, Mob mob) {
+        HiveHeart heart = findHeart(owner);
+        if (heart == null || !(mob instanceof HiveUnit unit)) {
+            return;
+        }
+        int index = get(owner).units().getOrDefault(unit.kind(), List.of()).indexOf(mob.getUUID());
+        if (index >= 0) {
+            heart.slotConfigs().put(unit.kind(), index, captureConfig(unit));
+        }
+    }
+
+    /** Give every unit of this kind the settings of the number it has now. */
+    private static void reapplyConfigs(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
+        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
+        for (int i = 0; i < units.size(); i++) {
+            SlotConfigs.Config config = heart.slotConfigs().get(kind, i);
+            if (config != null && findUnit(owner, units.get(i)) instanceof HiveUnit unit) {
+                applyConfig(unit, config);
+            }
         }
     }
 
@@ -502,8 +580,8 @@ public final class HivemindManager {
                 (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
                 Component.translatable("screen.projecthivemind.hive.title")), buf -> {
             buf.writeVarInt(heart.getStorage().getContainerSize());
-            // The built-in furnace is not offered in the menu any more.
-            buf.writeBoolean(false);
+            // The built-in furnace comes with level 3.
+            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL);
         });
         sendUnits(player);
     }
@@ -618,6 +696,12 @@ public final class HivemindManager {
         // Summoning a unit costs the hive 2 saturation (a saturation point is 4 exhaustion, as in the game's own food).
         heart.food().payForUnit();
         set(player, get(player).withUnit(kind, unit.getUUID()));
+        // The new unit takes the settings of the number it has: those the lost unit of that number had.
+        int number = get(player).units().getOrDefault(kind, List.of()).size() - 1;
+        SlotConfigs.Config remembered = heart.slotConfigs().get(kind, number);
+        if (remembered != null) {
+            applyConfig((HiveUnit) unit, remembered);
+        }
         sync(player);
     }
 
@@ -932,6 +1016,7 @@ public final class HivemindManager {
                 padded[i] = radii.get(i);
             }
             unit.setBehavior(flags, padded);
+            rememberConfig(player, mob);
         }
     }
 
@@ -1001,7 +1086,22 @@ public final class HivemindManager {
             heart.invulnerableTime = 0;
             heart.hurt(level.damageSources().genericKill(), UNIT_DEATH_DAMAGE);
         }
+        // The settings stay with the numbers: make sure each number's settings are remembered (a unit never edited has not been), then, once this
+        // one is out of the list, every unit after it takes the settings of its new number.
+        if (heart != null) {
+            List<UUID> before = get(owner).units().getOrDefault(hiveUnit.kind(), List.of());
+            for (int i = 0; i < before.size(); i++) {
+                // (The unit that is dying no longer counts as alive to the lookup, so it is taken from here.)
+                HiveUnit other = before.get(i).equals(unit.getUUID()) ? hiveUnit : findUnit(owner, before.get(i)) instanceof HiveUnit found ? found : null;
+                if (other != null && !heart.slotConfigs().has(hiveUnit.kind(), i)) {
+                    heart.slotConfigs().put(hiveUnit.kind(), i, captureConfig(other));
+                }
+            }
+        }
         set(owner, get(owner).withoutUnit(hiveUnit.kind(), unit.getUUID()));
+        if (heart != null) {
+            reapplyConfigs(owner, heart, hiveUnit.kind());
+        }
         sync(owner);
     }
 

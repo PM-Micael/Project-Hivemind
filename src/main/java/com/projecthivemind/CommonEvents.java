@@ -86,6 +86,7 @@ public final class CommonEvents {
         registrar.playToServer(SetMenuViewPayload.TYPE, SetMenuViewPayload.STREAM_CODEC, ServerPayloads::onSetMenuView);
         registrar.playToServer(FocusUnitPayload.TYPE, FocusUnitPayload.STREAM_CODEC, ServerPayloads::onFocusUnit);
         registrar.playToServer(DropItemPayload.TYPE, DropItemPayload.STREAM_CODEC, ServerPayloads::onDropItem);
+        registrar.playToServer(com.projecthivemind.network.SetWorkerCompostPayload.TYPE, com.projecthivemind.network.SetWorkerCompostPayload.STREAM_CODEC, ServerPayloads::onSetWorkerCompost);
         registrar.playToServer(SetWorkerFillPayload.TYPE, SetWorkerFillPayload.STREAM_CODEC, ServerPayloads::onSetWorkerFill);
         registrar.playToServer(SetCollectorTaskPayload.TYPE, SetCollectorTaskPayload.STREAM_CODEC, ServerPayloads::onSetCollectorTask);
         registrar.playToServer(SetUnitBehaviorPayload.TYPE, SetUnitBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetUnitBehavior);
@@ -102,6 +103,7 @@ public final class CommonEvents {
         registrar.playToClient(OpenSignPayload.TYPE, OpenSignPayload.STREAM_CODEC, ClientPayloads::onOpenSign);
         registrar.playToServer(DigStaircasePayload.TYPE, DigStaircasePayload.STREAM_CODEC, ServerPayloads::onDigStaircase);
         registrar.playToServer(BuildTowerPayload.TYPE, BuildTowerPayload.STREAM_CODEC, ServerPayloads::onBuildTower);
+        registrar.playToServer(com.projecthivemind.network.SetStorageSearchPayload.TYPE, com.projecthivemind.network.SetStorageSearchPayload.STREAM_CODEC, ServerPayloads::onStorageSearch);
         registrar.playToServer(ScrollStoragePayload.TYPE, ScrollStoragePayload.STREAM_CODEC, ServerPayloads::onScrollStorage);
         registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
         registrar.playToClient(TradeOffersPayload.TYPE, TradeOffersPayload.STREAM_CODEC, ClientPayloads::onTradeOffers);

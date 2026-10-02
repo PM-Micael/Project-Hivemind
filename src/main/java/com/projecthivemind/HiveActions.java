@@ -337,11 +337,13 @@ public final class HiveActions {
         ServerLevel level = player.serverLevel();
         HiveHeart heart = HivemindManager.findHeart(player);
         int height = request.height();
-        if (heart == null || java.util.Arrays.stream(TowerPlan.HEIGHTS).noneMatch(allowed -> allowed == height)) {
+        if (heart == null || height < TowerPlan.MIN_HEIGHT || height > TowerPlan.MAX_HEIGHT) {
             return;
         }
         BlockPos clicked = request.pos();
-        if (!level.isInWorldBounds(clicked) || (request.direction() == TowerDirection.UP.ordinal() && clicked.getY() + height + 2 >= level.getMaxBuildHeight())) {
+        // A tower must fit under the top of the world, and a shaft above the bottom of it.
+        if (!level.isInWorldBounds(clicked) || (request.direction() == TowerDirection.UP.ordinal() && clicked.getY() + height + 2 >= level.getMaxBuildHeight())
+                || (request.direction() == TowerDirection.DOWN.ordinal() && clicked.getY() - height - 2 <= level.getMinBuildHeight())) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
             return;
         }
@@ -489,9 +491,29 @@ public final class HiveActions {
         switch (request.action()) {
             case ATTACK -> attack(player, level, request.unitIds(), target);
             case TRADE -> trade(player, level, request.unitIds(), target);
+            case GUARD -> guard(player, level, request.unitIds(), target);
             case CANCEL -> cancelMob(player, level, target);
         }
         syncActions(player, heart);
+    }
+
+    /**
+     * Soldiers become the bodyguard of one of the player's own units that is not a soldier: they stay by it and fight whatever goes
+     * for it, until it dies or the player cancels. A unit is not its own bodyguard.
+     */
+    private static void guard(ServerPlayer player, ServerLevel level, List<Integer> ids, Mob ward) {
+        if (!ward.isAlive() || !(ward instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId()) || unit.kind() == UnitKind.SOLDIER) {
+            return;
+        }
+        List<Mob> soldiers = commandable(player, level, ids, UnitKind.SOLDIER);
+        if (soldiers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_soldiers"), true);
+            return;
+        }
+        for (Mob soldier : soldiers) {
+            soldier.getNavigation().stop();
+            ((HiveUnit) soldier).setAction(UnitAction.guard(ward.getUUID()));
+        }
     }
 
     /**

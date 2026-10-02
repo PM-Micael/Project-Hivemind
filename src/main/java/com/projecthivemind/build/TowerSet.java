@@ -33,8 +33,8 @@ public record TowerSet(List<Item> walls, List<Item> stairs) {
     }
 
     /**
-     * Pick the items for the chosen materials from what the hive holds, or empty if, altogether, it holds none of the
-     * walls or none of the stairs.
+     * Pick the items for the chosen materials (the wood the hive has the most of, or oak if it has none), or empty if no material is chosen. The
+     * hive does not have to hold any of them yet.
      */
     public static Optional<TowerSet> choose(int materials, Container storage, int wallsNeeded, int stairsNeeded) {
         List<Item> walls = new ArrayList<>();
@@ -54,16 +54,19 @@ public record TowerSet(List<Item> walls, List<Item> stairs) {
                     stairs.add(Items.COBBLED_DEEPSLATE_STAIRS);
                 }
                 case WOOD -> {
+                    // The wood the hive has the most of; with none at all, oak, which the builders then wait for.
                     Item[] wood = bestWood(storage, wallsNeeded, stairsNeeded);
-                    if (wood != null) {
-                        walls.add(wood[0]);
-                        stairs.add(wood[1]);
+                    if (wood == null) {
+                        wood = new Item[] {Items.OAK_PLANKS, Items.OAK_STAIRS};
                     }
+                    walls.add(wood[0]);
+                    stairs.add(wood[1]);
                 }
             }
         }
         TowerSet set = new TowerSet(walls, stairs);
-        if (set.wallCount(storage) <= 0 || set.stairCount(storage) <= 0) {
+        // The hive need not hold any of it yet: the builders start anyway, and wait where they run out.
+        if (walls.isEmpty() || stairs.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(set);

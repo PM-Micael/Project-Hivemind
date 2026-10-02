@@ -27,11 +27,11 @@ public final class HiveLevels {
                     UnitKind.SOLDIER, 5,
                     UnitKind.COLLECTOR, 2),
                     new HiveLevel.Quest(0, 0, 0, 0, 0, 10, 24)),
-            // Level 4: 40 hearts, 108 storage slots (scrolled) and 5 workers. The area and the other units stay as they were.
-            new HiveLevel(4, 80.0F, 108, 3, 14, 32, Map.of(
+            // Level 4: 40 hearts, 108 storage slots (scrolled), a 61x61 hive area, 7 workers and 7 soldiers. The other units stay as they were.
+            new HiveLevel(4, 80.0F, 108, 3, 30, 32, Map.of(
                     UnitKind.SCOUT, 1,
-                    UnitKind.WORKER, 5,
-                    UnitKind.SOLDIER, 5,
+                    UnitKind.WORKER, 7,
+                    UnitKind.SOLDIER, 7,
                     UnitKind.COLLECTOR, 2),
                     null));
 

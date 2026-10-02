@@ -16,7 +16,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  * @param unitIds   the selected units, by entity id; the server checks they are the sender's workers
  * @param pos       the block the build is on
  * @param materials which TowerMaterials may be used, one bit each (see TowerSet#bit)
- * @param height    how high or deep, one of TowerPlan.HEIGHTS (the server checks)
+ * @param height    how high or deep, from TowerPlan.MIN_HEIGHT to TowerPlan.MAX_HEIGHT (the server checks)
  * @param options   the rest packed into one number: see {@link #pack}
  */
 public record BuildTowerPayload(List<Integer> unitIds, BlockPos pos, int materials, int height, int options) implements CustomPacketPayload {

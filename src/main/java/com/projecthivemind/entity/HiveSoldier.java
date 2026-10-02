@@ -81,6 +81,7 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         // A team member stays inside the team's area around its scout: before everything but floating.
         this.goalSelector.addGoal(0, new TeamFollowGoal(this));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
+        this.goalSelector.addGoal(1, new SoldierGuardGoal(this));
         // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));
     }
@@ -113,6 +114,11 @@ public class HiveSoldier extends Zombie implements HiveUnit {
     // ---- fighting, shared by ordered attacks and the hive's default behaviour ----
 
     private static final double CHASE_SPEED = 1.15D;
+    /** How far past its own body a soldier reaches to hit, in blocks sideways: at least a block (the game's own is a little under that). */
+    private static final double ATTACK_REACH = 1.0D;
+    /** A soldier's walking speed (the zombie's own), and the faster one it moves at while it is after something: the same value as a scout's, but its own number. */
+    private static final double NORMAL_SPEED = 0.23D;
+    private static final double AGGRESSION_SPEED = HiveScout.MOVEMENT_SPEED;
     private static final int REPATH_INTERVAL = 6;
     /** Never swing faster than this many ticks apart, whatever the weapon says. */
     private static final int MIN_ATTACK_INTERVAL = 5;
@@ -126,6 +132,12 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         attackCooldown = 0;
     }
 
+    /** True if the target is within a block of this soldier's body, sideways: its reach for hitting. */
+    private boolean inAttackReach(LivingEntity target) {
+        return this.getBoundingBox().inflate(ATTACK_REACH, 0.0D, ATTACK_REACH).intersects(target.getBoundingBox())
+                || this.isWithinMeleeAttackRange(target);
+    }
+
     /** Run down a target and hit it whenever it is in reach. Call every tick while fighting. */
     public void pursue(LivingEntity target) {
         this.getLookControl().setLookAt(target, 30.0F, 30.0F);
@@ -133,7 +145,7 @@ public class HiveSoldier extends Zombie implements HiveUnit {
             this.getNavigation().moveTo(target, CHASE_SPEED);
             repathCooldown = REPATH_INTERVAL;
         }
-        if (--attackCooldown <= 0 && this.isWithinMeleeAttackRange(target) && this.hasLineOfSight(target)) {
+        if (--attackCooldown <= 0 && this.inAttackReach(target) && this.hasLineOfSight(target)) {
             strike(target);
         }
     }
@@ -176,6 +188,12 @@ public class HiveSoldier extends Zombie implements HiveUnit {
             if (heart != null) {
                 // The gear on this soldier is a copy of pieces in the hive: wear on it is charged to the original.
                 gearMirror.tick(this, heart);
+            }
+            // While it is after something it runs at the scout's pace; the rest of the time at its own walking speed.
+            net.minecraft.world.entity.ai.attributes.AttributeInstance speed = this.getAttribute(Attributes.MOVEMENT_SPEED);
+            double wanted = this.isAggressive() ? AGGRESSION_SPEED : NORMAL_SPEED;
+            if (speed != null && speed.getBaseValue() != wanted) {
+                speed.setBaseValue(wanted);
             }
             speedProbe.tick(this);
             resumeJobIfFree(heart);

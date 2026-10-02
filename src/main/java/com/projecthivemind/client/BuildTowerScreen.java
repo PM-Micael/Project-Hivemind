@@ -32,14 +32,13 @@ public class BuildTowerScreen extends Screen {
     private int shape;
     /** The materials picked, one bit each (see TowerSet#bit). At least one is always picked. */
     private int materials = TowerSet.bit(TowerMaterial.WOOD);
-    private int heightIndex = 1;
     private boolean walls = true;
     private boolean torches;
     private Button torchesButton;
     private final Button[] directionButtons = new Button[TowerDirection.values().length];
     private final Button[] shapeButtons = new Button[TowerShape.values().length];
     private final Button[] materialButtons = new Button[TowerMaterial.values().length];
-    private final Button[] heightButtons = new Button[TowerPlan.HEIGHTS.length];
+    private net.minecraft.client.gui.components.EditBox heightBox;
     private Button wallsButton;
     private Button pillarsButton;
 
@@ -89,14 +88,11 @@ public class BuildTowerScreen extends Screen {
                 refresh();
             }).bounds(left + 12 + i * (materialWidth + 4), rowY(2), materialWidth, 20).build());
         }
-        int heightWidth = (WIDTH - 24 - 3 * 4) / 4;
-        for (int i = 0; i < heightButtons.length; i++) {
-            int index = i;
-            heightButtons[i] = addRenderableWidget(Button.builder(Component.literal(String.valueOf(TowerPlan.HEIGHTS[i])), button -> {
-                heightIndex = index;
-                refresh();
-            }).bounds(left + 12 + i * (heightWidth + 4), rowY(3), heightWidth, 20).build());
-        }
+        // The height (or depth, for a shaft) is typed in: any whole number from the least to the most.
+        heightBox = addRenderableWidget(new net.minecraft.client.gui.components.EditBox(font, left + 12, rowY(3), 60, 20,
+                Component.translatable("screen.projecthivemind.tower.height")));
+        heightBox.setFilter(text -> text.matches("\\d{0,3}"));
+        heightBox.setValue("16");
         wallsButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.walls"), button -> {
             walls = true;
             refresh();
@@ -111,7 +107,7 @@ public class BuildTowerScreen extends Screen {
             button.setMessage(torchesLabel());
         }).bounds(left + 12, rowY(4) + 24, WIDTH - 24, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.build"), button -> {
-            PacketDistributor.sendToServer(new BuildTowerPayload(workers, pos, materials, TowerPlan.HEIGHTS[heightIndex],
+            PacketDistributor.sendToServer(new BuildTowerPayload(workers, pos, materials, height(),
                     BuildTowerPayload.pack(walls, direction, shape, torches)));
             onClose();
         }).bounds(left + 12, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());
@@ -122,6 +118,15 @@ public class BuildTowerScreen extends Screen {
 
     private Component torchesLabel() {
         return Component.translatable(torches ? "screen.projecthivemind.tower.torches_on" : "screen.projecthivemind.tower.torches_off");
+    }
+
+    /** The height typed, kept between the least and the most a build can have (and the least if it is empty). */
+    private int height() {
+        try {
+            return Math.max(TowerPlan.MIN_HEIGHT, Math.min(TowerPlan.MAX_HEIGHT, Integer.parseInt(heightBox.getValue())));
+        } catch (NumberFormatException exception) {
+            return TowerPlan.MIN_HEIGHT;
+        }
     }
 
     /** A material's button text: its name, marked when it is picked. */
@@ -141,9 +146,6 @@ public class BuildTowerScreen extends Screen {
         }
         for (int i = 0; i < materialButtons.length; i++) {
             materialButtons[i].setMessage(materialLabel(i));
-        }
-        for (int i = 0; i < heightButtons.length; i++) {
-            heightButtons[i].active = i != heightIndex;
         }
         wallsButton.active = !walls;
         pillarsButton.active = walls;
@@ -165,7 +167,8 @@ public class BuildTowerScreen extends Screen {
         for (int row = 0; row < labels.length; row++) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.tower." + labels[row]), left + 12, rowY(row) - 10, 0xA0A0A0, false);
         }
-        int[] counts = TowerPlan.counts(TowerShape.byIndex(shape), TowerDirection.byIndex(direction), TowerPlan.HEIGHTS[heightIndex], walls);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.tower.height_range", TowerPlan.MIN_HEIGHT, TowerPlan.MAX_HEIGHT), left + 80, rowY(3) + 6, 0x909090, false);
+        int[] counts = TowerPlan.counts(TowerShape.byIndex(shape), TowerDirection.byIndex(direction), height(), walls);
         Component needs = direction == TowerDirection.DOWN.ordinal()
                 ? Component.translatable("screen.projecthivemind.tower.needs_dig", counts[0], counts[1], counts[2])
                 : Component.translatable("screen.projecthivemind.tower.needs", counts[0], counts[1]);

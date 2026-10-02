@@ -31,8 +31,9 @@ import net.minecraft.core.Direction;
  * or one built before a game restart, picks up where it was.
  */
 public final class TowerPlan {
-    /** The heights (or depths) a build can have: multiples of 8, so a staircase always ends in the middle of a side. */
-    public static final int[] HEIGHTS = {8, 16, 24, 32};
+    /** The heights (or depths) a build can have: any whole number from the least to the most, as the player types it. */
+    public static final int MIN_HEIGHT = 8;
+    public static final int MAX_HEIGHT = 96;
 
     /** What is to be done at a block: put a plain block there, put a stair there, or just clear it out (digging). */
     public enum Kind {
@@ -66,7 +67,7 @@ public final class TowerPlan {
     /**
      * @param clicked   the block the build is ordered on: its base is centred on it. A tower stands on top of it, and a
      *                  shaft is dug down from it, so that its top row is the row of this block
-     * @param height    one of {@link #HEIGHTS}: how far up or down
+     * @param height    from {@link #MIN_HEIGHT} to {@link #MAX_HEIGHT}: how far up or down
      * @param walls     true for walls all round, false for just a pillar in each of the four corners
      */
     public TowerPlan(BlockPos clicked, TowerShape shape, TowerDirection direction, int height, boolean walls) {
@@ -150,7 +151,6 @@ public final class TowerPlan {
         int insideCorner = -(shape.radius() - 1);
         int top = base.getY();
         Set<BlockPos> stairs = new HashSet<>();
-
         for (int layer = 0; layer < steps; layer++) {
             for (int staircase = 0; staircase < shape.staircases(); staircase++) {
                 BlockPos pos = cellPos(insideCorner, ringIndex(staircase, layer), top - layer);
@@ -194,6 +194,8 @@ public final class TowerPlan {
 
     /** A wall torch goes on every this many rows of a shaft. */
     private static final int TORCH_EVERY = 4;
+    /** A shaft with pillars instead of walls still has a full wall for this many rows at the top: the way out from the stairs to the ground. */
+    private static final int PILLAR_WALL_DEPTH = 2;
 
     /**
      * A torch on the inside of the wall, in the ring cell a quarter of a turn from where the stairs are this row, so it is never
@@ -265,7 +267,7 @@ public final class TowerPlan {
                     if ((walls || corner) && !door) {
                         placements.add(new Placement(pos, Kind.BLOCK, null, layer));
                     }
-                } else if (walls || corner) {
+                } else if (walls || corner || layer < PILLAR_WALL_DEPTH) {
                     placements.add(new Placement(pos, Kind.BLOCK, null, layer));
                 } else if (layer < steps()) {
                     placements.add(new Placement(pos, Kind.DIG, null, layer));

@@ -209,6 +209,10 @@ public class WorkerFillGoal extends Goal {
                     continue;
                 }
                 BlockPos gap = ground.above();
+                // Only inside the hive border: the column is within it sideways already. (Gaps lie below the Heart's floor, so the depth limit of the area does not apply to them.)
+                if (!HiveArea.containsXZ(heart, gap.getX() + 0.5D, gap.getZ() + 0.5D)) {
+                    continue;
+                }
                 if (ignored.containsKey(gap) || !stillGap(gap)) {
                     continue;
                 }

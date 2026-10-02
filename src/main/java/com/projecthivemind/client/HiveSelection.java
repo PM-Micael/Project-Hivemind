@@ -314,6 +314,13 @@ public final class HiveSelection {
                 ClientSelection.deselect(ownEntity.getId());
                 PacketDistributor.sendToServer(new ReturnToBasePayload(ownEntity.getId()));
             })));
+            // With soldiers selected, another of the player's units (not a soldier) can be given a bodyguard.
+            List<Integer> selectedNow = List.copyOf(ClientSelection.selected());
+            List<Integer> guards = unitsOfKind(minecraft, selectedNow, UnitKind.SOLDIER);
+            if (!guards.isEmpty() && ownUnit.kind() != UnitKind.SOLDIER) {
+                unitOptions.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.guard"),
+                        () -> PacketDistributor.sendToServer(new MobActionPayload(selectedNow, ownEntity.getId(), MobAction.GUARD))));
+            }
             // A unit with a job (or a bridge, wall or staircase to build) can be told to drop it.
             com.projecthivemind.network.SyncUnitsPayload.Entry ownEntry = ClientUnits.entry(ownEntity.getId());
             if (ownEntry != null && ownEntry.hasJob()) {

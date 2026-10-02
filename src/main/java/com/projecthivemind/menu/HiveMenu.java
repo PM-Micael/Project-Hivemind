@@ -241,6 +241,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new FoodSlot(foodSlot, 0, ARMOR_X, ARMOR_Y + HiveEquipment.ARMOR_SLOTS.length * 18 + 2));
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
+        this.addDataSlot(scroll.matchCount());
     }
 
     /** Server constructor: backed by the Heart's real storage, with live stats for the screen. */
@@ -325,7 +326,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), false, data, view, heart);
+                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, view, heart);
     }
 
     // ---- values for the screen ----
@@ -414,6 +415,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     public boolean hasFurnace() {
         return hasFurnace;
+    }
+
+    /** Before the menu sends what changed: work out again what the storage search shows, as the storage may have changed. */
+    @Override
+    public void broadcastChanges() {
+        if (heart != null) {
+            scroll.refresh();
+        }
+        super.broadcastChanges();
     }
 
     @Override
@@ -586,6 +596,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public boolean isActive() {
             return (visibleGroups & group) != 0;
+        }
+
+        /** With a search on, the storage slots after the last match are not real slots: nothing can be put in them. */
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return super.mayPlace(stack) && (group != GROUP_STORAGE || scroll.isBacked(getContainerSlot()));
         }
     }
 

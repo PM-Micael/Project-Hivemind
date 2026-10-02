@@ -32,14 +32,16 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Using the item in the scout's hand on a face of a block: placing it, reading it, throwing it (scouts only). */
         USE_ITEM,
         /** Placing a torch from the hive against a face of a block (workers only): {@code pos} is the block, {@code face} the face it goes on. */
-        TORCH;
+        TORCH,
+        /** Guarding one of the owner's units (soldiers only): {@code target} is the unit being guarded. Kept at until it dies or is cancelled. */
+        GUARD;
 
         /**
          * Whether this is a job: something a unit keeps at until it is done, like mining a block, fighting a mob or building.
          * Anything else (walking somewhere, one use of a block or item) is an order that only pauses a job.
          */
         public boolean isJob() {
-            return this == DIG || this == ATTACK || this == BUILD;
+            return this == DIG || this == ATTACK || this == BUILD || this == GUARD;
         }
     }
 
@@ -89,6 +91,11 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
 
     public static UnitAction attack(UUID target) {
         return new UnitAction(Kind.ATTACK, null, target, null);
+    }
+
+    /** Guard one of the owner's units (soldiers). */
+    public static UnitAction guard(UUID ward) {
+        return new UnitAction(Kind.GUARD, null, ward, null);
     }
 
     /** Place a torch from the hive against this face of this block (workers). */

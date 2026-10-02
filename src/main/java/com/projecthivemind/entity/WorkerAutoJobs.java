@@ -200,6 +200,70 @@ public final class WorkerAutoJobs {
                 || (behavior.chopLogs() && foot.distSqr(worker.blockPosition()) <= (double) behavior.logRadius() * behavior.logRadius());
     }
 
+    /**
+     * Whether a worker can take this block and get its drops with what the hive has: a block that needs no particular tool (dirt, grass) can be
+     * broken by hand (the worker then goes empty-handed if no tool is in the hive), and one that does (stone) needs a tool in the hive's
+     * tool slots that is right for it. A block that fails both is left alone.
+     */
+    private static boolean canBreakProperly(ServerLevel level, HiveHeart heart, BlockState state, BlockPos pos) {
+        if (!state.requiresCorrectToolForDrops()) {
+            return true;
+        }
+        int slot = com.projecthivemind.HiveEquipment.bestToolSlot(heart, level.registryAccess(), state);
+        return slot >= 0 && heart.getToolGear().getItem(slot).isCorrectToolForDrops(state);
+    }
+
+    /** How far above the floor the Heart stands on a worker flattening the ground cuts the hills away: this many blocks. */
+    public static final int FLATTEN_CUT_HEIGHT = 4;
+
+    /** True for what flattening digs off a rise: stone and the like, dirt and grass. */
+    public static boolean isFlattenCut(BlockState state) {
+        return state.is(BlockTags.DIRT) || state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraft.world.level.block.Blocks.STONE);
+    }
+
+    /**
+     * The next block a worker flattening the ground digs off: in the hive area, from one block above the floor the Heart stands on up to
+     * {@value #FLATTEN_CUT_HEIGHT} blocks above it, only stone, dirt and grass; the highest block of the nearest column that has any, so a rise is
+     * taken down from the top. Null when nothing is left to cut that the worker can get to.
+     */
+    @Nullable
+    public static UnitAction findFlattenDig(HiveWorker worker, HiveHeart heart) {
+        if (!(worker.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
+        int floorTop = (int) Math.floor(heart.getY()) - 1;
+        BlockPos origin = worker.blockPosition();
+        List<BlockPos> candidates = new ArrayList<>();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
+            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
+                if (!level.hasChunkAt(pos.set(x, floorTop, z))) {
+                    continue;
+                }
+                for (int y = floorTop + FLATTEN_CUT_HEIGHT; y > floorTop; y--) {
+                    pos.set(x, y, z);
+                    BlockState state = level.getBlockState(pos);
+                    if (isFlattenCut(state) && state.getFluidState().isEmpty() && canBreakProperly(level, heart, state, pos)) {
+                        candidates.add(pos.immutable());
+                        break;
+                    }
+                }
+            }
+        }
+        candidates.sort(Comparator.comparingDouble(candidate -> candidate.distSqr(origin)));
+        int checked = 0;
+        for (BlockPos candidate : candidates) {
+            if (checked++ >= MAX_CANDIDATES) {
+                break;
+            }
+            if (reachable(worker, candidate)) {
+                return new UnitAction(UnitAction.Kind.DIG, candidate);
+            }
+        }
+        return null;
+    }
+
     /** True for a sapling (or a propagule) that has not grown into a tree yet. */
     public static boolean isSapling(BlockState state) {
         return state.getBlock() instanceof net.minecraft.world.level.block.SaplingBlock;
@@ -256,6 +320,11 @@ public final class WorkerAutoJobs {
         return state.is(net.minecraft.tags.BlockTags.FLOWERS)
                 || state.getBlock() instanceof net.minecraft.world.level.block.TallGrassBlock
                 || state.is(net.minecraft.world.level.block.Blocks.TALL_GRASS) || state.is(net.minecraft.world.level.block.Blocks.LARGE_FERN);
+    }
+
+    /** True for blocks a worker takes with an empty hand, not a tool: what it harvests (crops, grass, flowers) and the leaves of a tree. */
+    public static boolean bareHandBlock(BlockState state) {
+        return isHarvestable(state) || state.is(BlockTags.LEAVES);
     }
 
     /** True for what a worker's harvest settings can send it after: a grown crop, or a wild plant. */

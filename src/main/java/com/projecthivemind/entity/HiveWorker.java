@@ -42,6 +42,26 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Nullable
     private UnitAction job;
     private boolean resumeJob = true;
+    /** What this worker puts in composters, when set to use them: an item that can be composted. Chosen in the hive menu; saved. */
+    @Nullable
+    private net.minecraft.world.item.Item compostItem;
+
+    @Nullable
+    public net.minecraft.world.item.Item compostItem() {
+        return compostItem;
+    }
+
+    /** Choose the item for the composters: one that cannot be composted clears the choice instead. */
+    public void setCompostItem(@Nullable net.minecraft.world.item.Item item) {
+        this.compostItem = item != null && compostable(item) ? item : null;
+    }
+
+    /** True if composters take this item (seeds, saplings, leaves, crops...). Works on the client too, where the data map may not be. */
+    public static boolean compostable(net.minecraft.world.item.Item item) {
+        return net.minecraft.world.level.block.ComposterBlock.COMPOSTABLES.containsKey(item)
+                || net.minecraft.world.level.block.ComposterBlock.getValue(new net.minecraft.world.item.ItemStack(item)) > 0.0F;
+    }
+
     /** The block this worker fills gaps in the ground with, when set to flatten it. Chosen in the hive menu; saved. */
     @Nullable
     private net.minecraft.world.item.Item fillItem;
@@ -303,11 +323,14 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         // A team member stays inside the team's area around its scout: before everything but floating.
         this.goalSelector.addGoal(0, new TeamFollowGoal(this));
+        // The highest priority a worker has: run from hostile mobs, when set to.
+        this.goalSelector.addGoal(0, new WorkerFleeGoal(this));
         // Second only to staying inside the border: channelling on crops, when set to.
         this.goalSelector.addGoal(1, new WorkerChannelGoal(this));
         this.goalSelector.addGoal(2, new WorkerDigGoal(this));
         this.goalSelector.addGoal(2, new InteractBlockGoal(this));
         this.goalSelector.addGoal(2, new WorkerTorchGoal(this));
+        this.goalSelector.addGoal(2, new WorkerCompostGoal(this));
         this.goalSelector.addGoal(2, new WorkerBuildGoal(this));
         this.goalSelector.addGoal(2, new WorkerFillGoal(this));
     }
@@ -349,6 +372,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     private static final int JOB_SCAN_INTERVAL = 40;
 
     private int nextJobScan;
+    /** True while it is cutting a rise off the ground (flatten): it looks for the next block at once, not every two seconds. */
+    private boolean flattenActive;
     /** Take a set-aside job up again once the unit has nothing to do and the player has let go of it. */
     private void resumeJobIfFree(@Nullable HiveHeart heart) {
         if (action == null && job != null && resumeJob && heart != null && !heart.isUnitSelected(this.getId())) {
@@ -413,7 +438,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 tickWall(heart);
             }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
-            if (action == null && heart != null && (this.tickCount >= nextJobScan || !fellQueue.isEmpty())) {
+            if (action == null && heart != null && (this.tickCount >= nextJobScan || !fellQueue.isEmpty() || flattenActive)) {
                 nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
                 findOwnWork(heart);
             }
@@ -484,6 +509,16 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 fellQueue.addAll(TreeFelling.plan(fellLevel, bounds, foot.pos()));
                 lastFell = null;
                 setAction(foot);
+                return;
+            }
+        }
+        // Flattening the ground also cuts a rise of stone, dirt and grass down to the Heart's floor, up to 4 blocks of it.
+        flattenActive = false;
+        if (behavior.flattenGround()) {
+            UnitAction cut = WorkerAutoJobs.findFlattenDig(this, heart);
+            if (cut != null) {
+                flattenActive = true;
+                setAction(cut);
                 return;
             }
         }
@@ -641,6 +676,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         if (staircase != null) {
             tag.put("Staircase", staircase.save());
         }
+        if (compostItem != null) {
+            tag.putString("CompostItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(compostItem).toString());
+        }
         if (fillItem != null) {
             tag.putString("FillItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(fillItem).toString());
         }
@@ -660,6 +698,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         staircase = tag.contains("Staircase") ? com.projecthivemind.build.StairDig.load(tag.getCompound("Staircase")) : null;
         net.minecraft.resources.ResourceLocation fillId = tag.contains("FillItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("FillItem")) : null;
         setFillItem(fillId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(fillId).orElse(null));
+        net.minecraft.resources.ResourceLocation compostId = tag.contains("CompostItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("CompostItem")) : null;
+        setCompostItem(compostId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(compostId).orElse(null));
         net.minecraft.resources.ResourceLocation wallId = tag.contains("WallItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("WallItem")) : null;
         setWallItem(wallId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(wallId).orElse(null));
         if (job != null && tag.getBoolean("JobActive")) {

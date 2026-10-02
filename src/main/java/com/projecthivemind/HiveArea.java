@@ -13,17 +13,20 @@ import net.minecraft.world.phys.AABB;
  * that collectors gather items in, soldiers defend, and in which nothing spawns on its own.
  */
 public final class HiveArea {
+    /** How far below the Heart's own block the area reaches: one block, the one the Heart sits on. Nothing deeper is in the hive area. */
+    private static final int FLOOR_DEPTH = 1;
+
     private HiveArea() {
     }
 
     /**
-     * The hive area of a Heart as a box, measured from the Heart's block: a cube, reaching as far up and down as it does sideways, so
-     * what is deep underground or high in the sky is not in it.
+     * The hive area of a Heart as a box, measured from the Heart's block: as far up as it reaches sideways, but only down to the block the
+     * Heart sits on (see {@link #FLOOR_DEPTH}), so what is deep underground is not in it.
      */
     public static AABB areaBox(ServerLevel level, HiveHeart heart) {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
         BlockPos center = heart.blockPosition();
-        return new AABB(center.getX() - radius, Math.max(level.getMinBuildHeight(), center.getY() - radius), center.getZ() - radius,
+        return new AABB(center.getX() - radius, Math.max(level.getMinBuildHeight(), center.getY() - FLOOR_DEPTH), center.getZ() - radius,
                 center.getX() + radius + 1, Math.min(level.getMaxBuildHeight(), center.getY() + radius + 1), center.getZ() + radius + 1);
     }
 
@@ -34,11 +37,11 @@ public final class HiveArea {
         return x >= center.getX() - radius && x < center.getX() + radius + 1 && z >= center.getZ() - radius && z < center.getZ() + radius + 1;
     }
 
-    /** True if this point is inside this Heart's area as a cube: sideways as for {@link #containsXZ}, and no further up or down than sideways. */
+    /** True if this point is inside this Heart's area as a cube: sideways as for {@link #containsXZ}, as far up as sideways, and down no further than the block the Heart sits on. */
     public static boolean containsCube(HiveHeart heart, double x, double y, double z) {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
         BlockPos center = heart.blockPosition();
-        return containsXZ(heart, x, z) && y >= center.getY() - radius && y < center.getY() + radius + 1;
+        return containsXZ(heart, x, z) && y >= center.getY() - FLOOR_DEPTH && y < center.getY() + radius + 1;
     }
 
     /** The point of the area nearest to this one, kept a block and a half in from the edge: a walking mob stops about a block short of where it is sent, and must still end up inside. */

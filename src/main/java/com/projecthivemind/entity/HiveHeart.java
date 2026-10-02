@@ -132,8 +132,14 @@ public class HiveHeart extends Mob {
     private Set<Integer> selectedUnits = Set.of();
     /** The hive's teams of units. Saved. */
     private final HiveTeams teams = new HiveTeams();
+    /** The settings of the hive's units, kept by their number in the list of their kind. Saved. */
+    private final SlotConfigs slotConfigs = new SlotConfigs();
 
 
+
+    public SlotConfigs slotConfigs() {
+        return slotConfigs;
+    }
 
     public HiveTeams teams() {
         return teams;
@@ -315,6 +321,10 @@ public class HiveHeart extends Mob {
         }
         if (this.tickCount % 5 == 0) {
             HivemindManager.tickGearSync(this);
+        }
+        if (this.tickCount % 10 == 0) {
+            // The storage is kept in alphabetical order, with like stacks merged.
+            StorageSorter.sort(storage);
         }
         HivemindManager.tickNaturalSpawning(this);
         if (this.level() instanceof ServerLevel foodLevel) {
@@ -600,6 +610,7 @@ public class HiveHeart extends Mob {
         tag.putInt(LOGS_TAG, logsProgress);
         tag.putInt("QuestCoal", coalProgress);
         tag.put("Teams", teams.save());
+        tag.put("SlotConfigs", slotConfigs.save());
         tag.putInt("QuestIron", ironProgress);
         tag.putInt("QuestLowestY", lowestY);
         tag.putInt(KILLS_TAG, kills);
@@ -632,6 +643,7 @@ public class HiveHeart extends Mob {
         logsProgress = tag.getInt(LOGS_TAG);
         coalProgress = tag.getInt("QuestCoal");
         teams.load(tag.getList("Teams", net.minecraft.nbt.Tag.TAG_COMPOUND));
+        slotConfigs.load(tag.getList("SlotConfigs", net.minecraft.nbt.Tag.TAG_COMPOUND));
         ironProgress = tag.getInt("QuestIron");
         lowestY = tag.contains("QuestLowestY") ? tag.getInt("QuestLowestY") : Integer.MAX_VALUE;
         kills = tag.getInt(KILLS_TAG);

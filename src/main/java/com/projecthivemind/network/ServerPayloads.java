@@ -58,6 +58,16 @@ public final class ServerPayloads {
         }
     }
 
+    /** The player typed in the storage search box of the open menu. */
+    public static void onStorageSearch(com.projecthivemind.network.SetStorageSearchPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player
+                && player.containerMenu instanceof ScrollableStorage menu
+                && player.containerMenu.containerId == payload.containerId()) {
+            menu.storageScroll().setSearch(payload.text());
+            player.containerMenu.broadcastChanges();
+        }
+    }
+
     /** The mouse wheel moved the hive storage window in the open menu. */
     public static void onScrollStorage(ScrollStoragePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player
@@ -106,6 +116,12 @@ public final class ServerPayloads {
     public static void onDropItem(DropItemPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HiveActions.scoutDrop(player, payload);
+        }
+    }
+
+    public static void onSetWorkerCompost(com.projecthivemind.network.SetWorkerCompostPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setWorkerCompost(player, payload.unitId(), payload.item());
         }
     }
 

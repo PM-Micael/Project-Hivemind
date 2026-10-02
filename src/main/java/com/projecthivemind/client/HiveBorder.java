@@ -22,10 +22,10 @@ import org.joml.Vector3f;
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class HiveBorder {
-    private static final DustParticleOptions SPECK = new DustParticleOptions(new Vector3f(0.75F, 0.18F, 0.18F), 0.8F);
+    private static final DustParticleOptions SPECK = new DustParticleOptions(new Vector3f(1.0F, 0.32F, 0.2F), 1.4F);
     /** Specks are only made along the stretch of edge this close (in blocks) to the camera. */
     private static final double NEAR = 40.0D;
-    private static final int PER_TICK = 5;
+    private static final int PER_TICK = 12;
 
     private HiveBorder() {
     }
