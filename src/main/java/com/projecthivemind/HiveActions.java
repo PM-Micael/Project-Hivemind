@@ -85,9 +85,69 @@ public final class HiveActions {
         syncActions(player, heart);
     }
 
+    /**
+     * A unit goes back to the hive: it drops whatever it was doing and walks to the nearest point inside the border (a unit that is
+     * already inside just stops). Any of the player's own units, whatever its kind.
+     */
+    public static void returnToBase(ServerPlayer player, int unitId) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || !(player.serverLevel().getEntity(unitId) instanceof Mob mob) || !mob.isAlive()
+                || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId())) {
+            return;
+        }
+        if (isTeamFollower(player, mob)) {
+            return;
+        }
+        unit.setAction(null);
+        mob.getNavigation().stop();
+        if (HiveArea.containsXZ(heart, mob.getX(), mob.getZ())) {
+            return;
+        }
+        Vec3 inside = HiveArea.nearestInside(heart, mob.getX(), mob.getZ());
+        if (mob.getNavigation().moveTo(inside.x, inside.y, inside.z, 1.2D)) {
+            unit.setAction(new UnitAction(UnitAction.Kind.WALK, BlockPos.containing(inside).below()));
+        }
+    }
+
+    /**
+     * A team's scout was ordered to do something: the rest of the team does the same, if it can. A dig order is taken up by the
+     * team's workers, an attack order by its soldiers. (Anything else the scout does is for the scout alone.) Followers cannot be
+     * selected, so this is how the player commands them.
+     */
+    private static void mirrorToTeam(ServerPlayer player, ServerLevel level, Mob scout, UnitAction action) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || !(scout instanceof HiveUnit scoutUnit) || scoutUnit.kind() != UnitKind.SCOUT) {
+            return;
+        }
+        int team = heart.teams().teamOf(scout.getUUID());
+        if (team < 0) {
+            return;
+        }
+        UnitKind capable = action.kind() == UnitAction.Kind.DIG ? UnitKind.WORKER : action.kind() == UnitAction.Kind.ATTACK ? UnitKind.SOLDIER : null;
+        if (capable == null) {
+            return;
+        }
+        for (java.util.UUID id : heart.teams().members(team)) {
+            if (level.getEntity(id) instanceof Mob member && member.isAlive() && member != scout && member instanceof HiveUnit unit
+                    && unit.kind() == capable && player.getUUID().equals(unit.ownerId())) {
+                member.getNavigation().stop();
+                unit.setAction(action);
+            }
+        }
+    }
+
+    /** True for a worker or a soldier in the team: those follow the team's scout, and the player cannot move them. */
+    private static boolean isTeamFollower(ServerPlayer player, Mob mob) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        return heart != null && mob instanceof HiveUnit unit && (unit.kind() == UnitKind.WORKER || unit.kind() == UnitKind.SOLDIER)
+                && heart.teams().isMember(mob.getUUID());
+    }
+
     /** Each unit walks to stand on top of the block. A group fans out on a ring around the spot. */
     private static void walkTo(ServerPlayer player, ServerLevel level, List<Integer> ids, BlockPos pos) {
         List<Mob> units = commandable(player, level, ids, null);
+        // Followers in a team cannot be walked about by the player: they stay with the team's scout.
+        units.removeIf(unit -> isTeamFollower(player, unit));
         Vec3 target = Vec3.atBottomCenterOf(pos.above());
         for (int i = 0; i < units.size(); i++) {
             double angle = units.size() == 1 ? 0.0D : i * (2.0D * Math.PI / units.size());
@@ -126,6 +186,7 @@ public final class HiveActions {
         for (Mob worker : diggers) {
             worker.getNavigation().stop();
             ((HiveUnit) worker).setAction(new UnitAction(UnitAction.Kind.DIG, pos));
+            mirrorToTeam(player, level, worker, new UnitAction(UnitAction.Kind.DIG, pos));
         }
     }
 
@@ -374,6 +435,7 @@ public final class HiveActions {
         for (Mob soldier : soldiers) {
             soldier.getNavigation().stop();
             ((HiveUnit) soldier).setAction(UnitAction.attack(target.getUUID()));
+            mirrorToTeam(player, level, soldier, UnitAction.attack(target.getUUID()));
         }
     }
 

@@ -62,6 +62,11 @@ public class ScoutAttackGoal extends Goal {
         repathCooldown = 0;
         attackCooldown = 0;
         scout.setAggressive(true);
+        // The weapon with the most damage per second from the same pool a soldier draws on.
+        HiveHeart hive = scout.findHeart();
+        if (hive != null) {
+            scout.holdBestWeapon(hive);
+        }
     }
 
     @Override

@@ -1,0 +1,91 @@
+package com.projecthivemind.entity;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
+
+/**
+ * The teams of a hive: groups of its units that act together. For now a hive has the one team, but everything here works on a list of
+ * them, so more can be added later. A unit is in at most one team. What being in a team means is up to the units: see
+ * {@link TeamFollowGoal} for the first rule, that workers and soldiers stay close to the team's scout.
+ */
+public final class HiveTeams {
+    /** How many teams a hive has for now. */
+    public static final int TEAM_COUNT = 1;
+
+    private final List<Set<UUID>> teams = new ArrayList<>();
+
+    public HiveTeams() {
+        for (int i = 0; i < TEAM_COUNT; i++) {
+            teams.add(new LinkedHashSet<>());
+        }
+    }
+
+    /** Which team the unit is in, or -1. */
+    public int teamOf(UUID unit) {
+        for (int i = 0; i < teams.size(); i++) {
+            if (teams.get(i).contains(unit)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public boolean isMember(UUID unit) {
+        return teamOf(unit) >= 0;
+    }
+
+    public Set<UUID> members(int team) {
+        return team >= 0 && team < teams.size() ? Set.copyOf(teams.get(team)) : Set.of();
+    }
+
+    /** Put the unit in a team (taking it out of any other first). */
+    public void join(UUID unit, int team) {
+        leave(unit);
+        if (team >= 0 && team < teams.size()) {
+            teams.get(team).add(unit);
+        }
+    }
+
+    public void leave(UUID unit) {
+        teams.forEach(members -> members.remove(unit));
+    }
+
+    /** In the first team if it was not, out of it if it was. */
+    public void toggle(UUID unit) {
+        if (isMember(unit)) {
+            leave(unit);
+        } else {
+            join(unit, 0);
+        }
+    }
+
+    public ListTag save() {
+        ListTag list = new ListTag();
+        for (Set<UUID> members : teams) {
+            ListTag saved = new ListTag();
+            members.forEach(id -> saved.add(NbtUtils.createUUID(id)));
+            CompoundTag tag = new CompoundTag();
+            tag.put("Members", saved);
+            list.add(tag);
+        }
+        return list;
+    }
+
+    public void load(ListTag list) {
+        teams.forEach(Set::clear);
+        for (int i = 0; i < list.size() && i < teams.size(); i++) {
+            ListTag saved = list.getCompound(i).getList("Members", Tag.TAG_INT_ARRAY);
+            for (Tag member : saved) {
+                teams.get(i).add(NbtUtils.loadUUID(member));
+            }
+        }
+    }
+}

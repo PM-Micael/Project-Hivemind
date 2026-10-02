@@ -20,6 +20,7 @@ import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.network.OpenHiveMenuPayload;
+import com.projecthivemind.network.ReturnToBasePayload;
 import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.network.SetCollectorTaskPayload;
 import com.projecthivemind.network.SyncUnitsPayload;
@@ -111,7 +112,8 @@ public final class HiveSelection {
         Set<Integer> alive = new HashSet<>();
         for (int id : ClientSelection.selected()) {
             Entity entity = minecraft.level.getEntity(id);
-            if (entity != null && entity.isAlive()) {
+            // Units in a team cannot be selected, except its scout: the team does what the scout is told.
+            if (entity != null && entity.isAlive() && !isTeamFollower(id)) {
                 alive.add(id);
             }
         }
@@ -284,6 +286,12 @@ public final class HiveSelection {
         return true;
     }
 
+    /** True for a unit in a team that is not its scout: it follows the scout, and cannot be selected. */
+    private static boolean isTeamFollower(int entityId) {
+        com.projecthivemind.network.SyncUnitsPayload.Entry entry = ClientUnits.entry(entityId);
+        return entry != null && entry.team() && entry.kind() != UnitKind.SCOUT.ordinal();
+    }
+
     // ---- commanding ----
 
     /**
@@ -301,6 +309,9 @@ public final class HiveSelection {
             List<ContextMenu.Option> unitOptions = List.of(new ContextMenu.Option(Component.translatable("action.projecthivemind.open_menu"), () -> {
                 HiveScreen.requestUnitPage(ownUnit.kind(), ownEntity.getId());
                 PacketDistributor.sendToServer(new OpenHiveMenuPayload());
+            }), new ContextMenu.Option(Component.translatable("action.projecthivemind.return_to_base"), () -> {
+                ClientSelection.deselect(ownEntity.getId());
+                PacketDistributor.sendToServer(new ReturnToBasePayload(ownEntity.getId()));
             }));
             int[] unitCursor = ContextMenu.cursor(minecraft);
             ContextMenu.open(minecraft, unitCursor[0], unitCursor[1], unitOptions, null, ownEntity.getId());

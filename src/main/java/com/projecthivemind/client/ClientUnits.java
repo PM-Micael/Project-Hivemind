@@ -30,6 +30,11 @@ public final class ClientUnits {
         return ids;
     }
 
+    /** Everything the server last said about the units, in the order it listed them. */
+    public static List<SyncUnitsPayload.Entry> all() {
+        return units;
+    }
+
     /** What the server last said about this unit, or null. */
     @Nullable
     public static SyncUnitsPayload.Entry entry(int entityId) {

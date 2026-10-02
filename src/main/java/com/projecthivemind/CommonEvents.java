@@ -20,6 +20,8 @@ import com.projecthivemind.network.SyncSightPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
+import com.projecthivemind.network.ToggleTeamPayload;
+import com.projecthivemind.network.ReturnToBasePayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.BuildTowerPayload;
 import com.projecthivemind.network.DigStaircasePayload;
@@ -72,6 +74,8 @@ public final class CommonEvents {
     static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToServer(ChooseModePayload.TYPE, ChooseModePayload.STREAM_CODEC, ServerPayloads::onChooseMode);
+        registrar.playToServer(ReturnToBasePayload.TYPE, ReturnToBasePayload.STREAM_CODEC, ServerPayloads::onReturnToBase);
+        registrar.playToServer(ToggleTeamPayload.TYPE, ToggleTeamPayload.STREAM_CODEC, ServerPayloads::onToggleTeam);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);

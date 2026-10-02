@@ -128,10 +128,34 @@ public class HiveHeart extends Mob {
 
     /** Entity ids of the units the owner has selected right now, as their client reports. Not saved. */
     private Set<Integer> selectedUnits = Set.of();
+    /** The hive's teams of units. Saved. */
+    private final HiveTeams teams = new HiveTeams();
     /** Mobs that have hurt the hive or its units, or are trying to, as of the last look. Not saved. */
     private Set<UUID> threats = Set.of();
 
 
+
+    public HiveTeams teams() {
+        return teams;
+    }
+
+    /**
+     * The scout this unit's team follows, or null: when the unit is in a team that has a scout, and is not that scout itself. Only the
+     * first scout found counts.
+     */
+    @Nullable
+    public Mob teamLeader(Mob member) {
+        int team = teams.teamOf(member.getUUID());
+        if (team < 0 || !(this.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        for (UUID id : teams.members(team)) {
+            if (!id.equals(member.getUUID()) && level.getEntity(id) instanceof HiveScout scout && scout.isAlive()) {
+                return scout;
+            }
+        }
+        return null;
+    }
 
     /** Units the player has selected follow orders only; they ignore the hive's default behaviour. */
     public boolean isUnitSelected(int entityId) {
@@ -585,6 +609,7 @@ public class HiveHeart extends Mob {
         tag.putInt(LEVEL_TAG, hiveLevel);
         tag.putInt(LOGS_TAG, logsProgress);
         tag.putInt("QuestCoal", coalProgress);
+        tag.put("Teams", teams.save());
         tag.putInt("QuestIron", ironProgress);
         tag.putInt("QuestLowestY", lowestY);
         tag.putInt(KILLS_TAG, kills);
@@ -616,6 +641,7 @@ public class HiveHeart extends Mob {
         }
         logsProgress = tag.getInt(LOGS_TAG);
         coalProgress = tag.getInt("QuestCoal");
+        teams.load(tag.getList("Teams", net.minecraft.nbt.Tag.TAG_COMPOUND));
         ironProgress = tag.getInt("QuestIron");
         lowestY = tag.contains("QuestLowestY") ? tag.getInt("QuestLowestY") : Integer.MAX_VALUE;
         kills = tag.getInt(KILLS_TAG);

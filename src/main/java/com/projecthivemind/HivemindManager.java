@@ -424,6 +424,21 @@ public final class HivemindManager {
         sendUnits(player);
     }
 
+    /** The player added one of their units to the team, or took it out. */
+    public static void toggleTeam(ServerPlayer player, int unitId) {
+        HiveHeart heart = findHeart(player);
+        if (heart == null || !(player.serverLevel().getEntity(unitId) instanceof Mob mob) || !mob.isAlive()
+                || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId())) {
+            return;
+        }
+        if (unit.kind() == UnitKind.COLLECTOR) {
+            // Collectors stay at their own work: they cannot be in a team.
+            return;
+        }
+        heart.teams().toggle(mob.getUUID());
+        sendUnits(player);
+    }
+
     /** Tell the owner who their units are, for the unit pages of the hive menu. */
     public static void sendUnits(ServerPlayer owner) {
         ServerLevel level = owner.serverLevel();
@@ -437,7 +452,7 @@ public final class HivemindManager {
                     Component text = job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
-                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob()),
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart != null && heart.teams().isMember(mob.getUUID())),
                             new SyncUnitsPayload.Vitals(mob.getHealth(), mob.getMaxHealth()), taskOf(mob)));
                 }
             }
@@ -510,6 +525,7 @@ public final class HivemindManager {
             int inheritedFlags = old.behaviorFlags();
             int[] inheritedRadii = old.behaviorRadii();
             net.minecraft.world.item.Item inheritedFill = old instanceof HiveWorker oldWorker ? oldWorker.fillItem() : null;
+            boolean inheritedTeam = heart.teams().isMember(oldest.getUUID());
             replacingUnit = true;
             try {
                 oldest.kill();
@@ -518,7 +534,7 @@ public final class HivemindManager {
             }
             // The kill frees the slot through the normal death handling; only replace it if that happened.
             if (get(owner).count(kind) < cap) {
-                createUnit(owner, heart, kind, inheritedFlags, inheritedRadii, inheritedFill);
+                createUnit(owner, heart, kind, inheritedFlags, inheritedRadii, inheritedFill, inheritedTeam);
             }
         }
     }
@@ -563,11 +579,11 @@ public final class HivemindManager {
 
     /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
     private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
-        createUnit(player, heart, kind, -1, null, null);
+        createUnit(player, heart, kind, -1, null, null, false);
     }
 
     /** As above; with {@code inheritedRadii} given, the new unit starts with those settings (a replacement keeps its predecessor's). */
-    private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind, int inheritedFlags, @Nullable int[] inheritedRadii, @Nullable net.minecraft.world.item.Item inheritedFill) {
+    private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind, int inheritedFlags, @Nullable int[] inheritedRadii, @Nullable net.minecraft.world.item.Item inheritedFill, boolean inheritedTeam) {
         ServerLevel level = (ServerLevel) heart.level();
 
         // Stand each kind on a different side of the heart.
@@ -585,6 +601,9 @@ public final class HivemindManager {
         }
         ((HiveUnit) unit).setOwnerId(player.getUUID());
         ((HiveUnit) unit).setGearVersion(heart.gearVersionFor(kind));
+        if (inheritedTeam) {
+            heart.teams().join(unit.getUUID(), 0);
+        }
         if (inheritedRadii != null) {
             ((HiveUnit) unit).setBehavior(inheritedFlags, inheritedRadii);
             if (unit instanceof HiveWorker newWorker) {
@@ -1000,6 +1019,11 @@ public final class HivemindManager {
     public static void onUnitDied(ServerLevel level, Mob unit) {
         if (!(unit instanceof HiveUnit hiveUnit) || hiveUnit.ownerId() == null) {
             return;
+        }
+        // A unit that is gone is out of its team.
+        HiveHeart teamHeart = hiveUnit.findHeart();
+        if (teamHeart != null) {
+            teamHeart.teams().leave(unit.getUUID());
         }
         ServerPlayer owner = level.getServer().getPlayerList().getPlayer(hiveUnit.ownerId());
         if (owner == null) {

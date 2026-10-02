@@ -74,12 +74,20 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         // Soldiers walk where told and fight what they are told to attack. Digging and interacting is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
-        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
+        // A team member stays close to the team's scout when it has nothing else to do.
+        this.goalSelector.addGoal(3, new TeamFollowGoal(this));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
         // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));
+    }
+
+    /** True while this unit is in one of the hive's teams: a team member never has to stay inside the border. */
+    private boolean inTeam() {
+        HiveHeart heart = findHeart();
+        return heart != null && heart.teams().isMember(this.getUUID());
     }
 
     public void setHeartId(@Nullable UUID heartId) {

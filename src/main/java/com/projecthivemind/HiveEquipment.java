@@ -106,7 +106,7 @@ public final class HiveEquipment {
     }
 
     /** Copy the piece in a hive slot, first stamping the original so the two stay linked. */
-    private static ItemStack linkedCopy(SimpleContainer container, int index) {
+    public static ItemStack linkedCopy(SimpleContainer container, int index) {
         ItemStack original = container.getItem(index);
         if (original.isEmpty()) {
             return ItemStack.EMPTY;
@@ -136,12 +136,31 @@ public final class HiveEquipment {
     }
 
     /**
-     * Put a copy of the hive's best tool for this block into a worker's hand. A tool that can harvest the block (so it
-     * drops its items) beats one that cannot; among those, the one that breaks it fastest wins, Efficiency included.
-     * With no tools in the hive the hand is empty.
+     * The tool slot of the hive's best weapon: only weapons (things that change attack damage) compete, by average damage per
+     * second, and on a tie the earlier slot wins. -1 if there is none.
      */
-    public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state) {
-        RegistryAccess registries = worker.level().registryAccess();
+    public static int bestWeaponSlot(HiveHeart heart) {
+        int best = -1;
+        double bestDps = 0.0D;
+        for (int i = 0; i < TOOL_SLOTS; i++) {
+            ItemStack candidate = heart.getToolGear().getItem(i);
+            if (!isWeapon(candidate)) {
+                continue;
+            }
+            double dps = averageDps(candidate);
+            if (dps > bestDps) {
+                bestDps = dps;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The tool slot of the hive's best tool for this block: a tool that can harvest it (so it drops its items) beats one that
+     * cannot; among those, the one that breaks it fastest wins, Efficiency included. -1 if the hive has no tools.
+     */
+    public static int bestToolSlot(HiveHeart heart, RegistryAccess registries, BlockState state) {
         int best = -1;
         boolean bestCorrect = false;
         float bestSpeed = 0.0F;
@@ -158,6 +177,16 @@ public final class HiveEquipment {
                 bestSpeed = speed;
             }
         }
+        return best;
+    }
+
+    /**
+     * Put a copy of the hive's best tool for this block into a worker's hand. A tool that can harvest the block (so it
+     * drops its items) beats one that cannot; among those, the one that breaks it fastest wins, Efficiency included.
+     * With no tools in the hive the hand is empty.
+     */
+    public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state) {
+        int best = bestToolSlot(heart, worker.level().registryAccess(), state);
         // Tell the durability mirror the swap is deliberate, or it would read it as the old tool breaking.
         worker.resetGearMirror();
         worker.setItemSlot(EquipmentSlot.MAINHAND, best >= 0 ? linkedCopy(heart.getToolGear(), best) : ItemStack.EMPTY);
@@ -175,20 +204,7 @@ public final class HiveEquipment {
             }
         }
 
-        // Only weapons compete (things that change attack damage); on a tie the earlier slot wins.
-        int best = -1;
-        double bestDps = 0.0D;
-        for (int i = 0; i < TOOL_SLOTS; i++) {
-            ItemStack candidate = heart.getToolGear().getItem(i);
-            if (!isWeapon(candidate)) {
-                continue;
-            }
-            double dps = averageDps(candidate);
-            if (dps > bestDps) {
-                bestDps = dps;
-                best = i;
-            }
-        }
+        int best = bestWeaponSlot(heart);
         if (best >= 0) {
             soldier.setItemSlot(EquipmentSlot.MAINHAND, linkedCopy(heart.getToolGear(), best));
         }

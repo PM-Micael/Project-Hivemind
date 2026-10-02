@@ -27,6 +27,7 @@ import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetJobResumePayload;
 import com.projecthivemind.network.SetCollectorTaskPayload;
+import com.projecthivemind.network.ToggleTeamPayload;
 import com.projecthivemind.network.SetMenuViewPayload;
 import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.SetUnitBehaviorPayload;
@@ -92,7 +93,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int BEHAVIOR_ROW = 18;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS
+        HIVE, QUESTS, UNITS, TEAM
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -103,6 +104,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private UnitKind unitPage = UnitKind.SOLDIER;
     private Button hiveTab;
     private Button questsTab;
+    private Button teamTab;
     private final Map<UnitKind, Button> kindTabs = new EnumMap<>(UnitKind.class);
 
     /** The units of the open page whose heads are shown, and their buttons. */
@@ -147,6 +149,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox scoutWander;
     private Checkbox workerWander;
     private Checkbox flattenGround;
+    private Checkbox channelCrops;
+    private Checkbox useBoneMeal;
+    /** How far the unit page's settings are scrolled up, in pixels; and how far the widgets have been moved for it so far. */
+    private int behaviorScroll;
+    private int appliedScroll;
     private SeedButton fillButton;
 
     private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
@@ -180,7 +187,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // Wide enough for the tabs, with room to spare for more.
         this.imageWidth = 360;
         // Tall enough for a unit's page, whatever the storage size.
-        this.imageHeight = Math.max(HiveMenu.panelHeight(menu.storageRows()), 296);
+        this.imageHeight = Math.max(HiveMenu.panelHeight(menu.storageRows()), 262);
         this.titleLabelX = 8;
         this.titleLabelY = 8;
     }
@@ -191,6 +198,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // Top row: the text tabs. Second row: one button for each kind of unit, showing its head.
         hiveTab = tabButton(0, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
         questsTab = tabButton(1, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
+        teamTab = tabButton(2, "screen.projecthivemind.hive.tab_team", Tab.TEAM);
         kindTabs.clear();
         for (int i = 0; i < KINDS.length; i++) {
             UnitKind kind = KINDS[i];
@@ -281,14 +289,19 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void showTab(Tab newTab, UnitKind kind) {
         tab = newTab;
         unitPage = kind;
+        behaviorScroll = 0;
         // Only the Hive tab has slots; on the others they are hidden and cannot be clicked. The server is told, so that
         // shift-click agrees.
         menu.visibleGroups = newTab == Tab.HIVE ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_CRAFT : 0;
         PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
         hiveTab.active = newTab != Tab.HIVE;
         questsTab.active = newTab != Tab.QUESTS;
+        teamTab.active = newTab != Tab.TEAM;
 
-        if (newTab == Tab.UNITS) {
+        if (newTab == Tab.TEAM) {
+            shownTeam.clear();
+            refreshTeam(true);
+        } else if (newTab == Tab.UNITS) {
             // Start on the first unit of this kind (not selecting it: that is for the player to do).
             shownUnits.clear();
             refreshUnitList(true);
@@ -304,6 +317,83 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         workerWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.WORKER);
         collectorWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.COLLECTOR);
         scoutWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.SCOUT);
+        applyBehaviorScroll();
+    }
+
+    // ---- scrolling the settings ----
+
+    /** The bottom of the settings area, in the panel's own coordinates: a little above the panel's edge. */
+    private int behaviorViewBottom() {
+        return imageHeight - 8;
+    }
+
+    /** Where the unit page's settings end if nothing is scrolled: how tall the settings of this kind of unit are. */
+    private int behaviorContentBottom() {
+        return switch (unitPage) {
+            case SOLDIER -> BEHAVIOR_TOP + 7 * BEHAVIOR_ROW;
+            case WORKER -> BEHAVIOR_TOP + 11 * BEHAVIOR_ROW;
+            case SCOUT -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
+            default -> 0;
+        };
+    }
+
+    private int maxBehaviorScroll() {
+        return Math.max(0, behaviorContentBottom() - behaviorViewBottom());
+    }
+
+    /**
+     * Move the settings widgets to match the scroll, and hide the ones that are not wholly inside the settings area, so that they
+     * neither show nor take clicks outside it. Called whenever the page or the scroll changes.
+     */
+    private void applyBehaviorScroll() {
+        int delta = appliedScroll - behaviorScroll;
+        if (delta != 0) {
+            for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets)) {
+                for (AbstractWidget widget : group) {
+                    widget.setY(widget.getY() + delta);
+                }
+            }
+            appliedScroll = behaviorScroll;
+        }
+        int top = topPos + BEHAVIOR_TOP - 4;
+        int bottom = topPos + behaviorViewBottom();
+        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets)) {
+            for (AbstractWidget widget : group) {
+                if (widget.visible && (widget.getY() < top || widget.getY() + widget.getHeight() > bottom)) {
+                    widget.visible = false;
+                }
+            }
+        }
+    }
+
+    private void scrollBehavior(int pixels) {
+        int next = Math.max(0, Math.min(maxBehaviorScroll(), behaviorScroll + pixels));
+        if (next != behaviorScroll) {
+            behaviorScroll = next;
+            updateBehaviorVisibility();
+        }
+    }
+
+    /** A thin bar at the right of the settings area when they do not all fit. */
+    private void renderBehaviorScrollbar(GuiGraphics graphics) {
+        int max = maxBehaviorScroll();
+        if (max <= 0) {
+            return;
+        }
+        int top = BEHAVIOR_TOP - 4;
+        int height = behaviorViewBottom() - top;
+        int thumb = Math.max(12, height * height / (height + max));
+        int thumbY = top + (height - thumb) * behaviorScroll / max;
+        graphics.fill(imageWidth - 7, top, imageWidth - 5, top + height, 0x44000000);
+        graphics.fill(imageWidth - 7, thumbY, imageWidth - 5, thumbY + thumb, 0xFFC0C0C0);
+    }
+
+    private void renderWorkerNote(GuiGraphics graphics) {
+        int y = BEHAVIOR_TOP + 10 * BEHAVIOR_ROW + 4 - behaviorScroll;
+        if (y >= BEHAVIOR_TOP - 4 && y + 9 <= behaviorViewBottom()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"), BEHAVIOR_X + 4, y, 0x909090, false);
+        }
+        renderBehaviorScrollbar(graphics);
     }
 
     // ---- the unit pages ----
@@ -361,6 +451,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** Show this unit's settings: ask the server for them, and wait for them before letting them be edited. */
     private void viewUnit(int id) {
         viewedUnit = id;
+        behaviorScroll = 0;
         behaviorLoaded = false;
         setBehaviorEnabled(false);
         if (id >= 0) {
@@ -374,6 +465,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     protected void containerTick() {
         super.containerTick();
         updateJobBox();
+        if (tab == Tab.TEAM) {
+            refreshTeam(false);
+        }
         if (tab == Tab.UNITS) {
             refreshUnitList(false);
             if (!behaviorLoaded && viewedUnit >= 0 && menu.viewReady(viewSeq) && menu.viewKind() == unitPage) {
@@ -548,6 +642,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         workerRadii[1] = radiusBox(workerWidgets, 1, 1, this::sendWorkerBehavior);
         digThrough = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
         workerStay = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.stay_inside", this::sendWorkerBehavior);
+        // The widgets are made at their unscrolled places.
+        behaviorScroll = 0;
+        appliedScroll = 0;
         harvestCrops = behaviorBox(workerWidgets, 4, "screen.projecthivemind.behavior.harvest_crops", this::sendWorkerBehavior);
         clearPlants = behaviorBox(workerWidgets, 5, "screen.projecthivemind.behavior.clear_plants", this::sendWorkerBehavior);
         workerWander = behaviorBox(workerWidgets, 6, "screen.projecthivemind.behavior.wander", this::sendWorkerBehavior);
@@ -557,6 +654,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 this::currentFill, button -> openFillPicker()));
         fillButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.behavior.flatten_ground.tooltip")));
         workerWidgets.add(fillButton);
+        channelCrops = behaviorBox(workerWidgets, 8, "screen.projecthivemind.behavior.channel_crops", this::sendWorkerBehavior);
+        // Bound to channelling: it can only be ticked while that is.
+        useBoneMeal = behaviorBox(workerWidgets, 9, "screen.projecthivemind.behavior.use_bone_meal", this::sendWorkerBehavior);
 
         // Collectors: two planting tasks, crops and saplings. For each, the item (picked from a list) and the soil blocks it is
         // planted on (set in the world). Their rows: the item, how many spots, and a button to clear them.
@@ -631,6 +731,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 }
             }
         }
+        if (enabled && useBoneMeal != null) {
+            useBoneMeal.active = channelCrops.selected();
+        }
     }
 
     /** Fill the widgets of the open page from the viewed unit's real settings, once, and let the player edit them. */
@@ -663,6 +766,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(clearPlants, worker.clearPlants());
                 setChecked(workerWander, worker.wander());
                 setChecked(flattenGround, worker.flattenGround());
+                setChecked(channelCrops, worker.channelCrops());
+                setChecked(useBoneMeal, worker.useBoneMeal());
                 int[] values = worker.radii();
                 for (int i = 0; i < workerRadii.length; i++) {
                     workerRadii[i].setValue(String.valueOf(values[i]));
@@ -709,9 +814,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void sendWorkerBehavior() {
+        // The bone meal tick belongs to channelling: it can only be changed while that is ticked.
+        useBoneMeal.active = channelCrops.selected();
         if (canSend()) {
             WorkerBehavior behavior = new WorkerBehavior(mineOre.selected(), number(workerRadii[0]), chopLogs.selected(),
-                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected());
+                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected(), channelCrops.selected(), useBoneMeal.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -785,6 +892,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             }
             return true;
         }
+        if (tab == Tab.UNITS && viewedUnit >= 0 && maxBehaviorScroll() > 0 && mouseX >= leftPos + BEHAVIOR_X && mouseX < leftPos + imageWidth
+                && mouseY >= topPos + BEHAVIOR_TOP - 4 && mouseY < topPos + behaviorViewBottom()) {
+            scrollBehavior(-(int) Math.signum(scrollY) * BEHAVIOR_ROW);
+            return true;
+        }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
@@ -795,6 +907,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         switch (tab) {
             case QUESTS -> renderQuests(graphics);
             case UNITS -> renderUnitPage(graphics);
+            case TEAM -> renderTeam(graphics);
             default -> renderHiveLabels(graphics);
         }
     }
@@ -847,10 +960,70 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case COLLECTOR -> renderCollectorTask(graphics);
             case SCOUT -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
                     BEHAVIOR_X + 4, BEHAVIOR_TOP + 4 * BEHAVIOR_ROW + 4, 0x909090, false);
-            case WORKER -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 8 * BEHAVIOR_ROW + 4, 0x909090, false);
+            case WORKER -> renderWorkerNote(graphics);
             default -> {
             }
+        }
+    }
+
+    // ---- the Team tab ----
+
+    private static final int TEAM_TOP = 98;
+    private static final int TEAM_STEP = UNIT_HEAD + 4;
+    /** What the Team tab last showed: each unit's id, and whether it was in the team. */
+    private final List<Integer> shownTeam = new ArrayList<>();
+    private int teamOthersTop;
+
+    /**
+     * The Team tab: the heads of the units in the team, and under them the heads of the rest. Clicking a head moves that unit
+     * into the team or back out of it. Rebuilt whenever a unit joins, leaves, appears or is lost.
+     */
+    private void refreshTeam(boolean force) {
+        // Collectors cannot be in a team, so they are not listed.
+        List<SyncUnitsPayload.Entry> all = ClientUnits.all().stream().filter(entry -> entry.kind() != UnitKind.COLLECTOR.ordinal()).toList();
+        List<Integer> key = new ArrayList<>();
+        for (SyncUnitsPayload.Entry entry : all) {
+            key.add(entry.entityId() * 2 + (entry.team() ? 1 : 0));
+        }
+        if (!force && key.equals(shownTeam)) {
+            return;
+        }
+        clearUnitButtons();
+        shownTeam.clear();
+        shownTeam.addAll(key);
+        int columns = Math.max(1, (imageWidth - 24) / TEAM_STEP);
+        int members = 0;
+        int others = 0;
+        int memberCount = (int) all.stream().filter(SyncUnitsPayload.Entry::team).count();
+        teamOthersTop = TEAM_TOP + Math.max(1, (memberCount + columns - 1) / columns) * TEAM_STEP + 22;
+        for (SyncUnitsPayload.Entry entry : all) {
+            UnitKind kind = UnitKind.values()[entry.kind()];
+            int id = entry.entityId();
+            boolean inTeam = entry.team();
+            int index = inTeam ? members++ : others++;
+            int x = leftPos + UNIT_LIST_X + (index % columns) * TEAM_STEP;
+            int y = topPos + (inTeam ? TEAM_TOP : teamOthersTop) + (index / columns) * TEAM_STEP;
+            Component name = Component.translatable("screen.projecthivemind.unit.numbered",
+                    Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT)), ClientUnits.ofKind(kind).indexOf(id) + 1);
+            UnitIconButton button = new UnitIconButton(x, y, UNIT_HEAD, UNIT_HEAD, name, () -> unitEntity(id, kind), kind, () -> inTeam,
+                    pressed -> PacketDistributor.sendToServer(new ToggleTeamPayload(id)));
+            button.setTooltip(Tooltip.create(name.copy().append(Component.translatable(inTeam
+                    ? "screen.projecthivemind.team.click_remove" : "screen.projecthivemind.team.click_add"))));
+            unitButtons.add(addRenderableWidget(button));
+        }
+    }
+
+    private void renderTeam(GuiGraphics graphics) {
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.team.title", 1), UNIT_LIST_X, TEAM_TOP - 14, 0xFFFFFF, false);
+        boolean none = ClientUnits.all().stream().noneMatch(SyncUnitsPayload.Entry::team);
+        if (none) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.team.empty"), UNIT_LIST_X + 4, TEAM_TOP + 10, 0x909090, false);
+        }
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.team.others"), UNIT_LIST_X, teamOthersTop - 14, 0xA0A0A0, false);
+        int y = imageHeight - 46;
+        for (String key : new String[] {"rule_follow", "rule_border", "rule_orders"}) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.team." + key), UNIT_LIST_X, y, 0x909090, false);
+            y += 12;
         }
     }
 

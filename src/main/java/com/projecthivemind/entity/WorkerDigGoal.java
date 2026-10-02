@@ -127,6 +127,9 @@ public class WorkerDigGoal extends Goal {
         if (!pos.equals(equippedFor) || state.getBlock() != equippedForBlock || toolBroke) {
             if (worker instanceof HiveWorker hiveWorker) {
                 HiveEquipment.equipBestTool(hiveWorker, heart, state);
+            } else if (worker instanceof HiveScout scout) {
+                // A scout picks from the same pool of tools; with none suitable it digs with what it holds.
+                scout.holdBestToolFor(heart, state);
             }
             equippedFor = pos;
             equippedForBlock = state.getBlock();

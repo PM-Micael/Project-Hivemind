@@ -50,9 +50,10 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
     public record Entry(int entityId, int kind, Component job, int flags, Vitals vitals, Task task) {
         public static final int PAUSED = 1;
         public static final int RESUME = 2;
+        public static final int TEAM = 4;
 
-        public static int flags(boolean paused, boolean resume) {
-            return (paused ? PAUSED : 0) | (resume ? RESUME : 0);
+        public static int flags(boolean paused, boolean resume, boolean team) {
+            return (paused ? PAUSED : 0) | (resume ? RESUME : 0) | (team ? TEAM : 0);
         }
 
         public static final StreamCodec<RegistryFriendlyByteBuf, Entry> STREAM_CODEC = StreamCodec.composite(
@@ -66,6 +67,10 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
 
         public boolean paused() {
             return (flags & PAUSED) != 0;
+        }
+
+        public boolean team() {
+            return (flags & TEAM) != 0;
         }
 
         public boolean resume() {

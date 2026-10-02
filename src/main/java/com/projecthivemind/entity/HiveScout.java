@@ -6,6 +6,7 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 
 import com.projecthivemind.ScoutBehavior;
+import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
@@ -47,6 +48,36 @@ public class HiveScout extends Husk implements HiveUnit {
     @Nullable
     private UnitAction action;
     /** This unit's own settings, edited from the hive menu's page for its kind. */
+    /** The scout's gear mirror, used while it holds a tool from the hive for an order: wear on the copy is charged to the original. */
+    private final GearMirror gearMirror = new GearMirror();
+    /** True while the hand holds a tool from the hive's pool for a dig or attack order, instead of the hand slot's item. */
+    private boolean toolOverride;
+
+    /**
+     * Hold a copy of the hive's tool in this tool slot for the order in hand. The hand slot of the hive menu is left alone; its
+     * item comes back to the hand when the order is over. {@code slot} -1 (the hive has nothing suitable) changes nothing.
+     */
+    public void holdHiveTool(HiveHeart heart, int slot) {
+        if (slot < 0) {
+            return;
+        }
+        // Tell the durability mirror the swap is deliberate, or it would read it as the old tool breaking.
+        gearMirror.reset();
+        this.setItemSlot(EquipmentSlot.MAINHAND, HiveEquipment.linkedCopy(heart.getToolGear(), slot));
+        toolOverride = true;
+        wasHolding = false;
+    }
+
+    /** For a dig order: the hive's best tool for the block, as a worker would pick it. */
+    public void holdBestToolFor(HiveHeart heart, net.minecraft.world.level.block.state.BlockState state) {
+        holdHiveTool(heart, HiveEquipment.bestToolSlot(heart, this.level().registryAccess(), state));
+    }
+
+    /** For an attack order: the hive's weapon with the highest damage per second, as a soldier would carry. */
+    public void holdBestWeapon(HiveHeart heart) {
+        holdHiveTool(heart, HiveEquipment.bestWeaponSlot(heart));
+    }
+
     /** Whether the scout had something in hand on the last tick: an empty hand after that means the tool broke. */
     private boolean wasHolding;
     private ScoutBehavior behavior = ScoutBehavior.DEFAULT;
@@ -84,7 +115,7 @@ public class HiveScout extends Husk implements HiveUnit {
         // Deliberately not calling super: husk goals hunt players, villagers and turtle eggs.
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
-        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         // Running away comes before collecting items, so it can interrupt a trip to an item.
@@ -94,6 +125,12 @@ public class HiveScout extends Husk implements HiveUnit {
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new ScoutAttackGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
+    }
+
+    /** True while this unit is in one of the hive's teams: a team member never has to stay inside the border. */
+    private boolean inTeam() {
+        HiveHeart heart = findHeart();
+        return heart != null && heart.teams().isMember(this.getUUID());
     }
 
     public void setHeartId(@Nullable UUID heartId) {
@@ -119,7 +156,18 @@ public class HiveScout extends Husk implements HiveUnit {
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
         // one that is not selected walks to items and takes them on arrival.
         HiveHeart heart = findHeart();
-        if (heart != null) {
+        boolean working = action != null && (action.kind() == UnitAction.Kind.DIG || action.kind() == UnitAction.Kind.ATTACK);
+        if (toolOverride && (!working || heart == null)) {
+            // The order is over: the hand slot's item comes back (the sync below puts it in the hand).
+            toolOverride = false;
+            gearMirror.reset();
+            this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+            wasHolding = false;
+        }
+        if (toolOverride) {
+            // A tool from the hive pool is in hand: its wear is charged to the original tool in the hive.
+            gearMirror.tick(this, heart);
+        } else if (heart != null) {
             // Wear on the tool in hand is charged to the one in the hive's hand slot, which the hand is only a copy of; and a tool
             // that broke in the hand is gone from the slot. Without this the copy is simply replaced by the unworn original.
             ItemStack held = this.getMainHandItem();
@@ -132,7 +180,7 @@ public class HiveScout extends Husk implements HiveUnit {
             }
             wasHolding = !held.isEmpty();
         }
-        if (heart != null && this.tickCount % 10 == 0) {
+        if (heart != null && !toolOverride && this.tickCount % 10 == 0) {
             // The scout holds a copy of what is in its hand slot in the hive menu.
             ItemStack wanted = heart.scoutHand().getItem(0);
             if (!ItemStack.matches(this.getMainHandItem(), wanted)) {

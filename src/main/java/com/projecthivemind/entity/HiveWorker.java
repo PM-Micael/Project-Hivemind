@@ -124,13 +124,23 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         // Deliberately not calling super: skeleton goals flee the sun and shoot players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
         // Above everything else: a unit told to stay inside the hive border does.
-        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
-        this.goalSelector.addGoal(1, new WorkerDigGoal(this));
-        this.goalSelector.addGoal(1, new InteractBlockGoal(this));
-        this.goalSelector.addGoal(1, new WorkerBuildGoal(this));
-        this.goalSelector.addGoal(1, new WorkerFillGoal(this));
+        // A team member stays close to the team's scout when it has nothing else to do.
+        this.goalSelector.addGoal(3, new TeamFollowGoal(this));
+        // Second only to staying inside the border: channelling on crops, when set to.
+        this.goalSelector.addGoal(1, new WorkerChannelGoal(this));
+        this.goalSelector.addGoal(2, new WorkerDigGoal(this));
+        this.goalSelector.addGoal(2, new InteractBlockGoal(this));
+        this.goalSelector.addGoal(2, new WorkerBuildGoal(this));
+        this.goalSelector.addGoal(2, new WorkerFillGoal(this));
+    }
+
+    /** True while this unit is in one of the hive's teams: a team member never has to stay inside the border. */
+    private boolean inTeam() {
+        HiveHeart heart = findHeart();
+        return heart != null && heart.teams().isMember(this.getUUID());
     }
 
     public void setHeartId(@Nullable UUID heartId) {

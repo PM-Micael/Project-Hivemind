@@ -186,6 +186,18 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onReturnToBase(ReturnToBasePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.returnToBase(player, payload.unitId());
+        }
+    }
+
+    public static void onToggleTeam(ToggleTeamPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.toggleTeam(player, payload.unitId());
+        }
+    }
+
     public static void onOpenHiveMenu(OpenHiveMenuPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.openMenu(player);

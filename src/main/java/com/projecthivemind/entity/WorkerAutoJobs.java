@@ -127,6 +127,54 @@ public final class WorkerAutoJobs {
                 && state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE) >= net.minecraft.world.level.block.NetherWartBlock.MAX_AGE;
     }
 
+    /** True for a crop that is still growing: wheat, carrots, potatoes, beetroot, nether wart... that is not at its full age yet. */
+    public static boolean isGrowing(BlockState state) {
+        if (state.getBlock() instanceof net.minecraft.world.level.block.CropBlock crop) {
+            return !crop.isMaxAge(state);
+        }
+        return state.getBlock() instanceof net.minecraft.world.level.block.NetherWartBlock
+                && state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE) < net.minecraft.world.level.block.NetherWartBlock.MAX_AGE;
+    }
+
+    /**
+     * The nearest crop inside the hive area that is not fully grown and that the worker can get to, other than the ones to leave
+     * alone for now, or null if there is none. Only crops near the worker's height are looked at.
+     */
+    @Nullable
+    public static BlockPos findGrowing(HiveWorker worker, HiveHeart heart, java.util.Set<BlockPos> leaveAlone) {
+        if (!(worker.level() instanceof ServerLevel level)) {
+            return null;
+        }
+        net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
+        BlockPos origin = worker.blockPosition();
+        List<BlockPos> growing = new ArrayList<>();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
+            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
+                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                    continue;
+                }
+                for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
+                    pos.set(x, y, z);
+                    if (isGrowing(level.getBlockState(pos)) && !leaveAlone.contains(pos)) {
+                        growing.add(pos.immutable());
+                    }
+                }
+            }
+        }
+        growing.sort(Comparator.comparingDouble(crop -> crop.distSqr(origin)));
+        int checked = 0;
+        for (BlockPos crop : growing) {
+            if (checked++ >= MAX_CANDIDATES) {
+                break;
+            }
+            if (reachable(worker, crop)) {
+                return crop;
+            }
+        }
+        return null;
+    }
+
     /** True for plants that grow wild and can be cleared: grass, ferns, and every kind of flower (tall ones too). */
     public static boolean isWildPlant(BlockState state) {
         return state.is(net.minecraft.tags.BlockTags.FLOWERS)
