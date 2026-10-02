@@ -53,6 +53,14 @@ public final class ServerPayloads {
 
     private static final int OUTSIDE_SLOT = -999;
 
+    /** The hive menu changed tab: remember which slots are on show. Only the known groups are kept. */
+    public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_GEAR);
+        }
+    }
+
     /** The mouse wheel moved the hive storage window in the open menu. */
     public static void onScrollStorage(ScrollStoragePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player

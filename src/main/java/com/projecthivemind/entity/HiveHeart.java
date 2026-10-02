@@ -79,6 +79,8 @@ public class HiveHeart extends Mob {
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
     private int ageTicks;
+    /** The health last sent to the owner for the health bar. */
+    private float syncedHealth = -1.0F;
     /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
@@ -341,7 +343,9 @@ public class HiveHeart extends Mob {
         // Sight first, so the workers' scans and the action sync below always use fresh eyes.
         if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
             HivemindManager.tickSight(this);
+            HivemindManager.tickHealthSync(this);
         }
+        HivemindManager.tickNaturalSpawning(this);
         if (hiveLevel >= HiveLevels.FURNACE_LEVEL && this.level() instanceof ServerLevel serverLevel) {
             furnace.tick(serverLevel);
         }
@@ -383,6 +387,14 @@ public class HiveHeart extends Mob {
 
     public void addKill() {
         kills++;
+    }
+
+    public float syncedHealth() {
+        return syncedHealth;
+    }
+
+    public void setSyncedHealth(float health) {
+        this.syncedHealth = health;
     }
 
     public int ageTicks() {

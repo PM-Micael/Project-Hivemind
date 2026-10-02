@@ -65,6 +65,7 @@ public final class ClientEvents {
     static void registerGuiLayers(RegisterGuiLayersEvent event) {
         event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);
         event.registerAboveAll(ProjectHivemind.id("command_bar"), CommandBar::render);
+        event.registerAboveAll(ProjectHivemind.id("hive_health"), HiveHud::render);
     }
 
     // ---- game bus ----

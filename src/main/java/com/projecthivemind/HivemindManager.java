@@ -17,14 +17,18 @@ import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.entity.HiveWorker;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.SyncEyesPayload;
+import com.projecthivemind.network.SyncHeartHealthPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.SyncSightPayload;
 
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -37,12 +41,17 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.NaturalSpawner;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -465,6 +474,101 @@ public final class HivemindManager {
         }
     }
 
+    // ---- natural spawning around the camera ----
+
+    /** How far from the camera chunks take part in spawning, in blocks: vanilla's 128. */
+    private static final double SPAWN_DISTANCE_SQR = 16384.0D;
+    private static final int SPAWN_CHUNK_RADIUS = 8;
+    /** The game scales its mob caps by this: the chunks in a 17 by 17 square. */
+    private static final int SPAWN_CAP_DIVISOR = 289;
+
+    /**
+     * Natural mob spawning around the hivemind's camera. The game only spawns mobs around players that are not in
+     * spectator mode, and the bodyless hivemind always is, so without this the world would go quiet: no hostile mobs
+     * to fight (or to survive a night against), no animals. This runs the game's own spawning, with its own rules,
+     * caps and light levels, on the chunks within 128 blocks of the camera, once a tick like the game does.
+     * (Spawns inside the hive area are still refused by the creep, see CommonEvents.)
+     */
+    public static void tickNaturalSpawning(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null || !(heart.level() instanceof ServerLevel level)) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        // Only when the game would not: any other player mode already gets the game's own spawning around the player.
+        if (owner == null || !owner.isSpectator() || get(owner).stage() != HivemindStage.HIVE || owner.serverLevel() != level
+                || !level.getGameRules().getBoolean(GameRules.RULE_DOMOBSPAWNING)) {
+            return;
+        }
+        boolean enemies = level.getServer().isSpawningMonsters();
+        boolean friendlies = level.getServer().isSpawningAnimals();
+        if (!enemies && !friendlies) {
+            return;
+        }
+
+        ChunkPos center = owner.chunkPosition();
+        List<LevelChunk> chunks = new ArrayList<>();
+        for (int dx = -SPAWN_CHUNK_RADIUS; dx <= SPAWN_CHUNK_RADIUS; dx++) {
+            for (int dz = -SPAWN_CHUNK_RADIUS; dz <= SPAWN_CHUNK_RADIUS; dz++) {
+                ChunkPos pos = new ChunkPos(center.x + dx, center.z + dz);
+                double distanceX = pos.getMiddleBlockX() - owner.getX();
+                double distanceZ = pos.getMiddleBlockZ() - owner.getZ();
+                if (distanceX * distanceX + distanceZ * distanceZ >= SPAWN_DISTANCE_SQR) {
+                    continue;
+                }
+                LevelChunk chunk = level.getChunkSource().getChunkNow(pos.x, pos.z);
+                if (chunk != null && chunk.getFullStatus() == FullChunkStatus.ENTITY_TICKING
+                        && level.isNaturalSpawningAllowed(pos) && level.getWorldBorder().isWithinBounds(pos)) {
+                    chunks.add(chunk);
+                }
+            }
+        }
+        if (chunks.isEmpty()) {
+            return;
+        }
+
+
+        // The game's own per-player mob cap says "no" when no player is close enough, which is always so for a
+        // spectator. So the caps are worked out here instead: the same totals, counted over the whole world.
+        Object2IntOpenHashMap<MobCategory> counts = new Object2IntOpenHashMap<>();
+        for (Entity entity : level.getAllEntities()) {
+            if (entity instanceof Mob mob && (mob.isPersistenceRequired() || mob.requiresCustomPersistence())) {
+                continue;
+            }
+            MobCategory category = entity.getType().getCategory();
+            if (category != MobCategory.MISC) {
+                counts.addTo(category, 1);
+            }
+        }
+        // Passive animals and the like only get their turn every 20 seconds, as in the game.
+        boolean persistent = level.getGameTime() % 400L == 0L;
+        Util.shuffle(chunks, level.random);
+        // The game's spawning looks for the nearest player who is not a spectator, and does nothing without one. So the
+        // camera passes for a normal player for the length of this loop, and is put back before anything else can
+        // look. The mode is set directly: no packet goes to the client and no event fires.
+        GameType realMode = owner.gameMode.gameModeForPlayer;
+        owner.gameMode.gameModeForPlayer = GameType.SURVIVAL;
+        try {
+            for (LevelChunk chunk : chunks) {
+                for (MobCategory category : MobCategory.values()) {
+                    if (category == MobCategory.MISC || (category.isFriendly() && !friendlies) || (!category.isFriendly() && !enemies)
+                            || (category.isPersistent() && !persistent)) {
+                        continue;
+                    }
+                    int cap = category.getMaxInstancesPerChunk() * chunks.size() / SPAWN_CAP_DIVISOR;
+                    if (counts.getInt(category) >= cap) {
+                        continue;
+                    }
+                    // The game's extra check against a biome's spawn budget (soul sand valleys and the like) is skipped.
+                    NaturalSpawner.spawnCategoryForChunk(category, level, chunk, (type, pos, spawnChunk) -> true, (mob, spawnChunk) -> {
+                        counts.addTo(category, 1);
+                    });
+                }
+            }
+        } finally {
+            owner.gameMode.gameModeForPlayer = realMode;
+        }
+    }
+
     // ---- the level-up quest ----
 
     /**
@@ -542,6 +646,25 @@ public final class HivemindManager {
         HiveInfection.spread(level, heart);
         level.playSound(null, heart.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 0.8F);
         owner.sendSystemMessage(Component.translatable("message.projecthivemind.level_up", heart.hiveLevel()));
+    }
+
+    /**
+     * Tell the owner the Heart's health for the health bar: whenever it changes, and once a second regardless, so a
+     * client that has just joined gets it too.
+     */
+    public static void tickHealthSync(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        float health = heart.getHealth();
+        if (health != heart.syncedHealth() || heart.tickCount % 20 == 0) {
+            heart.setSyncedHealth(health);
+            PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth()));
+        }
     }
 
     /** The player edited the scout settings on the menu. Only valid with the hive menu open. */

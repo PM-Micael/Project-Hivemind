@@ -58,12 +58,21 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
+    /**
+     * Groups of slots that a tab can show. The storage grid and the gear slots are the base of every inventory tab;
+     * the right-hand workstation (the crafting grid, the furnace, later others) is swapped by the tab.
+     */
+    public static final int GROUP_STORAGE = 1;
+    public static final int GROUP_CRAFT = 2;
+    public static final int GROUP_FURNACE = 4;
+    public static final int GROUP_GEAR = 8;
+
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
-    public static final int ARMOR_Y = 54;
-    public static final int STORAGE_X = 32;
-    public static final int STORAGE_Y = 54;
-    public static final int TOOLS_X = 32;
+    public static final int ARMOR_Y = 82;
+    public static final int STORAGE_X = 44;
+    public static final int STORAGE_Y = 82;
+    public static final int TOOLS_X = 44;
     /** Slots in a row of the storage grid. */
     public static final int STORAGE_COLUMNS = 9;
 
@@ -89,17 +98,17 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public int storageRows() {
         return storageRows(storageSlots);
     }
-    /** The built-in furnace (level 3), under the crafting grid and its result: input, fuel, and output. */
-    public static final int FURNACE_INPUT_X = 214;
-    public static final int FURNACE_INPUT_Y = 148;
-    public static final int FURNACE_FUEL_X = 214;
-    public static final int FURNACE_FUEL_Y = 184;
-    public static final int FURNACE_OUTPUT_X = 262;
-    public static final int FURNACE_OUTPUT_Y = 166;
-    public static final int GRID_X = 214;
-    public static final int GRID_Y = 54;
-    public static final int RESULT_X = 232;
-    public static final int RESULT_Y = 118;
+    /** The built-in furnace (level 3): input, fuel and output. It takes the crafting grid's place when its tab is open. */
+    public static final int FURNACE_INPUT_X = 246;
+    public static final int FURNACE_INPUT_Y = 86;
+    public static final int FURNACE_FUEL_X = 246;
+    public static final int FURNACE_FUEL_Y = 122;
+    public static final int FURNACE_OUTPUT_X = 300;
+    public static final int FURNACE_OUTPUT_Y = 104;
+    public static final int GRID_X = 246;
+    public static final int GRID_Y = 82;
+    public static final int RESULT_X = 265;
+    public static final int RESULT_Y = 146;
 
     // Synced values: level, health, max health, ticks until the next spawning interval, then for each unit kind its
     // count, its cap, and what the next interval will do for it.
@@ -150,7 +159,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final ResultContainer resultSlots = new ResultContainer();
 
     /** Client-side only: the screen shows the Quests tab, so the slots are hidden. */
-    public boolean slotsHidden;
+    public int visibleGroups = GROUP_STORAGE | GROUP_GEAR | GROUP_CRAFT;
 
     /** Client constructor: the real contents arrive from the server. */
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
@@ -182,7 +191,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             for (int col = 0; col < STORAGE_COLUMNS; col++) {
                 int index = col + row * STORAGE_COLUMNS;
                 if (index < storageSlots) {
-                    this.addSlot(new HiveSlot(scroll.view(), index, STORAGE_X + col * 18, STORAGE_Y + row * 18));
+                    this.addSlot(new HiveSlot(scroll.view(), index, STORAGE_X + col * 18, STORAGE_Y + row * 18, GROUP_STORAGE));
                 }
             }
         }
@@ -199,7 +208,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, toolsY(scroll.visibleRows())));
         }
         if (hasFurnace) {
-            this.addSlot(new HiveSlot(furnace, HiveFurnace.INPUT, FURNACE_INPUT_X, FURNACE_INPUT_Y));
+            this.addSlot(new HiveSlot(furnace, HiveFurnace.INPUT, FURNACE_INPUT_X, FURNACE_INPUT_Y, GROUP_FURNACE));
             this.addSlot(new FuelSlot(furnace, HiveFurnace.FUEL, FURNACE_FUEL_X, FURNACE_FUEL_Y));
             this.addSlot(new OutputSlot(furnace, HiveFurnace.OUTPUT, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
         }
@@ -463,10 +472,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             if (!this.moveItemStackTo(stack, STORAGE_START, resultIndex, false)) {
                 return ItemStack.EMPTY;
             }
-        } else if (!this.moveItemStackTo(stack, armorStart, toolsEnd, false)
-                && !this.moveItemStackTo(stack, gridStart, gridEnd, false)
-                && !this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false)) {
-            // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace.
+        } else if (!(shown(armorStart, toolsEnd) && this.moveItemStackTo(stack, armorStart, toolsEnd, false))
+                && !(shown(gridStart, gridEnd) && this.moveItemStackTo(stack, gridStart, gridEnd, false))
+                && !(shown(furnaceStart, furnaceEnd) && this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false))) {
+            // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace,
+            // but only those the open tab is showing.
             return ItemStack.EMPTY;
         }
 
@@ -482,6 +492,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return original;
     }
 
+
+    /** True if the slots from start to end are on show, so a shift-click may send items there. */
+    private boolean shown(int start, int end) {
+        return start < end && this.slots.get(start).isActive();
+    }
     @Override
     public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {
         return slot.container != resultSlots && super.canTakeItemForPickAll(stack, slot);
@@ -524,15 +539,22 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     // ---- slots ----
 
-    /** Slots disappear on the Quests tab. */
+    /** Which slots show depends on the tab: see {@link #visibleGroups}. Slots that are not shown cannot be clicked. */
     private class HiveSlot extends Slot {
+        private final int group;
+
         HiveSlot(Container container, int index, int x, int y) {
+            this(container, index, x, y, GROUP_CRAFT);
+        }
+
+        HiveSlot(Container container, int index, int x, int y, int group) {
             super(container, index, x, y);
+            this.group = group;
         }
 
         @Override
         public boolean isActive() {
-            return !slotsHidden;
+            return (visibleGroups & group) != 0;
         }
     }
 
@@ -543,7 +565,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
         @Override
         public boolean isActive() {
-            return !slotsHidden;
+            return (visibleGroups & GROUP_CRAFT) != 0;
         }
     }
 
@@ -554,7 +576,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
         /** @param position index in {@link HiveEquipment#ARMOR_SLOTS}, which picks the empty-slot icon */
         ArmorSlot(Container container, int position, int x, int y, EquipmentSlot equipmentSlot) {
-            super(container, position, x, y);
+            super(container, position, x, y, GROUP_GEAR);
             this.equipmentSlot = equipmentSlot;
             this.position = position;
         }
@@ -579,7 +601,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The furnace's fuel slot: only things that burn. */
     private class FuelSlot extends HiveSlot {
         FuelSlot(Container container, int index, int x, int y) {
-            super(container, index, x, y);
+            super(container, index, x, y, GROUP_FURNACE);
         }
 
         @Override
@@ -591,7 +613,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The furnace's output: things come out of it, never go in. */
     private class OutputSlot extends HiveSlot {
         OutputSlot(Container container, int index, int x, int y) {
-            super(container, index, x, y);
+            super(container, index, x, y, GROUP_FURNACE);
         }
 
         @Override
@@ -603,7 +625,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** Holds tools and weapons: new soldiers wield a copy of the one with the highest attack damage. */
     private class ToolSlot extends HiveSlot {
         ToolSlot(Container container, int index, int x, int y) {
-            super(container, index, x, y);
+            super(container, index, x, y, GROUP_GEAR);
         }
 
         @Override

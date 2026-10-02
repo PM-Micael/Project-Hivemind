@@ -18,11 +18,13 @@ import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetBehaviorPayload;
+import com.projecthivemind.network.SetMenuViewPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
 import com.projecthivemind.network.SetScoutBehaviorPayload;
 import com.projecthivemind.network.SetWorkerBehaviorPayload;
 import com.projecthivemind.network.ToggleInventoryModePayload;
 
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
@@ -32,6 +34,9 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -48,16 +53,19 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int SLOT_FILL = 0xFF3A2424;
 
     /** Where the row of unit counts sits, and how far apart its entries are. */
-    private static final int COUNTS_SPACING = 72;
+    private static final int COUNTS_SPACING = 80;
 
     // Behavior tab layout, relative to the panel.
-    private static final int PAGE_BUTTONS_Y = 50;
+    /** Where the labels over the slot grids sit, just above the slots. */
+    private static final int STATION_TAB_Y = 50;
+    private static final int LABEL_Y = HiveMenu.STORAGE_Y - 10;
+    private static final int PAGE_BUTTONS_Y = 76;
     private static final int BEHAVIOR_X = 12;
-    private static final int BEHAVIOR_TOP = 74;
+    private static final int BEHAVIOR_TOP = 102;
     private static final int BEHAVIOR_ROW = 18;
 
     private enum Tab {
-        HIVE, QUESTS, BEHAVIOR
+        CRAFTING, FURNACE, QUESTS, BEHAVIOR
     }
 
     /** Which unit's behaviour the Behavior tab is showing. */
@@ -65,9 +73,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         SOLDIERS, WORKERS, COLLECTORS, SCOUTS
     }
 
-    private Tab tab = Tab.HIVE;
+    private Tab tab = Tab.CRAFTING;
     private Page page = Page.SOLDIERS;
-    private Button hiveTab;
+    private Button craftingTab;
+    /** Only there once the hive has a furnace (level 3). More tabs for more built-in inventories go the same way. */
+    @Nullable
+    private Button furnaceTab;
     private Button questsTab;
     private Button behaviorTab;
     private Button soldiersPage;
@@ -113,7 +124,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
-        this.imageWidth = 300;
+        // Wide enough for five tabs, with room to spare for more.
+        this.imageWidth = 360;
         this.imageHeight = HiveMenu.panelHeight(menu.storageRows());
         this.titleLabelX = 8;
         this.titleLabelY = 8;
@@ -122,9 +134,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     protected void init() {
         super.init();
-        hiveTab = tabButton(0, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
-        questsTab = tabButton(1, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
-        behaviorTab = tabButton(2, "screen.projecthivemind.hive.tab_behavior", Tab.BEHAVIOR);
+        int tabIndex = 0;
+        // Top row: the text tabs. Second row: one icon tab per crafting station, in the order they are unlocked.
+        questsTab = tabButton(0, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
+        behaviorTab = tabButton(1, "screen.projecthivemind.hive.tab_behavior", Tab.BEHAVIOR);
+        craftingTab = stationTab(tabIndex++, Items.CRAFTING_TABLE, "screen.projecthivemind.hive.tab_hive", Tab.CRAFTING);
+        furnaceTab = menu.hasFurnace() ? stationTab(tabIndex++, Items.FURNACE, "screen.projecthivemind.hive.tab_furnace", Tab.FURNACE) : null;
 
         soldiersPage = pageButton(0, "screen.projecthivemind.behavior.page_soldiers", Page.SOLDIERS);
         workersPage = pageButton(1, "screen.projecthivemind.behavior.page_workers", Page.WORKERS);
@@ -137,11 +152,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             onClose();
         }).bounds(leftPos + imageWidth - 8 - 70, topPos + 5, 70, 16).build());
 
-        // Terrain fog of war on or off.
-        addRenderableWidget(Button.builder(fogLabel(), button -> {
-            FogOfWar.setEnabled(!FogOfWar.enabled());
-            button.setMessage(fogLabel());
-        }).bounds(leftPos + imageWidth - 8 - 70 - 4 - 66, topPos + 5, 66, 16).build());
 
         // Creative players can drop out of the hive to the normal inventory, e.g. to spawn items in for testing.
         if (ClientState.canSwapInventory()) {
@@ -155,13 +165,40 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         showTab(tab);
     }
 
-    private static Component fogLabel() {
-        return Component.translatable(FogOfWar.enabled() ? "screen.projecthivemind.hive.fog_on" : "screen.projecthivemind.hive.fog_off");
+
+    /** A crafting station's tab: a small button showing the station's block instead of a name, with the name as its tooltip. */
+    private Button stationTab(int index, Item icon, String nameKey, Tab target) {
+        Component name = Component.translatable(nameKey);
+        ItemStack stack = new ItemStack(icon);
+        Button button = new StationTabButton(leftPos + 8 + index * 26, topPos + STATION_TAB_Y, name, stack, pressed -> showTab(target));
+        button.setTooltip(Tooltip.create(name));
+        return addRenderableWidget(button);
+    }
+
+    /** A button that shows an item (a crafting station's block) where a label would be. */
+    private static final class StationTabButton extends Button {
+        private final ItemStack icon;
+
+        StationTabButton(int x, int y, Component name, ItemStack icon, Button.OnPress onPress) {
+            super(x, y, 24, 20, name, onPress, DEFAULT_NARRATION);
+            this.icon = icon;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            super.renderWidget(graphics, mouseX, mouseY, partialTick);
+            graphics.renderItem(icon, getX() + 4, getY() + 2);
+        }
+
+        /** The name is only a tooltip: drawing it on the button as well would put scrolling text behind the icon. */
+        @Override
+        public void renderString(GuiGraphics graphics, Font font, int color) {
+        }
     }
 
     private Button tabButton(int index, String key, Tab target) {
         return addRenderableWidget(Button.builder(Component.translatable(key), button -> showTab(target))
-                .bounds(leftPos + 8 + index * 62, topPos + 28, 58, 18).build());
+                .bounds(leftPos + 8 + index * 66, topPos + 28, 62, 18).build());
     }
 
     private Button pageButton(int index, String key, Page target) {
@@ -173,9 +210,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void showTab(Tab newTab) {
         tab = newTab;
-        // Only the Hive tab shows the slots; on the others they are hidden and cannot be clicked.
-        menu.slotsHidden = newTab != Tab.HIVE;
-        hiveTab.active = newTab != Tab.HIVE;
+        // The storage and the gear slots are on every inventory tab. The right-hand side is the tab's workstation: the
+        // crafting grid, the furnace, and so on. Slots not shown cannot be clicked; the server is told so shift-click agrees.
+        menu.visibleGroups = switch (newTab) {
+            case CRAFTING -> HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_CRAFT;
+            case FURNACE -> HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_FURNACE;
+            default -> 0;
+        };
+        PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
+        craftingTab.active = newTab != Tab.CRAFTING;
+        if (furnaceTab != null) {
+            furnaceTab.active = newTab != Tab.FURNACE;
+        }
         questsTab.active = newTab != Tab.QUESTS;
         behaviorTab.active = newTab != Tab.BEHAVIOR;
 
@@ -410,11 +456,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             }
         }
 
-        if (tab == Tab.HIVE) {
+        if (tab == Tab.CRAFTING || tab == Tab.FURNACE) {
             StorageScroll scroll = menu.storageScroll();
             HiveStyle.scrollbar(graphics, leftPos + HiveMenu.STORAGE_X + 9 * 18 + 1, topPos + HiveMenu.STORAGE_Y,
                     scroll.visibleRows() * 18, scroll.totalRows(), scroll.visibleRows(), scroll.row());
-            if (menu.hasFurnace()) {
+            if (tab == Tab.FURNACE) {
                 drawFurnace(graphics);
             }
         }
@@ -438,7 +484,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         StorageScroll scroll = menu.storageScroll();
-        if (tab == Tab.HIVE && scroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.STORAGE_X && mouseX < leftPos + HiveMenu.STORAGE_X + 9 * 18 + 6
+        if ((tab == Tab.CRAFTING || tab == Tab.FURNACE) && scroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.STORAGE_X && mouseX < leftPos + HiveMenu.STORAGE_X + 9 * 18 + 6
                 && mouseY >= topPos + HiveMenu.STORAGE_Y && mouseY < topPos + HiveMenu.STORAGE_Y + scroll.visibleRows() * 18) {
             int row = HiveStyle.scrolledRow(scroll.row(), scrollY, scroll.maxRow());
             if (row != scroll.row()) {
@@ -453,11 +499,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.header", menu.level()), titleLabelX, titleLabelY, 0xFFFFFF, false);
 
-        String hearts = "♥ " + hearts(menu.health()) + " / " + hearts(menu.maxHealth());
-        graphics.drawString(font, hearts, imageWidth - 8 - font.width(hearts), titleLabelY, 0xFF5555, false);
-
         switch (tab) {
             case QUESTS -> renderQuests(graphics);
+
             case BEHAVIOR -> renderBehaviorLabels(graphics);
             default -> renderHiveLabels(graphics);
         }
@@ -466,7 +510,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     // ---- the Quests tab ----
 
     private static final int QUEST_X = 12;
-    private static final int QUEST_Y = 56;
+    private static final int QUEST_Y = 84;
     private static final int DONE = 0x77DD77;
     private static final int TODO = 0xE0E0E0;
 
@@ -569,12 +613,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         drawUnitCount(graphics, 2, "screen.projecthivemind.hive.workers", UnitKind.WORKER);
         drawUnitCount(graphics, 3, "screen.projecthivemind.hive.collectors", UnitKind.COLLECTOR);
 
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, 44, 0xA0A0A0, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, 44, 0xA0A0A0, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.crafting"), HiveMenu.GRID_X, 44, 0xA0A0A0, false);
-        if (menu.hasFurnace()) {
-            graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.furnace"), HiveMenu.FURNACE_INPUT_X, HiveMenu.FURNACE_INPUT_Y - 10, 0xA0A0A0, false);
-        }
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, LABEL_Y, 0xA0A0A0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, LABEL_Y, 0xA0A0A0, false);
+        // The workstation on the right is named for the open tab.
+        String workstation = tab == Tab.FURNACE ? "screen.projecthivemind.hive.furnace" : "screen.projecthivemind.hive.crafting";
+        graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
                 HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }

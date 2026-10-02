@@ -53,7 +53,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
  *       its column up in the texture, and darkens it if it is not seen. See {@code shaders/core/hive_fog.fsh}.</li>
  * </ol>
  *
- * <p>It is a purely visual effect on this client. It can be switched off from the hive menu.
+ * <p>It is a purely visual effect on this client, and always on while playing as the hive.
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class FogOfWar {
@@ -72,7 +72,6 @@ public final class FogOfWar {
     /** A column this close to an eye is always seen, whatever the walls say. */
     private static final double ALWAYS_SEEN = 2.5D;
 
-    private static boolean enabled = true;
     @Nullable
     private static ShaderInstance shader;
     @Nullable
@@ -99,13 +98,7 @@ public final class FogOfWar {
     private FogOfWar() {
     }
 
-    public static boolean enabled() {
-        return enabled;
-    }
 
-    public static void setEnabled(boolean on) {
-        enabled = on;
-    }
 
     @SubscribeEvent
     static void onRegisterShaders(RegisterShadersEvent event) {
@@ -131,7 +124,7 @@ public final class FogOfWar {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (!enabled || shader == null || minecraft.level == null || !ClientState.hiveMode()
+        if (shader == null || minecraft.level == null || !ClientState.hiveMode()
                 || ClientSight.eyes().isEmpty()) {
             passActive = false;
             return;

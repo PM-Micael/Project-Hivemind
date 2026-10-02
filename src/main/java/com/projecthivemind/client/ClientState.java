@@ -13,6 +13,8 @@ public final class ClientState {
     private static HivemindStage stage;
     private static boolean normalInventory;
     private static boolean canSwapInventory;
+    private static float heartHealth;
+    private static float heartMaxHealth;
 
     private ClientState() {
     }
@@ -28,6 +30,8 @@ public final class ClientState {
         stage = null;
         normalInventory = false;
         canSwapInventory = false;
+        heartHealth = 0.0F;
+        heartMaxHealth = 0.0F;
     }
 
     /** Null until the server has told us. */
@@ -48,6 +52,20 @@ public final class ClientState {
     /** A creative hivemind who has swapped to the normal inventory: plays like normal creative for now. */
     public static boolean normalInventoryMode() {
         return stage == HivemindStage.HIVE && normalInventory;
+    }
+
+    /** The Hive Heart's health, as last told by the server, for the health bar. */
+    public static void updateHeartHealth(float health, float maxHealth) {
+        heartHealth = health;
+        heartMaxHealth = maxHealth;
+    }
+
+    public static float heartHealth() {
+        return heartHealth;
+    }
+
+    public static float heartMaxHealth() {
+        return heartMaxHealth;
     }
 
     public static boolean canSwapInventory() {

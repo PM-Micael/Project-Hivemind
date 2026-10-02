@@ -45,6 +45,10 @@ public final class ClientPayloads {
         }
     }
 
+    public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
+        ClientState.updateHeartHealth(payload.health(), payload.maxHealth());
+    }
+
     public static void onSyncEyes(SyncEyesPayload payload, IPayloadContext context) {
         ClientSight.updateEyes(payload.eyes());
     }
