@@ -23,9 +23,10 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
      * The quest that levels a hive up. Each part is a total the hive has to reach, and a part that is 0 is not asked:
      * logs collected, chunks explored by its units, mobs its units killed, and ticks the hive has been alive for
      * (24000 is a whole day and night), the height one of its units has to get down to ({@code reachY}, null for none), and
-     * coal and raw iron collected.
+     * coal and raw iron collected, whether the Nether has been entered (by a unit or the camera), and blaze rods collected.
      */
-    public record Quest(int logs, int chunks, int kills, int survivalTicks, @Nullable Integer reachY, int coal, int rawIron) {
+    public record Quest(int logs, int chunks, int kills, int survivalTicks, @Nullable Integer reachY, int coal, int rawIron,
+                        boolean nether, int blazeRods) {
     }
 
     public int cap(UnitKind kind) {

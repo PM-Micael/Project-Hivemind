@@ -14,6 +14,7 @@ import javax.annotation.Nullable;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveFood;
+import com.projecthivemind.HiveBrewing;
 import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
@@ -77,7 +78,10 @@ public class HiveHeart extends Mob {
     private int ironProgress;
     private int lowestY = Integer.MAX_VALUE;
     /** What the storage held of logs, coal and raw iron at the last quest check (-1 before the first), to see how much came in since. Not saved. */
-    private final int[] lastHeld = {-1, -1, -1};
+    private final int[] lastHeld = {-1, -1, -1, -1};
+    /** Quest progress: blaze rods collected, and whether the Nether has been entered. */
+    private int blazeProgress;
+    private boolean netherEntered;
     /** Quest progress: mobs the hive's units have killed. */
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
@@ -91,6 +95,8 @@ public class HiveHeart extends Mob {
     private int syncedFood = -1;
     /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
+    /** The brewing stand built into the Heart from level 5. */
+    private final HiveBrewing brewing = new HiveBrewing();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
     private final SimpleContainer scoutHand = new SimpleContainer(1);
     /** The food the hive eats from: put in the hive menu, under the armor slots. Only food goes in. */
@@ -374,6 +380,9 @@ public class HiveHeart extends Mob {
         if (hiveLevel >= HiveLevels.FURNACE_LEVEL && this.level() instanceof ServerLevel serverLevel) {
             furnace.tick(serverLevel);
         }
+        if (hiveLevel >= HiveLevels.BREWING_LEVEL && this.level() instanceof ServerLevel serverLevel) {
+            brewing.tick(serverLevel);
+        }
         if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
             HivemindManager.tickQuests(this);
         }
@@ -409,12 +418,28 @@ public class HiveHeart extends Mob {
     /**
      * Quest progress for something collected: whatever the storage holds now beyond what it held at the last check counts as collected,
      * up to {@code limit}. What is taken out (melted, crafted, used) is never taken off, and putting it back counts again. {@code slot}
-     * 0 is logs, 1 coal, 2 raw iron; returns the new progress.
+     * 0 is logs, 1 coal, 2 raw iron, 3 blaze rods; returns the new progress.
      */
     public int collected(int slot, int heldNow, int progress, int limit) {
         int gained = lastHeld[slot] < 0 ? 0 : Math.max(0, heldNow - lastHeld[slot]);
         lastHeld[slot] = heldNow;
         return Math.min(limit, progress + gained);
+    }
+
+    public int blazeProgress() {
+        return blazeProgress;
+    }
+
+    public void setBlazeProgress(int blazeRods) {
+        this.blazeProgress = blazeRods;
+    }
+
+    public boolean netherEntered() {
+        return netherEntered;
+    }
+
+    public void setNetherEntered(boolean entered) {
+        this.netherEntered = entered;
     }
 
     public int coalProgress() {
@@ -525,6 +550,10 @@ public class HiveHeart extends Mob {
 
     public HiveFurnace furnace() {
         return furnace;
+    }
+
+    public HiveBrewing brewing() {
+        return brewing;
     }
 
     public Set<Long> exploredChunks() {
@@ -641,6 +670,8 @@ public class HiveHeart extends Mob {
         tag.putInt(LEVEL_TAG, hiveLevel);
         tag.putInt(LOGS_TAG, logsProgress);
         tag.putInt("QuestCoal", coalProgress);
+        tag.putInt("QuestBlaze", blazeProgress);
+        tag.putBoolean("QuestNether", netherEntered);
         tag.put("Teams", teams.save());
         tag.put("SlotConfigs", slotConfigs.save());
         tag.putInt("QuestIron", ironProgress);
@@ -648,6 +679,7 @@ public class HiveHeart extends Mob {
         tag.putInt(KILLS_TAG, kills);
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
+        tag.put("HiveBrewing", brewing.save(registryAccess()));
         food.save(tag);
         if (activeBuild != null) {
             tag.put("TowerBuild", activeBuild.save());
@@ -674,6 +706,8 @@ public class HiveHeart extends Mob {
         }
         logsProgress = tag.getInt(LOGS_TAG);
         coalProgress = tag.getInt("QuestCoal");
+        blazeProgress = tag.getInt("QuestBlaze");
+        netherEntered = tag.getBoolean("QuestNether");
         teams.load(tag.getList("Teams", net.minecraft.nbt.Tag.TAG_COMPOUND));
         slotConfigs.load(tag.getList("SlotConfigs", net.minecraft.nbt.Tag.TAG_COMPOUND));
         ironProgress = tag.getInt("QuestIron");
@@ -689,6 +723,9 @@ public class HiveHeart extends Mob {
         scoutHand.clearContent();
         if (tag.contains(SCOUT_HAND_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(SCOUT_HAND_TAG), scoutHand.getItems(), registryAccess());
+        }
+        if (tag.contains("HiveBrewing")) {
+            brewing.load(tag.getCompound("HiveBrewing"), registryAccess());
         }
         if (tag.contains(FURNACE_TAG)) {
             furnace.load(tag.getCompound(FURNACE_TAG), registryAccess());

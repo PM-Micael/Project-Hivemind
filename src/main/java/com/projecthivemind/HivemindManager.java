@@ -286,6 +286,7 @@ public final class HivemindManager {
         Containers.dropContents(level, center, heart.getArmorGear());
         Containers.dropContents(level, center, heart.getToolGear());
         Containers.dropContents(level, center, heart.furnace().items());
+        Containers.dropContents(level, center, heart.brewing().items());
         Containers.dropContents(level, center, heart.scoutHand());
         Containers.dropContents(level, center, heart.foodSlot());
         setHeartChunksForced(level, center, false);
@@ -592,6 +593,7 @@ public final class HivemindManager {
             buf.writeVarInt(heart.getStorage().getContainerSize());
             // The built-in furnace comes with level 3.
             buf.writeBoolean(heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL);
+            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.BREWING_LEVEL);
         });
         sendUnits(player);
     }
@@ -1018,12 +1020,15 @@ public final class HivemindManager {
         int logs = 0;
         int coal = 0;
         int rawIron = 0;
+        int blaze = 0;
         for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
             ItemStack stack = heart.getStorage().getItem(i);
             if (stack.is(net.minecraft.world.item.Items.COAL)) {
                 coal += stack.getCount();
             } else if (stack.is(net.minecraft.world.item.Items.RAW_IRON)) {
                 rawIron += stack.getCount();
+            } else if (stack.is(net.minecraft.world.item.Items.BLAZE_ROD)) {
+                blaze += stack.getCount();
             }
             if (stack.is(ItemTags.LOGS)) {
                 logs += stack.getCount();
@@ -1033,6 +1038,15 @@ public final class HivemindManager {
         heart.setLogsProgress(heart.collected(0, logs, heart.logsProgress(), quest.logs()));
         heart.setCoalProgress(heart.collected(1, coal, heart.coalProgress(), quest.coal()));
         heart.setIronProgress(heart.collected(2, rawIron, heart.ironProgress(), quest.rawIron()));
+        heart.setBlazeProgress(heart.collected(3, blaze, heart.blazeProgress(), quest.blazeRods()));
+        // The Nether counts once the camera or any unit of the hive has been in it.
+        if (quest.nether() && !heart.netherEntered()) {
+            boolean inNether = owner.serverLevel().dimension() == net.minecraft.world.level.Level.NETHER;
+            for (UUID id : get(owner).allUnits()) {
+                inNether |= findUnit(owner, id) instanceof Mob unit && unit.level().dimension() == net.minecraft.world.level.Level.NETHER;
+            }
+            heart.setNetherEntered(inNether);
+        }
 
         AABB area = HiveArea.areaBox(level, heart);
         int areaMinX = Mth.floor(area.minX) >> 4;
@@ -1053,6 +1067,7 @@ public final class HivemindManager {
         if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()
                 && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()
                 && heart.coalProgress() >= quest.coal() && heart.ironProgress() >= quest.rawIron()
+                && heart.blazeProgress() >= quest.blazeRods() && (!quest.nether() || heart.netherEntered())
                 && (quest.reachY() == null || heart.lowestY() <= quest.reachY())) {
             levelUp(heart, owner);
         }

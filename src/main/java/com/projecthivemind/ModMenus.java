@@ -15,7 +15,7 @@ public final class ModMenus {
             DeferredRegister.create(Registries.MENU, ProjectHivemind.MODID);
 
     public static final DeferredHolder<MenuType<?>, MenuType<HiveMenu>> HIVE = MENU_TYPES.register("hive",
-            () -> IMenuTypeExtension.create((windowId, inventory, extraData) -> new HiveMenu(windowId, inventory, extraData.readVarInt(), extraData.readBoolean())));
+            () -> IMenuTypeExtension.create((windowId, inventory, extraData) -> new HiveMenu(windowId, inventory, extraData.readVarInt(), extraData.readBoolean(), extraData.readBoolean())));
 
     /** A container opened through a scout. The opening data is how many slots the container and the hive storage have. */
     public static final DeferredHolder<MenuType<?>, MenuType<ScoutContainerMenu>> SCOUT_CONTAINER = MENU_TYPES.register("scout_container",

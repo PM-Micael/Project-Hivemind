@@ -113,6 +113,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button teamTab;
     /** Which workstation shows on the right of the Hive tab: the crafting grid, or the furnace (from level 3). */
     private boolean furnaceShown;
+    private boolean brewingShown;
+    private SeedButton brewingButton;
     private SeedButton craftingButton;
     private SeedButton furnaceButton;
     /** The search box over the hive storage: only what has this text in its name is shown. */
@@ -225,13 +227,17 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // The workstation on the right: the crafting grid, or (from level 3) the furnace. The buttons sit beside the storage's scrollbar.
         int stationX = leftPos + HiveMenu.STORAGE_X + 9 * 18 + 10;
         craftingButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.CRAFTING_TABLE), button -> chooseWorkstation(false)));
+                () -> new ItemStack(net.minecraft.world.item.Items.CRAFTING_TABLE), button -> chooseWorkstation(0)));
         craftingButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.crafting")));
         furnaceButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 24, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.FURNACE), button -> chooseWorkstation(true)));
+                () -> new ItemStack(net.minecraft.world.item.Items.FURNACE), button -> chooseWorkstation(1)));
         furnaceButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.furnace")));
+        brewingButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 48, 20, 20,
+                () -> new ItemStack(net.minecraft.world.item.Items.BREWING_STAND), button -> chooseWorkstation(2)));
+        brewingButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.brewing")));
         craftingButton.visible = false;
         furnaceButton.visible = false;
+        brewingButton.visible = false;
 
         // Search the storage: what is typed here filters the storage grid to the items whose name has it in it.
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
@@ -323,19 +329,23 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
      */
     private void applyMenuGroups(Tab forTab) {
         boolean furnace = furnaceShown && menu.hasFurnace();
+        boolean brewing = brewingShown && menu.hasBrewing();
         menu.visibleGroups = forTab == Tab.HIVE
-                ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | (furnace ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
+                ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | (brewing ? HiveMenu.GROUP_BREWING : furnace ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
         if (craftingButton != null) {
             boolean offered = forTab == Tab.HIVE && menu.hasFurnace();
             craftingButton.visible = offered;
             furnaceButton.visible = offered;
-            craftingButton.active = furnace;
+            craftingButton.active = furnace || brewing;
             furnaceButton.active = !furnace;
+            brewingButton.visible = forTab == Tab.HIVE && menu.hasBrewing();
+            brewingButton.active = !brewing;
         }
     }
 
-    private void chooseWorkstation(boolean furnace) {
-        furnaceShown = furnace;
+    private void chooseWorkstation(int station) {
+        furnaceShown = station == 1;
+        brewingShown = station == 2;
         applyMenuGroups(tab);
         PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
     }
@@ -1001,7 +1011,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
 
         // The furnace's flame (burning fuel left) between its input and fuel slots, and its arrow (how far the item has cooked).
-        if (tab == Tab.HIVE && furnaceShown && menu.hasFurnace()) {
+        if (tab == Tab.HIVE && furnaceShown && !brewingShown && menu.hasFurnace()) {
             int flameX = leftPos + HiveMenu.FURNACE_INPUT_X + 4;
             int flameY = topPos + (HiveMenu.FURNACE_INPUT_Y + HiveMenu.FURNACE_FUEL_Y) / 2 + 1;
             graphics.fill(flameX, flameY, flameX + 8, flameY + 14, 0xFF3A2A18);
@@ -1011,6 +1021,21 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             int arrowY = topPos + HiveMenu.FURNACE_INPUT_Y + 6;
             graphics.fill(arrowX, arrowY, arrowX + 24, arrowY + 6, 0xFF3A2A18);
             graphics.fill(arrowX, arrowY, arrowX + Math.round(24 * menu.furnaceProgress()), arrowY + 6, 0xFFE0E0E0);
+        }
+
+        // The brewing stand's progress: the bubbling bar under the ingredient, and the blaze powder's charges beside the fuel.
+        if (tab == Tab.HIVE && brewingShown && menu.hasBrewing()) {
+            int barX = leftPos + HiveMenu.BREW_INGREDIENT_X + 6;
+            int barY = topPos + HiveMenu.BREW_INGREDIENT_Y + 22;
+            graphics.fill(barX, barY, barX + 4, barY + 28, 0xFF3A2A18);
+            int done = Math.round(28 * (1.0F - menu.brewTime() / (float) com.projecthivemind.HiveBrewing.BREW_TICKS));
+            if (menu.brewTime() > 0) {
+                graphics.fill(barX, barY + 28 - done, barX + 4, barY + 28, 0xFF6FCBE8);
+            }
+            int fuelX = leftPos + HiveMenu.BREW_FUEL_X;
+            int fuelY = topPos + HiveMenu.BREW_FUEL_Y + 20;
+            graphics.fill(fuelX, fuelY, fuelX + 18, fuelY + 4, 0xFF3A2A18);
+            graphics.fill(fuelX, fuelY, fuelX + Math.round(18 * menu.brewFuel() / (float) com.projecthivemind.HiveBrewing.FUEL_CHARGES), fuelY + 4, 0xFFE8741A);
         }
 
         if (tab == Tab.HIVE) {
@@ -1236,6 +1261,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (quest.rawIron() > 0) {
             y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.iron", quest.rawIron()), menu.questIron(), quest.rawIron(), 1, "");
         }
+        if (quest.nether()) {
+            y = questLineText(graphics, y, Component.translatable("screen.projecthivemind.quest.nether"), menu.questNether(), menu.questNether() ? "1 / 1" : "0 / 1");
+        }
+        if (quest.blazeRods() > 0) {
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.blaze", quest.blazeRods()), menu.questBlaze(), quest.blazeRods(), 1, "");
+        }
 
         y += 8;
         graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.unlocks", next.level()), QUEST_X, y, 0xFFDD55, false);
@@ -1246,6 +1277,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_cap",
                         Component.translatable("command.projecthivemind." + kind.name().toLowerCase(Locale.ROOT) + "s"), next.cap(kind)));
             }
+        }
+        if (next.level() == HiveLevels.FURNACE_LEVEL) {
+            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_furnace"));
+        }
+        if (next.level() == HiveLevels.BREWING_LEVEL) {
+            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_brewing"));
         }
         if (next.maxHealth() != current.maxHealth()) {
             y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_health", hearts((int) next.maxHealth())));
@@ -1303,7 +1340,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.scout_hand"), HiveMenu.STORAGE_X + 22,
                 HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
         // The workstation on the right is named for the open tab.
-        String workstation = furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace" : "screen.projecthivemind.hive.crafting";
+        String workstation = brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
+                : furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace" : "screen.projecthivemind.hive.crafting";
         graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
                 HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);

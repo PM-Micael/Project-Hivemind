@@ -6,6 +6,7 @@ import javax.annotation.Nullable;
 
 import com.mojang.datafixers.util.Pair;
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveBrewing;
 import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
@@ -57,6 +58,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int toolsEnd;
     private final int furnaceStart;
     private final int furnaceEnd;
+    private final int brewingStart;
+    private final int brewingEnd;
+    private final boolean hasBrewing;
     private final int handIndex;
     private final int foodIndex;
     private final boolean hasFurnace;
@@ -70,6 +74,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_CRAFT = 2;
     public static final int GROUP_FURNACE = 4;
     public static final int GROUP_GEAR = 8;
+    public static final int GROUP_BREWING = 16;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -114,6 +119,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int FURNACE_FUEL_Y = 122;
     public static final int FURNACE_OUTPUT_X = 300;
     public static final int FURNACE_OUTPUT_Y = 104;
+    /** The built-in brewing stand (level 5): fuel and ingredient on top, the three bottles below. It takes the crafting grid's place too. */
+    public static final int BREW_FUEL_X = 246;
+    public static final int BREW_FUEL_Y = 86;
+    public static final int BREW_INGREDIENT_X = 282;
+    public static final int BREW_INGREDIENT_Y = 86;
+    public static final int BREW_BOTTLE_Y = 136;
+    public static final int BREW_BOTTLE_X = 246;
     public static final int GRID_X = 246;
     public static final int GRID_Y = 82;
     public static final int RESULT_X = 265;
@@ -150,7 +162,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_QUEST_IRON = DATA_QUEST_COAL + 1;
     private static final int DATA_QUEST_DEPTH = DATA_QUEST_COAL + 2;
     private static final int DEPTH_OFFSET = 1000;
-    public static final int DATA_COUNT = DATA_QUEST_DEPTH + 1;
+    private static final int DATA_QUEST_BLAZE = DATA_QUEST_COAL + 3;
+    private static final int DATA_QUEST_NETHER = DATA_QUEST_COAL + 4;
+    private static final int DATA_BREW_TIME = DATA_QUEST_COAL + 5;
+    private static final int DATA_BREW_FUEL = DATA_QUEST_COAL + 6;
+    public static final int DATA_COUNT = DATA_BREW_FUEL + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -180,15 +196,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public int visibleGroups = GROUP_STORAGE | GROUP_GEAR | GROUP_CRAFT;
 
     /** Client constructor: the real contents arrive from the server. */
-    public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
+    public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace, boolean hasBrewing) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, new SimpleContainerData(DATA_COUNT),
+                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, hasBrewing, new SimpleContainerData(DATA_COUNT),
                 new int[] {-1, -1}, null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, ContainerData data, int[] view,
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer brewing, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, boolean hasBrewing, ContainerData data, int[] view,
                      @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
@@ -202,7 +218,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.hasFurnace = hasFurnace;
         this.furnaceStart = toolsEnd;
         this.furnaceEnd = furnaceStart + (hasFurnace ? 3 : 0);
-        this.handIndex = furnaceEnd;
+        this.hasBrewing = hasBrewing;
+        this.brewingStart = furnaceEnd;
+        this.brewingEnd = brewingStart + (hasBrewing ? 5 : 0);
+        this.handIndex = brewingEnd;
         this.foodIndex = handIndex + 1;
         this.storage = storage;
         this.data = data;
@@ -234,6 +253,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addSlot(new HiveSlot(furnace, HiveFurnace.INPUT, FURNACE_INPUT_X, FURNACE_INPUT_Y, GROUP_FURNACE));
             this.addSlot(new FuelSlot(furnace, HiveFurnace.FUEL, FURNACE_FUEL_X, FURNACE_FUEL_Y));
             this.addSlot(new OutputSlot(furnace, HiveFurnace.OUTPUT, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
+        }
+        if (hasBrewing) {
+            for (int i = 0; i < HiveBrewing.BOTTLES; i++) {
+                this.addSlot(new BottleSlot(brewing, i, BREW_BOTTLE_X + i * 18 + (i == 1 ? 0 : 0), BREW_BOTTLE_Y + (i == 1 ? 8 : 0)));
+            }
+            this.addSlot(new BrewIngredientSlot(brewing, HiveBrewing.INGREDIENT, BREW_INGREDIENT_X, BREW_INGREDIENT_Y));
+            this.addSlot(new BrewFuelSlot(brewing, HiveBrewing.FUEL, BREW_FUEL_X, BREW_FUEL_Y));
         }
         // The scout's hand: under the scout's unit counter. What is put here is what the scout holds.
         this.addSlot(new HiveSlot(scoutHand, 0, STORAGE_X, scoutHandY(scroll.visibleRows()), GROUP_GEAR));
@@ -304,6 +330,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_QUEST_IRON) {
                     return heart.ironProgress();
                 }
+                if (index == DATA_BREW_TIME) {
+                    return heart.brewing().brewTime();
+                }
+                if (index == DATA_BREW_FUEL) {
+                    return heart.brewing().fuel();
+                }
+                if (index == DATA_QUEST_BLAZE) {
+                    return heart.blazeProgress();
+                }
+                if (index == DATA_QUEST_NETHER) {
+                    return heart.netherEntered() ? 1 : 0;
+                }
                 if (index == DATA_QUEST_DEPTH) {
                     return Math.min(heart.lowestY(), 30000) + DEPTH_OFFSET;
                 }
@@ -326,7 +364,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, view, heart);
+                heart.furnace().items(), heart.brewing().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL,
+                heart.hiveLevel() >= HiveLevels.BREWING_LEVEL, data, view, heart);
     }
 
     // ---- values for the screen ----
@@ -413,6 +452,20 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return total == 0 ? 0.0F : Math.min(1.0F, data.get(DATA_FURNACE_COOK) / (float) total);
     }
 
+    /** Ticks left of the brew in progress (0 when none), out of {@link HiveBrewing#BREW_TICKS}. */
+    public int brewTime() {
+        return data.get(DATA_BREW_TIME);
+    }
+
+    /** Brews left in the blaze powder that is burning. */
+    public int brewFuel() {
+        return data.get(DATA_BREW_FUEL);
+    }
+
+    public boolean hasBrewing() {
+        return hasBrewing;
+    }
+
     public boolean hasFurnace() {
         return hasFurnace;
     }
@@ -437,6 +490,14 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     public int questIron() {
         return data.get(DATA_QUEST_IRON);
+    }
+
+    public int questBlaze() {
+        return data.get(DATA_QUEST_BLAZE);
+    }
+
+    public boolean questNether() {
+        return data.get(DATA_QUEST_NETHER) != 0;
     }
 
     /** The lowest block height a unit has reached, or a very large number if none counted yet. */
@@ -515,6 +576,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         } else if (!(shown(armorStart, toolsEnd) && this.moveItemStackTo(stack, armorStart, toolsEnd, false))
                 && !(shown(gridStart, gridEnd) && this.moveItemStackTo(stack, gridStart, gridEnd, false))
                 && !(shown(furnaceStart, furnaceEnd) && this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false))
+                && !(shown(brewingStart, brewingEnd) && this.moveItemStackTo(stack, brewingStart, brewingEnd, false))
                 && !(shown(foodIndex, foodIndex + 1) && this.moveItemStackTo(stack, foodIndex, foodIndex + 1, false))) {
             // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace,
             // but only those the open tab is showing.
@@ -678,6 +740,47 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public boolean mayPlace(ItemStack stack) {
             return false;
+        }
+    }
+
+    /** A brewing stand's bottle slot: an empty bottle or a potion, one at a time. */
+    private class BottleSlot extends HiveSlot {
+        BottleSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_BREWING);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return !hasItem() && (player.level().potionBrewing().isInput(stack) || stack.is(net.minecraft.world.item.Items.GLASS_BOTTLE));
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
+        }
+    }
+
+    /** The brewing stand's ingredient slot: only what some recipe uses. */
+    private class BrewIngredientSlot extends HiveSlot {
+        BrewIngredientSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_BREWING);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return player.level().potionBrewing().isIngredient(stack);
+        }
+    }
+
+    /** The brewing stand's fuel slot: blaze powder. */
+    private class BrewFuelSlot extends HiveSlot {
+        BrewFuelSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_BREWING);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return stack.is(net.minecraft.world.item.Items.BLAZE_POWDER);
         }
     }
 
