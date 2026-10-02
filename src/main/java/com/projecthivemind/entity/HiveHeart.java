@@ -18,6 +18,7 @@ import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HiveSight;
+import com.projecthivemind.build.TowerBuild;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
 import com.projecthivemind.ScoutBehavior;
@@ -79,6 +80,9 @@ public class HiveHeart extends Mob {
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
     private int ageTicks;
+    /** The tower the hive's workers are building, if any. Not saved: it is ordered again after a restart. */
+    @Nullable
+    private TowerBuild activeBuild;
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
     /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
@@ -395,6 +399,15 @@ public class HiveHeart extends Mob {
 
     public void setSyncedHealth(float health) {
         this.syncedHealth = health;
+    }
+
+    @Nullable
+    public TowerBuild activeBuild() {
+        return activeBuild;
+    }
+
+    public void setActiveBuild(@Nullable TowerBuild build) {
+        this.activeBuild = build;
     }
 
     public int ageTicks() {

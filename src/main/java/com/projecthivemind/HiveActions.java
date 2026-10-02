@@ -3,15 +3,23 @@ package com.projecthivemind;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
 import com.mojang.authlib.GameProfile;
+import com.projecthivemind.build.TowerBuild;
+import com.projecthivemind.build.TowerDirection;
+import com.projecthivemind.build.TowerMaterial;
+import com.projecthivemind.build.TowerPlan;
+import com.projecthivemind.build.TowerSet;
+import com.projecthivemind.build.TowerShape;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
+import com.projecthivemind.network.BuildTowerPayload;
 import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
@@ -142,6 +150,72 @@ public final class HiveActions {
         }
     }
 
+    // ---- building a tower ----
+
+    /**
+     * Two or more workers build a tower on the block. The order is checked here: enough workers, a real height, a site
+     * that is loaded, and some of what the tower is made of in the hive. Ordering again replaces the tower in progress.
+     */
+    public static void buildTower(ServerPlayer player, BuildTowerPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        int height = request.height();
+        if (heart == null || java.util.Arrays.stream(TowerPlan.HEIGHTS).noneMatch(allowed -> allowed == height)) {
+            return;
+        }
+        BlockPos clicked = request.pos();
+        if (!level.isInWorldBounds(clicked) || (request.direction() == TowerDirection.UP.ordinal() && clicked.getY() + height + 2 >= level.getMaxBuildHeight())) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
+            return;
+        }
+        // The whole 7 by 7 has to be loaded: the workers would otherwise build into nothing.
+        for (int dx = -3; dx <= 3; dx += 6) {
+            for (int dz = -3; dz <= 3; dz += 6) {
+                if (!level.isLoaded(clicked.offset(dx, 0, dz))) {
+                    player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
+                    return;
+                }
+            }
+        }
+
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        TowerShape shape = TowerShape.byIndex(request.shape());
+        if (workers.size() < shape.minWorkers()) {
+            player.displayClientMessage(Component.translatable(shape.minWorkers() > 1 ? "message.projecthivemind.tower_needs_workers" : "message.projecthivemind.no_workers"), true);
+            return;
+        }
+        TowerDirection direction = TowerDirection.byIndex(request.direction());
+        // A shaft must have room below it, above the bottom of the world.
+        if (direction == TowerDirection.DOWN && clicked.getY() - height - 2 <= level.getMinBuildHeight()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
+            return;
+        }
+        // One worker to a staircase and no more: of the workers selected, the ones nearest the site take the job, and
+        // the rest are left alone to do whatever they were doing.
+        Vec3 site = Vec3.atCenterOf(clicked);
+        workers = workers.stream().sorted(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(site)))
+                .limit(shape.maxWorkers()).toList();
+        TowerPlan plan = new TowerPlan(clicked, shape, direction, height, request.walls());
+        // Only the bits of the materials that exist count; with none left there is nothing to build from.
+        int materials = request.materials() & ((1 << TowerMaterial.values().length) - 1);
+        Optional<TowerSet> set = materials == 0 ? Optional.empty()
+                : TowerSet.choose(materials, heart.getStorage(), plan.blockCount(), plan.stairCount());
+        if (set.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.tower_no_material"), true);
+            return;
+        }
+
+        heart.setActiveBuild(new TowerBuild(plan, set.get()));
+        for (Mob worker : workers) {
+            worker.getNavigation().stop();
+            ((HiveUnit) worker).setAction(new UnitAction(UnitAction.Kind.BUILD, clicked));
+        }
+        syncActions(player, heart);
+    }
+
     /** Stop every one of the player's units that is doing something to this block, selected or not. */
     private static void cancelBlock(ServerPlayer player, ServerLevel level, HiveHeart heart, BlockPos pos) {
         for (UUID id : HivemindManager.get(player).allUnits()) {
@@ -152,6 +226,9 @@ public final class HiveActions {
             }
         }
         heart.clearDigProgress(pos);
+        if (heart.activeBuild() != null && heart.activeBuild().plan().base().equals(pos)) {
+            heart.setActiveBuild(null);
+        }
     }
 
     // ---- orders about a mob ----

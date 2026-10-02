@@ -82,6 +82,12 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onBuildTower(BuildTowerPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.buildTower(player, payload);
+        }
+    }
+
     public static void onSelection(SelectionPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && payload.unitIds().size() <= BlockActionPayload.MAX_UNITS) {
             HivemindManager.setSelection(player, payload.unitIds());

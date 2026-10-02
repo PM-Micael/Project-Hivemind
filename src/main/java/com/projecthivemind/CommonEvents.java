@@ -25,6 +25,7 @@ import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
+import com.projecthivemind.network.BuildTowerPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.ServerPayloads;
 import com.projecthivemind.network.SetMenuViewPayload;
@@ -79,6 +80,7 @@ public final class CommonEvents {
         registrar.playToServer(SetCollectorBehaviorPayload.TYPE, SetCollectorBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetCollectorBehavior);
         registrar.playToServer(SetWorkerBehaviorPayload.TYPE, SetWorkerBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetWorkerBehavior);
         registrar.playToServer(SetMenuViewPayload.TYPE, SetMenuViewPayload.STREAM_CODEC, ServerPayloads::onSetMenuView);
+        registrar.playToServer(BuildTowerPayload.TYPE, BuildTowerPayload.STREAM_CODEC, ServerPayloads::onBuildTower);
         registrar.playToServer(ScrollStoragePayload.TYPE, ScrollStoragePayload.STREAM_CODEC, ServerPayloads::onScrollStorage);
         registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
         registrar.playToClient(TradeOffersPayload.TYPE, TradeOffersPayload.STREAM_CODEC, ClientPayloads::onTradeOffers);

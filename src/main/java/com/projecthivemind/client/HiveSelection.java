@@ -299,6 +299,12 @@ public final class HiveSelection {
             // A scout opens containers (chests, furnaces, hoppers...) for the player.
             boolean scoutCanOpen = selectionHas(minecraft, selected, UnitKind.SCOUT)
                     && minecraft.level.getBlockEntity(pos) instanceof Container;
+            // Workers can build a tower on the block: one for the single staircase, two or more for the double.
+            List<Integer> builders = unitsOfKind(minecraft, selected, UnitKind.WORKER);
+            if (!builders.isEmpty()) {
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_tower"),
+                        () -> minecraft.setScreen(new BuildTowerScreen(builders, pos))));
+            }
             if (hasWorker || scoutCanOpen) {
                 options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));
             }

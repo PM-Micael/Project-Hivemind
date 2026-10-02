@@ -22,7 +22,9 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Fighting a mob until it dies or the order is cancelled (soldiers only). */
         ATTACK,
         /** Walking up to a villager to trade with it through a hive screen (scouts only). */
-        TRADE
+        TRADE,
+        /** Building a tower with other workers: {@code pos} is the block it stands on (workers only). */
+        BUILD
     }
 
     /** An action on a block. */

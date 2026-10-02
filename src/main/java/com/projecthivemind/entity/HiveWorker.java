@@ -54,6 +54,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new InteractBlockGoal(this));
+        this.goalSelector.addGoal(1, new WorkerBuildGoal(this));
     }
 
     public void setHeartId(@Nullable UUID heartId) {
