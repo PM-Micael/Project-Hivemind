@@ -139,7 +139,7 @@ public class CollectorPlantGoal extends Goal {
             return false;
         }
         nextCheckTick = collector.tickCount + CHECK_INTERVAL;
-        Plan next = nextPlan(collector.findHeart());
+        Plan next = nextPlan(collector.findLocalHeart());
         if (next == null) {
             return false;
         }
@@ -149,7 +149,7 @@ public class CollectorPlantGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return !finished && tripTicks <= MAX_TRIP_TICKS && plan.equals(nextPlan(collector.findHeart()));
+        return !finished && tripTicks <= MAX_TRIP_TICKS && plan.equals(nextPlan(collector.findLocalHeart()));
     }
 
     @Override
@@ -177,7 +177,7 @@ public class CollectorPlantGoal extends Goal {
     @Override
     public void tick() {
         tripTicks++;
-        HiveHeart heart = collector.findHeart();
+        HiveHeart heart = collector.findLocalHeart();
         if (heart == null || !(collector.level() instanceof ServerLevel level)) {
             return;
         }

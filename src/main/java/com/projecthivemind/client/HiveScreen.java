@@ -495,7 +495,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 // ...and the camera goes to it, 3 blocks away, looking straight at it.
                 PacketDistributor.sendToServer(new FocusUnitPayload(id));
             });
-            button.setTooltip(Tooltip.create(name));
+            SyncUnitsPayload.Entry shown = ClientUnits.entry(id);
+            button.setTooltip(Tooltip.create(shown != null && shown.away()
+                    ? name.copy().append(Component.translatable("screen.projecthivemind.unit.away")) : name));
             unitButtons.add(addRenderableWidget(button));
         }
         unitListScroll = Math.max(0, Math.min(unitListScroll, Math.max(0, ids.size() - unitListVisible())));

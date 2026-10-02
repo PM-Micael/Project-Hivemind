@@ -38,7 +38,7 @@ public class StayInsideGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = unit.findHeart();
+        HiveHeart heart = unit.findLocalHeart();
         if (heart == null || !enabled.getAsBoolean() || heart.isUnitSelected(mob.getId())) {
             return false;
         }
@@ -66,7 +66,7 @@ public class StayInsideGoal extends Goal {
 
     @Override
     public void tick() {
-        HiveHeart heart = unit.findHeart();
+        HiveHeart heart = unit.findLocalHeart();
         if (heart == null) {
             return;
         }

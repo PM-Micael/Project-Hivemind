@@ -91,7 +91,7 @@ public final class HiveActions {
      */
     public static void returnToBase(ServerPlayer player, int unitId) {
         HiveHeart heart = HivemindManager.findHeart(player);
-        if (heart == null || !(player.serverLevel().getEntity(unitId) instanceof Mob mob) || !mob.isAlive()
+        if (heart == null || !(HivemindManager.findById(player, unitId) instanceof Mob mob) || !mob.isAlive()
                 || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId())) {
             return;
         }

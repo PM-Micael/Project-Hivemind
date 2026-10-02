@@ -109,6 +109,16 @@ public class HiveHeart extends Mob {
     private List<HiveSight.Eye> sightEyes = List.of();
     /** The mobs the owner's client was last told are in sight. Not saved. */
     private Set<Integer> syncedSight = Set.of();
+    /** The eyes last sent to the owner, which are those of the camera's dimension. */
+    private List<HiveSight.Eye> syncedEyes = List.of();
+
+    public List<HiveSight.Eye> syncedEyes() {
+        return syncedEyes;
+    }
+
+    public void setSyncedEyes(List<HiveSight.Eye> eyes) {
+        this.syncedEyes = eyes;
+    }
 
 
 
@@ -276,11 +286,32 @@ public class HiveHeart extends Mob {
     /** The loaded Hive Heart with this id, or null. */
     @Nullable
     public static HiveHeart find(Level level, @Nullable UUID id) {
-        if (id != null && level instanceof ServerLevel serverLevel
-                && serverLevel.getEntity(id) instanceof HiveHeart heart && heart.isAlive()) {
-            return heart;
+        if (id != null && level instanceof ServerLevel serverLevel) {
+            HiveHeart here = findIn(serverLevel, id);
+            if (here != null) {
+                return here;
+            }
+            for (ServerLevel other : serverLevel.getServer().getAllLevels()) {
+                if (other != serverLevel && findIn(other, id) instanceof HiveHeart heart) {
+                    return heart;
+                }
+            }
         }
         return null;
+    }
+
+    @Nullable
+    private static HiveHeart findIn(ServerLevel level, UUID id) {
+        return level.getEntity(id) instanceof HiveHeart heart && heart.isAlive() ? heart : null;
+    }
+
+    @Override
+    public void remove(RemovalReason reason) {
+        // A destroyed Heart no longer holds its chunks loaded (one that is merely unloading keeps them).
+        if (reason.shouldDestroy()) {
+            HivemindManager.holdHiveChunks(this, false);
+        }
+        super.remove(reason);
     }
 
     /** 10 seconds. */
@@ -318,6 +349,7 @@ public class HiveHeart extends Mob {
         if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
             HivemindManager.tickSight(this);
             HivemindManager.tickHealthSync(this);
+            HivemindManager.tickKeepLoaded(this);
         }
         if (this.tickCount % 5 == 0) {
             HivemindManager.tickGearSync(this);

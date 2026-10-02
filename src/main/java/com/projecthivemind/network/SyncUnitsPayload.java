@@ -51,6 +51,8 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
         public static final int PAUSED = 1;
         public static final int RESUME = 2;
         public static final int TEAM = 4;
+        /** The unit is in another dimension than the camera: it cannot be seen or clicked in the world, only through its page. */
+        public static final int AWAY = 8;
 
         public static int flags(boolean paused, boolean resume, boolean team) {
             return (paused ? PAUSED : 0) | (resume ? RESUME : 0) | (team ? TEAM : 0);
@@ -67,6 +69,10 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
 
         public boolean paused() {
             return (flags & PAUSED) != 0;
+        }
+
+        public boolean away() {
+            return (flags & AWAY) != 0;
         }
 
         public boolean team() {

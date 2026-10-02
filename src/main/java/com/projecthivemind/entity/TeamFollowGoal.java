@@ -48,14 +48,14 @@ public class TeamFollowGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = unit.findHeart();
+        HiveHeart heart = unit.findLocalHeart();
         leader = heart == null ? null : heart.teamLeader(mob);
         return heart != null && leader != null && separation(mob, leader) > ringRadius(heart);
     }
 
     @Override
     public boolean canContinueToUse() {
-        HiveHeart heart = unit.findHeart();
+        HiveHeart heart = unit.findLocalHeart();
         leader = heart == null ? null : heart.teamLeader(mob);
         return heart != null && leader != null && separation(mob, leader) > Math.max(1.0D, ringRadius(heart) - MARGIN);
     }

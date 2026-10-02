@@ -60,7 +60,7 @@ public class WorkerFillGoal extends Goal {
     /** Set to, with a block chosen, with nothing else to do, and not selected. */
     @Nullable
     private HiveHeart allowedHeart() {
-        HiveHeart heart = worker.findHeart();
+        HiveHeart heart = worker.findLocalHeart();
         if (heart == null || !worker.behavior().flattenGround() || worker.fillItem() == null || worker.action() != null
                 || heart.isUnitSelected(worker.getId())) {
             return null;

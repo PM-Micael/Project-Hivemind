@@ -43,7 +43,7 @@ public class WanderInsideGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = unit.findHeart();
+        HiveHeart heart = unit.findLocalHeart();
         // A deadline, not tickCount % N: goals are only evaluated on some ticks, so a modulo check can never line up.
         if (!allowed(heart) || mob.tickCount < nextWalk) {
             return false;
@@ -61,7 +61,7 @@ public class WanderInsideGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        return allowed(unit.findHeart()) && !mob.getNavigation().isDone();
+        return allowed(unit.findLocalHeart()) && !mob.getNavigation().isDone();
     }
 
     @Override

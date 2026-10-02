@@ -317,6 +317,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: skeleton goals flee the sun and shoot players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new LeavePortalGoal(this));
+
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
@@ -381,6 +383,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
     }
 
+
+    /** Short, so a unit can use a portal again soon after coming through one (an order into it works at once). */
+    @Override
+    public int getDimensionChangingDelay() {
+        return 40;
+    }
 
     @Override
     public void tick() {
@@ -477,7 +485,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     /** With no orders and not selected, look for work the hive's worker settings allow. */
     private void findOwnWork(HiveHeart heart) {
-        if (heart.isUnitSelected(this.getId())) {
+        if (heart.isUnitSelected(this.getId()) || heart.level() != this.level()) {
             return;
         }
         // A tree being felled is finished before anything else: its next block is dug, as long as that takes with the tool in hand.

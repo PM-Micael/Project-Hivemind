@@ -62,7 +62,7 @@ public class CollectItemsGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = collector.findHeart();
+        HiveHeart heart = collector.findLocalHeart();
         if (heart == null) {
             return false;
         }
@@ -81,7 +81,7 @@ public class CollectItemsGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        if (collector.findHeart() == null) {
+        if (collector.findLocalHeart() == null) {
             return false;
         }
         return !collector.carried().isEmpty() || (target != null && target.isAlive());
@@ -97,7 +97,7 @@ public class CollectItemsGoal extends Goal {
 
     @Override
     public void tick() {
-        HiveHeart heart = collector.findHeart();
+        HiveHeart heart = collector.findLocalHeart();
         if (heart == null) {
             return;
         }

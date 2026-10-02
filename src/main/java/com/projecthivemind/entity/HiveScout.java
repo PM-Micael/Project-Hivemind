@@ -118,6 +118,8 @@ public class HiveScout extends Husk implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: husk goals hunt players, villagers and turtle eggs.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new LeavePortalGoal(this));
+
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
@@ -159,6 +161,12 @@ public class HiveScout extends Husk implements HiveUnit {
     @Override
     public HiveHeart findHeart() {
         return HiveHeart.find(this.level(), heartId);
+    }
+
+    /** Short, so a unit can use a portal again soon after coming through one (an order into it works at once). */
+    @Override
+    public int getDimensionChangingDelay() {
+        return 40;
     }
 
     @Override

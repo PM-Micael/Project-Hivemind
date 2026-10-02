@@ -74,6 +74,8 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         // Deliberately not calling super: zombie goals hunt players, villagers and turtle eggs.
         // Soldiers walk where told and fight what they are told to attack. Digging and interacting is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new LeavePortalGoal(this));
+
         // Above everything else: a unit told to stay inside the hive border does.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
@@ -179,6 +181,12 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         }
     }
 
+
+    /** Short, so a unit can use a portal again soon after coming through one (an order into it works at once). */
+    @Override
+    public int getDimensionChangingDelay() {
+        return 40;
+    }
 
     @Override
     public void tick() {

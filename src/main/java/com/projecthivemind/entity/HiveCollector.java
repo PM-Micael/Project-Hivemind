@@ -119,6 +119,8 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: silverfish goals hide in stone, wake friends and attack players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new LeavePortalGoal(this));
+
         this.goalSelector.addGoal(1, new CollectItemsGoal(this));
         // Planting comes after collecting: a collector with items to fetch fetches them first.
         this.goalSelector.addGoal(2, new CollectorPlantGoal(this));
@@ -149,7 +151,12 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     public void setAction(@Nullable UnitAction action) {
     }
 
-    /** The Hive Heart this collector works for, or null if it is gone or not loaded. */
+    /** Short, so a unit can use a portal again soon after coming through one. */
+    @Override
+    public int getDimensionChangingDelay() {
+        return 40;
+    }
+
     @Nullable
     @Override
     public HiveHeart findHeart() {
@@ -244,6 +251,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
      * Crops: seeds, carrots, potatoes, nether warts, melon and pumpkin seeds, and the like. Saplings: the trees' saplings
      * and mangrove propagules.
      */
+    /** The Hive Heart this collector works for, or null if it is gone or not loaded. */
     @Nullable
     public static Block plantBlock(PlantKind kind, Item item) {
         if (!(item instanceof BlockItem blockItem)) {

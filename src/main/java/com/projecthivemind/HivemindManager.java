@@ -1,3 +1,4 @@
+
 package com.projecthivemind;
 
 import java.util.ArrayList;
@@ -169,12 +170,20 @@ public final class HivemindManager {
         if (get(player).stage() != HivemindStage.HIVE) {
             return;
         }
-        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+        if (HivemindManager.findById(player, unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                 && player.getUUID().equals(unit.ownerId())) {
             float yaw = player.getYRot();
             double x = mob.getX() + Mth.sin(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
             double z = mob.getZ() - Mth.cos(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
-            player.teleportTo(player.serverLevel(), x, mob.getEyeY(), z, yaw, 5.0F);
+            // The hive is held loaded before the camera leaves its dimension, or it would stop ticking.
+            HiveHeart home = findHeart(player);
+            if (home != null && mob.level() != home.level()) {
+                holdHiveChunks(home, true);
+            }
+            if (home != null) {
+                holdAwayUnits(player, home);
+            }
+            player.teleportTo((ServerLevel) mob.level(), x, mob.getEyeY(), z, yaw, 5.0F);
         }
     }
 
@@ -355,7 +364,7 @@ public final class HivemindManager {
 
     /** The player confirmed cancelling a unit's job (from its page, or its right-click menu). Only for the player's own units. */
     public static void cancelUnitJob(ServerPlayer player, int unitId) {
-        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+        if (HivemindManager.findById(player, unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                 && player.getUUID().equals(unit.ownerId())) {
             unit.cancelJob();
             HiveHeart heart = findHeart(player);
@@ -370,7 +379,7 @@ public final class HivemindManager {
         if (!(player.containerMenu instanceof HiveMenu)) {
             return;
         }
-        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+        if (HivemindManager.findById(player, unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                 && player.getUUID().equals(unit.ownerId())) {
             unit.setResumeJob(resume);
         }
@@ -378,7 +387,7 @@ public final class HivemindManager {
 
     /** The player told one of their workers to build the wall round the hive out of this block (empty for none). */
     public static void setWorkerWall(ServerPlayer player, int unitId, String item) {
-        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+        if (!(HivemindManager.findById(player, unitId) instanceof HiveWorker worker) || !worker.isAlive()
                 || !player.getUUID().equals(worker.ownerId())) {
             return;
         }
@@ -391,7 +400,7 @@ public final class HivemindManager {
 
     /** The player chose the item one of their workers puts in composters (empty for none). */
     public static void setWorkerCompost(ServerPlayer player, int unitId, String item) {
-        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+        if (!(HivemindManager.findById(player, unitId) instanceof HiveWorker worker) || !worker.isAlive()
                 || !player.getUUID().equals(worker.ownerId())) {
             return;
         }
@@ -403,7 +412,7 @@ public final class HivemindManager {
 
     /** The player chose the block one of their workers fills gaps in the ground with (empty for none). */
     public static void setWorkerFill(ServerPlayer player, int unitId, String item) {
-        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+        if (!(HivemindManager.findById(player, unitId) instanceof HiveWorker worker) || !worker.isAlive()
                 || !player.getUUID().equals(worker.ownerId())) {
             return;
         }
@@ -438,7 +447,7 @@ public final class HivemindManager {
      * crops. Only for the player's own collectors, and a block only inside the hive area.
      */
     public static void setCollectorTask(ServerPlayer player, int unitId, int op, String item, BlockPos pos) {
-        if (!(player.serverLevel().getEntity(unitId) instanceof HiveCollector collector) || !collector.isAlive()
+        if (!(HivemindManager.findById(player, unitId) instanceof HiveCollector collector) || !collector.isAlive()
                 || !player.getUUID().equals(collector.ownerId())) {
             return;
         }
@@ -525,7 +534,7 @@ public final class HivemindManager {
     /** The player added one of their units to the team, or took it out. */
     public static void toggleTeam(ServerPlayer player, int unitId) {
         HiveHeart heart = findHeart(player);
-        if (heart == null || !(player.serverLevel().getEntity(unitId) instanceof Mob mob) || !mob.isAlive()
+        if (heart == null || !(HivemindManager.findById(player, unitId) instanceof Mob mob) || !mob.isAlive()
                 || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId())) {
             return;
         }
@@ -539,11 +548,12 @@ public final class HivemindManager {
 
     /** Tell the owner who their units are, for the unit pages of the hive menu. */
     public static void sendUnits(ServerPlayer owner) {
-        ServerLevel level = owner.serverLevel();
+        ServerLevel camera = owner.serverLevel();
         List<SyncUnitsPayload.Entry> entries = new ArrayList<>();
         for (UnitKind kind : UnitKind.values()) {
             for (UUID id : get(owner).units().getOrDefault(kind, List.of())) {
-                if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && entries.size() < SyncUnitsPayload.MAX_ENTRIES) {
+                if (findUnit(owner, id) instanceof Mob mob && entries.size() < SyncUnitsPayload.MAX_ENTRIES) {
+                    ServerLevel level = (ServerLevel) mob.level();
                     HiveUnit unit = mob instanceof HiveUnit found ? found : null;
                     UnitAction job = unit == null ? null : unit.job();
                     HiveHeart heart = findHeart(owner);
@@ -551,7 +561,7 @@ public final class HivemindManager {
                     Component text = task != null ? task : job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
-                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart != null && heart.teams().isMember(mob.getUUID())),
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart != null && heart.teams().isMember(mob.getUUID())) | (level != camera ? SyncUnitsPayload.Entry.AWAY : 0),
                             new SyncUnitsPayload.Vitals(mob.getHealth(), mob.getMaxHealth()), taskOf(mob)));
                 }
             }
@@ -648,6 +658,18 @@ public final class HivemindManager {
         return get(owner).count(kind) < HiveLevels.get(heart.hiveLevel()).cap(kind) ? HiveMenu.STATUS_SPAWNING : HiveMenu.STATUS_IDLE;
     }
 
+    /** An entity by id in whichever dimension it is in (ids are unique across the whole server). */
+    @Nullable
+    public static net.minecraft.world.entity.Entity findById(ServerPlayer player, int id) {
+        for (ServerLevel level : player.server.getAllLevels()) {
+            net.minecraft.world.entity.Entity found = level.getEntity(id);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
     @Nullable
     private static Mob findUnit(ServerPlayer owner, UUID id) {
         for (ServerLevel level : owner.server.getAllLevels()) {
@@ -730,22 +752,97 @@ public final class HivemindManager {
         if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
             return;
         }
-        ServerLevel level = (ServerLevel) heart.level();
-        List<HiveSight.Eye> eyes = HiveSight.eyes(level, owner, heart);
+        ServerLevel heartLevel = (ServerLevel) heart.level();
+        heart.setSightEyes(HiveSight.eyes(heartLevel, owner, heart));
+        // What the owner sees is what is in the camera's dimension, which may not be the Heart's.
+        ServerLevel level = owner.serverLevel();
+        List<HiveSight.Eye> eyes = level == heartLevel ? heart.sightEyes() : HiveSight.eyes(level, owner, heart);
         // The client fogs terrain by these, so it needs them whenever a unit has moved.
-        if (!eyes.equals(heart.sightEyes())) {
+        if (!eyes.equals(heart.syncedEyes())) {
             List<SyncEyesPayload.EyePoint> points = new ArrayList<>();
             for (HiveSight.Eye eye : eyes) {
                 points.add(new SyncEyesPayload.EyePoint(eye.position().x, eye.position().y, eye.position().z, (float) eye.radius()));
             }
             PacketDistributor.sendToPlayer(owner, new SyncEyesPayload(points));
         }
-        heart.setSightEyes(eyes);
+        heart.setSyncedEyes(eyes);
 
         Set<Integer> visible = HiveSight.visibleMobs(level, eyes);
         if (!visible.equals(heart.syncedSight())) {
             heart.setSyncedSight(visible);
             PacketDistributor.sendToPlayer(owner, new SyncSightPayload(List.copyOf(visible)));
+        }
+    }
+
+    // ---- keeping the hive running while the camera is in another dimension ----
+
+    /**
+     * Force-load the chunks of the hive area (or let them go again). A hive only ticks while its chunks are loaded, and chunks
+     * load around the camera, so without this the hive would freeze while the camera follows a unit into the Nether.
+     */
+    public static void holdHiveChunks(HiveHeart heart, boolean hold) {
+        if (!(heart.level() instanceof ServerLevel level)) {
+            return;
+        }
+        net.minecraft.world.phys.AABB box = HiveArea.areaBox(level, heart);
+        for (int cx = Mth.floor(box.minX) >> 4; cx <= Mth.floor(box.maxX) >> 4; cx++) {
+            for (int cz = Mth.floor(box.minZ) >> 4; cz <= Mth.floor(box.maxZ) >> 4; cz++) {
+                level.setChunkForced(cx, cz, hold);
+            }
+        }
+    }
+
+    private record HeldChunk(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension, int x, int z) {
+    }
+
+    private static final java.util.Map<UUID, Set<HeldChunk>> HELD_UNIT_CHUNKS = new java.util.HashMap<>();
+
+    /**
+     * Keep the chunks around the owner's units that are outside the Heart's dimension loaded. Otherwise a unit left in the Nether
+     * unloads with its chunks as soon as the camera leaves, and drops out of the unit list. Chunks no unit is near are let go.
+     */
+    public static void holdAwayUnits(ServerPlayer owner, HiveHeart heart) {
+        Set<HeldChunk> wanted = new HashSet<>();
+        for (UUID id : get(owner).allUnits()) {
+            if (findUnit(owner, id) instanceof Mob unit && unit.level() != heart.level()) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        wanted.add(new HeldChunk(unit.level().dimension(), (unit.getBlockX() >> 4) + dx, (unit.getBlockZ() >> 4) + dz));
+                    }
+                }
+            }
+        }
+        Set<HeldChunk> held = HELD_UNIT_CHUNKS.computeIfAbsent(owner.getUUID(), key -> new HashSet<>());
+        for (HeldChunk chunk : wanted) {
+            if (held.add(chunk) && owner.server.getLevel(chunk.dimension()) != null) {
+                owner.server.getLevel(chunk.dimension()).setChunkForced(chunk.x(), chunk.z(), true);
+            }
+        }
+        for (java.util.Iterator<HeldChunk> it = held.iterator(); it.hasNext();) {
+            HeldChunk chunk = it.next();
+            if (!wanted.contains(chunk)) {
+                it.remove();
+                if (owner.server.getLevel(chunk.dimension()) != null) {
+                    owner.server.getLevel(chunk.dimension()).setChunkForced(chunk.x(), chunk.z(), false);
+                }
+            }
+        }
+    }
+
+    /** From the Heart: hold the hive loaded while its owner's camera is elsewhere, and let go once it is home. */
+    public static void tickKeepLoaded(HiveHeart heart) {
+        if (heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        holdAwayUnits(owner, heart);
+        if (owner.serverLevel() != heart.level()) {
+            holdHiveChunks(heart, true);
+        } else if (heart.tickCount % 100 == 0) {
+            holdHiveChunks(heart, false);
         }
     }
 
@@ -993,7 +1090,8 @@ public final class HivemindManager {
             heart.setSyncedArmor(armor);
             heart.setSyncedHealth(health);
             PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor, foodLevel,
-                    HiveLevels.get(heart.hiveLevel()).infectionRadius(), heart.blockPosition()));
+                    // A camera in another dimension has no hive border to show (radius -1).
+                    owner.serverLevel() == heart.level() ? HiveLevels.get(heart.hiveLevel()).infectionRadius() : -1, heart.blockPosition()));
         }
     }
 
@@ -1008,7 +1106,7 @@ public final class HivemindManager {
         if (!(player.containerMenu instanceof HiveMenu)) {
             return;
         }
-        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+        if (HivemindManager.findById(player, unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                 && player.getUUID().equals(unit.ownerId())) {
             // Every kind's settings clamp a bad radius, so a bad client cannot set a silly one.
             int[] padded = new int[4];

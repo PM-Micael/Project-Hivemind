@@ -50,7 +50,10 @@ public final class HiveSight {
     public static List<Eye> eyes(ServerLevel level, ServerPlayer owner, HiveHeart heart) {
         HiveLevel hiveLevel = HiveLevels.get(heart.hiveLevel());
         List<Eye> eyes = new ArrayList<>();
-        eyes.add(new Eye(heart.getBoundingBox().getCenter(), hiveLevel.heartSightRadius()));
+        // The Heart only sees in its own dimension.
+        if (heart.level() == level) {
+            eyes.add(new Eye(heart.getBoundingBox().getCenter(), hiveLevel.heartSightRadius()));
+        }
         for (UUID id : HivemindManager.get(owner).allUnits()) {
             if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit) {
                 eyes.add(new Eye(mob.getEyePosition(), hiveLevel.sightRadius(unit.kind())));

@@ -64,7 +64,7 @@ public class WorkerChannelGoal extends Goal {
 
     @Nullable
     private HiveHeart allowedHeart() {
-        HiveHeart heart = worker.findHeart();
+        HiveHeart heart = worker.findLocalHeart();
         return heart != null && (worker.behavior().channelCrops() || worker.behavior().channelSaplings()) && !heart.isUnitSelected(worker.getId()) ? heart : null;
     }
 
@@ -170,7 +170,7 @@ public class WorkerChannelGoal extends Goal {
         }
         // Bone meal from the hive, if the worker is set to use it: one every half second until the crop is grown.
         if (worker.behavior().useBoneMeal() && worker.tickCount % 10 == 0) {
-            HiveHeart heart = worker.findHeart();
+            HiveHeart heart = worker.findLocalHeart();
             if (heart != null) {
                 useBoneMeal(level, heart);
             }

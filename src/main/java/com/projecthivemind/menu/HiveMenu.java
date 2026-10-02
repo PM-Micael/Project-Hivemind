@@ -267,7 +267,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 }
                 if (index == DATA_VIEW_KIND || index == DATA_VIEW_FLAGS || (index >= DATA_VIEW_RADIUS && index < DATA_VIEW_RADIUS + VIEW_RADII)) {
                     // The page's unit: only the player's own, and only while it is alive.
-                    if (player.serverLevel().getEntity(view[0]) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                    if (HivemindManager.findById(player, view[0]) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
                             && player.getUUID().equals(unit.ownerId())) {
                         return (index == DATA_VIEW_KIND ? unit.kind().ordinal() : index == DATA_VIEW_FLAGS ? unit.behaviorFlags()
                                 : unit.behaviorRadii()[index - DATA_VIEW_RADIUS]) + 1;

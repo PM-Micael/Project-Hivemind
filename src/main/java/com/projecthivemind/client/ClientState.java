@@ -72,7 +72,7 @@ public final class ClientState {
 
     /** Where the hive area is: the Heart's block, and how many blocks the area reaches from it each way. */
     public static void updateBorder(net.minecraft.core.BlockPos center, int radius) {
-        borderCenter = center;
+        borderCenter = radius < 0 ? null : center;
         borderRadius = radius;
     }
 

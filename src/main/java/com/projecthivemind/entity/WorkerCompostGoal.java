@@ -50,7 +50,7 @@ public class WorkerCompostGoal extends Goal {
 
     @Nullable
     private HiveHeart allowedHeart() {
-        HiveHeart heart = worker.findHeart();
+        HiveHeart heart = worker.findLocalHeart();
         return heart != null && worker.behavior().useComposter() && worker.compostItem() != null && worker.action() == null
                 && !heart.isUnitSelected(worker.getId()) ? heart : null;
     }

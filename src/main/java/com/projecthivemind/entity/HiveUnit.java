@@ -24,6 +24,13 @@ public interface HiveUnit {
     @Nullable
     HiveHeart findHeart();
 
+    /** The Heart, but only while this unit is in the same dimension as it: the hive area means nothing anywhere else. */
+    @Nullable
+    default HiveHeart findLocalHeart() {
+        HiveHeart heart = findHeart();
+        return heart != null && this instanceof net.minecraft.world.entity.Entity self && heart.level() == self.level() ? heart : null;
+    }
+
     /** What this unit is currently doing to a block, or null if idle. Units that cannot be commanded always say null. */
     @Nullable
     UnitAction action();

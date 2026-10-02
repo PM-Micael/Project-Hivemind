@@ -55,7 +55,7 @@ public class SoldierDefaultAttackGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = soldier.findHeart();
+        HiveHeart heart = soldier.findLocalHeart();
         if (!mayAct(heart) || soldier.tickCount < nextScanTick) {
             return false;
         }
@@ -67,7 +67,7 @@ public class SoldierDefaultAttackGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        HiveHeart heart = soldier.findHeart();
+        HiveHeart heart = soldier.findLocalHeart();
         if (!mayAct(heart) || target == null || !target.isAlive()) {
             return false;
         }
