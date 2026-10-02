@@ -19,8 +19,12 @@ import javax.annotation.Nullable;
  */
 public record HiveLevel(int level, float maxHealth, int storageSlots, int craftingGrid, int infectionRadius,
                         int sightRadius, Map<UnitKind, Integer> unitCaps, @Nullable Quest quest) {
-    /** The quest that levels a hive up: collect this many logs and have its units explore this many chunks. */
-    public record Quest(int logs, int chunks) {
+    /**
+     * The quest that levels a hive up. Each part is a total the hive has to reach, and a part that is 0 is not asked:
+     * logs collected, chunks explored by its units, mobs its units killed, and ticks the hive has been alive for
+     * (24000 is a whole day and night).
+     */
+    public record Quest(int logs, int chunks, int kills, int survivalTicks) {
     }
 
     public int cap(UnitKind kind) {

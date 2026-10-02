@@ -23,7 +23,7 @@ import net.minecraft.world.phys.Vec3;
  * the hive's shared storage underneath. Like the hive menu it never touches the player's own inventory, which a
  * bodyless hivemind does not have: everything goes to and from the hive.
  */
-public class ScoutContainerMenu extends AbstractContainerMenu implements SpectatorClickable {
+public class ScoutContainerMenu extends AbstractContainerMenu implements SpectatorClickable, ScrollableStorage {
     public static final int COLUMNS = 9;
     public static final int SLOT_X = 8;
     public static final int TOP_Y = 18;
@@ -32,6 +32,8 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
     private static final double MAX_SCOUT_DISTANCE = 10.0D;
 
     private final Container target;
+    private final StorageScroll scroll;
+    @Nullable
     private final SimpleContainer storage;
     private final int targetSize;
     @Nullable
@@ -45,19 +47,20 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
 
     /** Client constructor: the real contents arrive from the server. */
     public ScoutContainerMenu(int containerId, Inventory inventory, int targetSize, int storageSlots) {
-        this(containerId, new SimpleContainer(targetSize), new SimpleContainer(storageSlots), targetSize, null, null, null, null);
+        this(containerId, new SimpleContainer(targetSize), null, new StorageScroll(null, storageSlots), targetSize, null, null, null, null);
     }
 
     public ScoutContainerMenu(int containerId, Container target, SimpleContainer storage, @Nullable HiveScout scout,
                               @Nullable HiveHeart heart, @Nullable BlockEntity blockEntity, BlockPos pos) {
-        this(containerId, target, storage, target.getContainerSize(), scout, heart, blockEntity, pos);
+        this(containerId, target, storage, new StorageScroll(storage, storage.getContainerSize()), target.getContainerSize(), scout, heart, blockEntity, pos);
     }
 
-    private ScoutContainerMenu(int containerId, Container target, SimpleContainer storage, int targetSize, @Nullable HiveScout scout,
+    private ScoutContainerMenu(int containerId, Container target, @Nullable SimpleContainer storage, StorageScroll scroll, int targetSize, @Nullable HiveScout scout,
                                @Nullable HiveHeart heart, @Nullable BlockEntity blockEntity, @Nullable BlockPos pos) {
         super(ModMenus.SCOUT_CONTAINER.get(), containerId);
         this.target = target;
         this.storage = storage;
+        this.scroll = scroll;
         this.targetSize = Math.min(targetSize, MAX_SLOTS);
         this.scout = scout;
         this.heart = heart;
@@ -68,13 +71,19 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
             this.addSlot(new TargetSlot(target, i, SLOT_X + (i % COLUMNS) * 18, TOP_Y + (i / COLUMNS) * 18));
         }
         int storageY = storageY(this.targetSize);
-        for (int i = 0; i < storage.getContainerSize(); i++) {
-            this.addSlot(new Slot(storage, i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18));
+        for (int i = 0; i < scroll.visibleSlots(scroll.total()); i++) {
+            this.addSlot(new Slot(scroll.view(), i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18));
         }
+        this.addDataSlot(scroll.position());
+    }
+
+    @Override
+    public StorageScroll storageScroll() {
+        return scroll;
     }
 
     public int storageSlots() {
-        return storage.getContainerSize();
+        return scroll.total();
     }
 
     public int targetSize() {
@@ -91,7 +100,7 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
     }
 
     public static int panelHeight(int slots, int storageSlots) {
-        return storageY(slots) + HiveMenu.storageRows(storageSlots) * 18 + 8;
+        return storageY(slots) + StorageScroll.rows(StorageScroll.visibleSlots(storageSlots)) * 18 + 8;
     }
 
     /** A slot of the opened container: only takes what the container itself would accept there (no filling a furnace's output). */
@@ -153,7 +162,7 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
         ItemStack carried = this.getCarried();
         this.setCarried(ItemStack.EMPTY);
         this.resetQuickCraft();
-        if (!carried.isEmpty() && !player.level().isClientSide) {
+        if (!carried.isEmpty() && !player.level().isClientSide && storage != null) {
             ItemStack left = storage.addItem(carried);
             if (!left.isEmpty()) {
                 if (scout != null) {

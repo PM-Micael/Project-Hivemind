@@ -8,6 +8,7 @@ import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.menu.ScoutTradeMenu;
+import com.projecthivemind.menu.ScrollableStorage;
 import com.projecthivemind.menu.SpectatorClickable;
 
 import net.minecraft.server.level.ServerPlayer;
@@ -51,6 +52,16 @@ public final class ServerPayloads {
     }
 
     private static final int OUTSIDE_SLOT = -999;
+
+    /** The mouse wheel moved the hive storage window in the open menu. */
+    public static void onScrollStorage(ScrollStoragePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player
+                && player.containerMenu instanceof ScrollableStorage menu
+                && player.containerMenu.containerId == payload.containerId()) {
+            menu.storageScroll().scrollTo(payload.row());
+            player.containerMenu.broadcastChanges();
+        }
+    }
 
     /** The player pressed a trade in the scout's trade screen. */
     public static void onTrade(TradePayload payload, IPayloadContext context) {

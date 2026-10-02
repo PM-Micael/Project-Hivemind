@@ -30,4 +30,21 @@ final class HiveStyle {
             }
         }
     }
+
+    /** A thin scrollbar beside a scrolling grid. Draws nothing when everything fits. */
+    static void scrollbar(GuiGraphics graphics, int x, int y, int height, int totalRows, int visibleRows, int row) {
+        if (totalRows <= visibleRows) {
+            return;
+        }
+        graphics.fill(x, y, x + 4, y + height, SLOT_EDGE);
+        int thumb = Math.max(8, height * visibleRows / totalRows);
+        int maxRow = totalRows - visibleRows;
+        int thumbY = y + (height - thumb) * row / maxRow;
+        graphics.fill(x, thumbY, x + 4, thumbY + thumb, 0xFF9A4A4A);
+    }
+
+    /** The row a scroll of the mouse wheel moves a grid to: one row per notch, up for a scroll away from you. */
+    static int scrolledRow(int currentRow, double scrollY, int maxRow) {
+        return Math.max(0, Math.min(maxRow, currentRow - (int) Math.signum(scrollY)));
+    }
 }

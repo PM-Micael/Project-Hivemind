@@ -12,14 +12,24 @@ public final class HiveLevels {
                     UnitKind.WORKER, 1,
                     UnitKind.SOLDIER, 1,
                     UnitKind.COLLECTOR, 1),
-                    new HiveLevel.Quest(10, 5)),
+                    new HiveLevel.Quest(10, 5, 0, 0)),
             // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, up to 3 soldiers and 2 workers.
             new HiveLevel(2, 40.0F, 54, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 2,
                     UnitKind.SOLDIER, 3,
                     UnitKind.COLLECTOR, 1),
+                    new HiveLevel.Quest(0, 0, 10, 24000)),
+            // Level 3: 30 hearts, 81 storage slots (scrolled), and a furnace built into the Heart.
+            new HiveLevel(3, 60.0F, 81, 3, 7, 32, Map.of(
+                    UnitKind.SCOUT, 1,
+                    UnitKind.WORKER, 2,
+                    UnitKind.SOLDIER, 3,
+                    UnitKind.COLLECTOR, 1),
                     null));
+
+    /** The level at which the Heart has its own furnace. */
+    public static final int FURNACE_LEVEL = 3;
 
     private HiveLevels() {
     }

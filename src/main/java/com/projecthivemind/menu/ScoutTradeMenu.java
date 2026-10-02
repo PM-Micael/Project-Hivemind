@@ -30,15 +30,18 @@ import net.neoforged.neoforge.network.PacketDistributor;
  *
  * <p>The villager is held in place (it is "trading") while this is open, and the scout has to stay close to it.
  */
-public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorClickable {
+public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorClickable, ScrollableStorage {
     public static final int SLOT_X = 8;
     /** Where the hive storage grid starts; the offers sit above it. */
     public static final int STORAGE_Y = 160;
     public static int panelHeight(int storageSlots) {
-        return STORAGE_Y + HiveMenu.storageRows(storageSlots) * 18 + 8;
+        return STORAGE_Y + StorageScroll.rows(StorageScroll.visibleSlots(storageSlots)) * 18 + 8;
     }
     private static final double MAX_SCOUT_DISTANCE = 10.0D;
 
+    private final StorageScroll scroll;
+    /** The real storage, on the server only. */
+    @Nullable
     private final SimpleContainer storage;
     @Nullable
     private final AbstractVillager villager;
@@ -52,23 +55,35 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
 
     /** Client constructor: the real contents and offers arrive from the server. */
     public ScoutTradeMenu(int containerId, Inventory inventory, int storageSlots) {
-        this(containerId, new SimpleContainer(storageSlots), null, null, null);
+        this(containerId, null, new StorageScroll(null, storageSlots), null, null, null);
     }
 
     public ScoutTradeMenu(int containerId, SimpleContainer storage, @Nullable AbstractVillager villager, @Nullable HiveScout scout,
                           @Nullable HiveHeart heart) {
+        this(containerId, storage, new StorageScroll(storage, storage.getContainerSize()), villager, scout, heart);
+    }
+
+    private ScoutTradeMenu(int containerId, @Nullable SimpleContainer storage, StorageScroll scroll, @Nullable AbstractVillager villager, @Nullable HiveScout scout,
+                          @Nullable HiveHeart heart) {
         super(ModMenus.SCOUT_TRADE.get(), containerId);
         this.storage = storage;
+        this.scroll = scroll;
         this.villager = villager;
         this.scout = scout;
         this.heart = heart;
-        for (int i = 0; i < storage.getContainerSize(); i++) {
-            this.addSlot(new Slot(storage, i, SLOT_X + (i % 9) * 18, STORAGE_Y + (i / 9) * 18));
+        for (int i = 0; i < scroll.visibleSlots(scroll.total()); i++) {
+            this.addSlot(new Slot(scroll.view(), i, SLOT_X + (i % 9) * 18, STORAGE_Y + (i / 9) * 18));
         }
+        this.addDataSlot(scroll.position());
+    }
+
+    @Override
+    public StorageScroll storageScroll() {
+        return scroll;
     }
 
     public int storageSlots() {
-        return storage.getContainerSize();
+        return scroll.total();
     }
 
     public MerchantOffers offers() {
@@ -125,7 +140,8 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
 
     /** Client side: can the hive afford this offer right now, going by the storage slots the server has synced. */
     public boolean affordable(MerchantOffer offer) {
-        return canAfford(storage, offer);
+        // With rows scrolled out of sight the client cannot know what the hive holds; the server decides.
+        return scroll.maxRow() > 0 || canAfford(scroll.view(), offer);
     }
 
     /** True if the container holds what the offer costs. */
@@ -154,7 +170,7 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
      * nothing) if the offer is gone, sold out, too expensive, or the result would not fit.
      */
     public boolean trade(int index, ServerPlayer player) {
-        if (villager == null || !villager.isAlive()) {
+        if (storage == null || villager == null || !villager.isAlive()) {
             return false;
         }
         MerchantOffers all = villager.getOffers();
@@ -168,7 +184,7 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
 
         // Rehearse on a copy, so a result that does not fit leaves the hive exactly as it was.
         SimpleContainer rehearsal = new SimpleContainer(storage.getContainerSize());
-        for (int i = 0; i < storage.getContainerSize(); i++) {
+        for (int i = 0; i < scroll.visibleSlots(scroll.total()); i++) {
             rehearsal.setItem(i, storage.getItem(i).copy());
         }
         pay(rehearsal, offer);
@@ -224,7 +240,7 @@ public class ScoutTradeMenu extends AbstractContainerMenu implements SpectatorCl
         ItemStack carried = this.getCarried();
         this.setCarried(ItemStack.EMPTY);
         this.resetQuickCraft();
-        if (!carried.isEmpty() && !player.level().isClientSide) {
+        if (!carried.isEmpty() && !player.level().isClientSide && storage != null) {
             ItemStack left = storage.addItem(carried);
             if (!left.isEmpty()) {
                 if (scout != null) {

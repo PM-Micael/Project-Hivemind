@@ -11,10 +11,12 @@ import com.projecthivemind.HiveLevels;
 import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.menu.StorageScroll;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
+import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetBehaviorPayload;
 import com.projecthivemind.network.SetCollectorBehaviorPayload;
 import com.projecthivemind.network.SetScoutBehaviorPayload;
@@ -407,6 +409,44 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 graphics.fill(x, y, x + 16, y + 16, SLOT_FILL);
             }
         }
+
+        if (tab == Tab.HIVE) {
+            StorageScroll scroll = menu.storageScroll();
+            HiveStyle.scrollbar(graphics, leftPos + HiveMenu.STORAGE_X + 9 * 18 + 1, topPos + HiveMenu.STORAGE_Y,
+                    scroll.visibleRows() * 18, scroll.totalRows(), scroll.visibleRows(), scroll.row());
+            if (menu.hasFurnace()) {
+                drawFurnace(graphics);
+            }
+        }
+    }
+
+    /** The flame between the furnace's input and fuel, and the arrow from input to output, filled as it burns and cooks. */
+    private void drawFurnace(GuiGraphics graphics) {
+        int flameX = leftPos + HiveMenu.FURNACE_INPUT_X + 4;
+        int flameY = topPos + HiveMenu.FURNACE_INPUT_Y + 20;
+        graphics.fill(flameX, flameY, flameX + 8, flameY + 14, SLOT_EDGE);
+        int burn = Math.round(14 * menu.furnaceBurn());
+        graphics.fill(flameX, flameY + 14 - burn, flameX + 8, flameY + 14, 0xFFFF9A2E);
+
+        int arrowX = leftPos + HiveMenu.FURNACE_INPUT_X + 26;
+        int arrowY = topPos + HiveMenu.FURNACE_OUTPUT_Y + 6;
+        graphics.fill(arrowX, arrowY, arrowX + 24, arrowY + 4, SLOT_EDGE);
+        graphics.fill(arrowX, arrowY, arrowX + Math.round(24 * menu.furnaceProgress()), arrowY + 4, 0xFFE8E8E8);
+    }
+
+    /** The mouse wheel over the hive storage scrolls it. */
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        StorageScroll scroll = menu.storageScroll();
+        if (tab == Tab.HIVE && scroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.STORAGE_X && mouseX < leftPos + HiveMenu.STORAGE_X + 9 * 18 + 6
+                && mouseY >= topPos + HiveMenu.STORAGE_Y && mouseY < topPos + HiveMenu.STORAGE_Y + scroll.visibleRows() * 18) {
+            int row = HiveStyle.scrolledRow(scroll.row(), scrollY, scroll.maxRow());
+            if (row != scroll.row()) {
+                PacketDistributor.sendToServer(new ScrollStoragePayload(menu.containerId, row));
+            }
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     @Override
@@ -443,8 +483,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         int y = QUEST_Y;
         graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.title", next.level()), QUEST_X, y, 0xFFDD55, false);
         y += 14;
-        y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.logs", quest.logs()), menu.questLogs(), quest.logs());
-        y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.chunks", quest.chunks()), menu.questChunks(), quest.chunks());
+        // Only the parts this level's quest actually asks for.
+        if (quest.logs() > 0) {
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.logs", quest.logs()), menu.questLogs(), quest.logs(), 1, "");
+        }
+        if (quest.chunks() > 0) {
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.chunks", quest.chunks()), menu.questChunks(), quest.chunks(), 1, "");
+        }
+        if (quest.kills() > 0) {
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.kills", quest.kills()), menu.questKills(), quest.kills(), 1, "");
+        }
+        if (quest.survivalTicks() > 0) {
+            // Shown in minutes of play: 24000 ticks is a whole day and night, 20 minutes.
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.survive"), menu.questSeconds(), quest.survivalTicks() / 20, 60, " min");
+        }
 
         y += 8;
         graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.unlocks", next.level()), QUEST_X, y, 0xFFDD55, false);
@@ -459,8 +511,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (next.maxHealth() != current.maxHealth()) {
             y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_health", hearts((int) next.maxHealth())));
         }
+        if (next.level() >= HiveLevels.FURNACE_LEVEL && current.level() < HiveLevels.FURNACE_LEVEL) {
+            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_furnace"));
+        }
         if (next.storageSlots() != current.storageSlots()) {
-            y = unlockLine(graphics, y, Component.translatable("screen.projecthivemind.quest.unlock_storage", next.storageSlots()));
+            String key = next.storageSlots() > StorageScroll.MAX_VISIBLE ? "screen.projecthivemind.quest.unlock_storage_scroll" : "screen.projecthivemind.quest.unlock_storage";
+            y = unlockLine(graphics, y, Component.translatable(key, next.storageSlots()));
         }
         if (next.infectionRadius() != current.infectionRadius()) {
             int size = next.infectionRadius() * 2 + 1;
@@ -469,11 +525,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     /** One goal of the quest: a tick or a dot, what it asks, and how far along it is. Returns the next line's y. */
-    private int questLine(GuiGraphics graphics, int y, Component text, int have, int need) {
+    private int questLine(GuiGraphics graphics, int y, Component text, int have, int need, int unitDivisor, String unitSuffix) {
         boolean done = have >= need;
         graphics.drawString(font, done ? "✔" : "•", QUEST_X, y, done ? DONE : TODO, false);
         graphics.drawString(font, text, QUEST_X + 12, y, done ? DONE : TODO, false);
-        String progress = Math.min(have, need) + " / " + need;
+        String progress = Math.min(have, need) / unitDivisor + " / " + need / unitDivisor + unitSuffix;
         graphics.drawString(font, progress, imageWidth - 12 - font.width(progress), y, done ? DONE : TODO, false);
         return y + 12;
     }
@@ -516,6 +572,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, 44, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, 44, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.crafting"), HiveMenu.GRID_X, 44, 0xA0A0A0, false);
+        if (menu.hasFurnace()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.furnace"), HiveMenu.FURNACE_INPUT_X, HiveMenu.FURNACE_INPUT_Y - 10, 0xA0A0A0, false);
+        }
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
                 HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }

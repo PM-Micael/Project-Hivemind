@@ -3,7 +3,9 @@ package com.projecthivemind.client;
 import javax.annotation.Nullable;
 
 import com.projecthivemind.menu.ScoutTradeMenu;
+import com.projecthivemind.menu.StorageScroll;
 import com.projecthivemind.network.HiveMenuClickPayload;
+import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.TradePayload;
 
 import net.minecraft.client.gui.GuiGraphics;
@@ -67,6 +69,21 @@ public class ScoutTradeScreen extends AbstractContainerScreen<ScoutTradeMenu> {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
+
+    /** The mouse wheel over the hive storage scrolls it. */
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        StorageScroll scroll = menu.storageScroll();
+        if (scroll.maxRow() > 0 && mouseX >= leftPos + 8 && mouseX < leftPos + 8 + 9 * 18 + 6
+                && mouseY >= topPos + ScoutTradeMenu.STORAGE_Y && mouseY < topPos + ScoutTradeMenu.STORAGE_Y + scroll.visibleRows() * 18) {
+            int row = HiveStyle.scrolledRow(scroll.row(), scrollY, scroll.maxRow());
+            if (row != scroll.row()) {
+                PacketDistributor.sendToServer(new ScrollStoragePayload(menu.containerId, row));
+            }
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
     @Override
     protected void slotClicked(@Nullable Slot slot, int slotId, int mouseButton, ClickType type) {
         if (slot != null) {
@@ -79,6 +96,9 @@ public class ScoutTradeScreen extends AbstractContainerScreen<ScoutTradeMenu> {
     protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
         HiveStyle.panel(graphics, leftPos, topPos, imageWidth, imageHeight);
         HiveStyle.slots(graphics, menu, leftPos, topPos);
+        StorageScroll storageScroll = menu.storageScroll();
+        HiveStyle.scrollbar(graphics, leftPos + 8 + 9 * 18 + 1, topPos + ScoutTradeMenu.STORAGE_Y, storageScroll.visibleRows() * 18,
+                storageScroll.totalRows(), storageScroll.visibleRows(), storageScroll.row());
 
         MerchantOffers offers = menu.offers();
         int hovered = offerAt(mouseX, mouseY);

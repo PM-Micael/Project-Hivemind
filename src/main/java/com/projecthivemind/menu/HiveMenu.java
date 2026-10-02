@@ -6,6 +6,7 @@ import javax.annotation.Nullable;
 
 import com.mojang.datafixers.util.Pair;
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModMenus;
@@ -41,7 +42,7 @@ import net.minecraft.world.level.Level;
  * contents new soldiers are equipped with. The hivemind has no body, so nothing here touches the player's own
  * inventory; everything goes to and from the hive.
  */
-public class HiveMenu extends AbstractContainerMenu implements SpectatorClickable {
+public class HiveMenu extends AbstractContainerMenu implements SpectatorClickable, ScrollableStorage {
     public static final int GRID_SIZE = 3;
 
     // Slot indices. The storage grid grows with the hive's level, so everything after it moves with it.
@@ -52,6 +53,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int armorStart;
     private final int toolsStart;
     private final int toolsEnd;
+    private final int furnaceStart;
+    private final int furnaceEnd;
+    private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
     // Slot positions inside the panel, shared with the screen.
@@ -85,6 +89,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public int storageRows() {
         return storageRows(storageSlots);
     }
+    /** The built-in furnace (level 3), under the crafting grid and its result: input, fuel, and output. */
+    public static final int FURNACE_INPUT_X = 214;
+    public static final int FURNACE_INPUT_Y = 148;
+    public static final int FURNACE_FUEL_X = 214;
+    public static final int FURNACE_FUEL_Y = 184;
+    public static final int FURNACE_OUTPUT_X = 262;
+    public static final int FURNACE_OUTPUT_Y = 166;
     public static final int GRID_X = 214;
     public static final int GRID_Y = 54;
     public static final int RESULT_X = 232;
@@ -105,7 +116,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_SCOUT_AREA = 10;
     private static final int DATA_QUEST_LOGS = 11;
     private static final int DATA_QUEST_CHUNKS = 12;
-    private static final int DATA_UNITS = 13;
+    private static final int DATA_QUEST_KILLS = 13;
+    private static final int DATA_QUEST_SECONDS = 14;
+    private static final int DATA_FURNACE_LIT = 15;
+    private static final int DATA_FURNACE_LIT_DURATION = 16;
+    private static final int DATA_FURNACE_COOK = 17;
+    private static final int DATA_FURNACE_COOK_TOTAL = 18;
+    private static final int DATA_UNITS = 19;
     private static final int VALUES_PER_UNIT = 3;
     public static final int DATA_COUNT = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
 
@@ -121,6 +138,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             InventoryMenu.EMPTY_ARMOR_SLOT_LEGGINGS,
             InventoryMenu.EMPTY_ARMOR_SLOT_BOOTS};
 
+    /** What the storage grid is built on, and scrolled through. Null storage on the client, which has no real one. */
+    private final StorageScroll scroll;
+    @Nullable
     private final SimpleContainer storage;
     private final ContainerData data;
     private final Player player;
@@ -133,29 +153,37 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public boolean slotsHidden;
 
     /** Client constructor: the real contents arrive from the server. */
-    public HiveMenu(int containerId, Inventory inventory, int storageSlots) {
-        this(containerId, inventory, new SimpleContainer(storageSlots), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length),
-                new SimpleContainer(HiveEquipment.TOOL_SLOTS), new SimpleContainerData(DATA_COUNT), null);
+    public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace) {
+        this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
+                new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
+                new SimpleContainer(3), hasFurnace, new SimpleContainerData(DATA_COUNT), null);
     }
 
-    private HiveMenu(int containerId, Inventory inventory, SimpleContainer storage, SimpleContainer armor, SimpleContainer tools,
-                     ContainerData data, @Nullable HiveHeart heart) {
+    private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
+                     SimpleContainer tools, SimpleContainer furnace, boolean hasFurnace, ContainerData data, @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
-        this.storageSlots = storage.getContainerSize();
+        this.scroll = scroll;
+        this.storageSlots = scroll.visibleSlots(scroll.total());
         this.resultIndex = STORAGE_START + storageSlots;
         this.gridStart = resultIndex + 1;
         this.gridEnd = gridStart + GRID_SIZE * GRID_SIZE;
         this.armorStart = gridEnd;
         this.toolsStart = armorStart + HiveEquipment.ARMOR_SLOTS.length;
         this.toolsEnd = toolsStart + HiveEquipment.TOOL_SLOTS;
+        this.hasFurnace = hasFurnace;
+        this.furnaceStart = toolsEnd;
+        this.furnaceEnd = furnaceStart + (hasFurnace ? 3 : 0);
         this.storage = storage;
         this.data = data;
         this.player = inventory.player;
         this.heart = heart;
 
-        for (int row = 0; row < storageRows(storageSlots); row++) {
+        for (int row = 0; row < scroll.visibleRows(); row++) {
             for (int col = 0; col < STORAGE_COLUMNS; col++) {
-                this.addSlot(new HiveSlot(storage, col + row * STORAGE_COLUMNS, STORAGE_X + col * 18, STORAGE_Y + row * 18));
+                int index = col + row * STORAGE_COLUMNS;
+                if (index < storageSlots) {
+                    this.addSlot(new HiveSlot(scroll.view(), index, STORAGE_X + col * 18, STORAGE_Y + row * 18));
+                }
             }
         }
         this.addSlot(new HiveResultSlot(player, craftSlots, resultSlots, 0, RESULT_X, RESULT_Y));
@@ -168,9 +196,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addSlot(new ArmorSlot(armor, i, ARMOR_X, ARMOR_Y + i * 18, HiveEquipment.ARMOR_SLOTS[i]));
         }
         for (int i = 0; i < HiveEquipment.TOOL_SLOTS; i++) {
-            this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, toolsY(storageRows(storageSlots))));
+            this.addSlot(new ToolSlot(tools, i, TOOLS_X + i * 18, toolsY(scroll.visibleRows())));
+        }
+        if (hasFurnace) {
+            this.addSlot(new HiveSlot(furnace, HiveFurnace.INPUT, FURNACE_INPUT_X, FURNACE_INPUT_Y));
+            this.addSlot(new FuelSlot(furnace, HiveFurnace.FUEL, FURNACE_FUEL_X, FURNACE_FUEL_Y));
+            this.addSlot(new OutputSlot(furnace, HiveFurnace.OUTPUT, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
         }
         this.addDataSlots(data);
+        this.addDataSlot(scroll.position());
     }
 
     /** Server constructor: backed by the Heart's real storage, with live stats for the screen. */
@@ -212,6 +246,24 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_QUEST_LOGS) {
                     return heart.logsProgress();
                 }
+                if (index == DATA_QUEST_KILLS) {
+                    return heart.kills();
+                }
+                if (index == DATA_QUEST_SECONDS) {
+                    return Math.min(heart.ageTicks() / 20, 32000);
+                }
+                if (index == DATA_FURNACE_LIT) {
+                    return heart.furnace().litTime();
+                }
+                if (index == DATA_FURNACE_LIT_DURATION) {
+                    return heart.furnace().litDuration();
+                }
+                if (index == DATA_FURNACE_COOK) {
+                    return heart.furnace().cookingProgress();
+                }
+                if (index == DATA_FURNACE_COOK_TOTAL) {
+                    return heart.furnace().cookingTotal();
+                }
                 if (index == DATA_QUEST_CHUNKS) {
                     return heart.exploredChunkCount();
                 }
@@ -235,7 +287,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 return DATA_COUNT;
             }
         };
-        return new HiveMenu(containerId, inventory, heart.getStorage(), heart.getArmorGear(), heart.getToolGear(), data, heart);
+        StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
+        return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
+                heart.furnace().items(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL, data, heart);
     }
 
     // ---- values for the screen ----
@@ -284,6 +338,37 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** Quest progress: logs the hive has collected so far (counting up to what the quest asks). */
     public int questLogs() {
         return data.get(DATA_QUEST_LOGS);
+    }
+
+    /** Quest progress: mobs the hive's units have killed so far. */
+    public int questKills() {
+        return data.get(DATA_QUEST_KILLS);
+    }
+
+    /** Quest progress: seconds the hive has lasted. */
+    public int questSeconds() {
+        return data.get(DATA_QUEST_SECONDS);
+    }
+
+    /** The furnace's burning fuel left, as a fraction (0 to 1) of what the burning fuel started with. */
+    public float furnaceBurn() {
+        int duration = data.get(DATA_FURNACE_LIT_DURATION);
+        return duration == 0 ? 0.0F : Math.min(1.0F, data.get(DATA_FURNACE_LIT) / (float) duration);
+    }
+
+    /** How far through the current item the furnace is, as a fraction (0 to 1). */
+    public float furnaceProgress() {
+        int total = data.get(DATA_FURNACE_COOK_TOTAL);
+        return total == 0 ? 0.0F : Math.min(1.0F, data.get(DATA_FURNACE_COOK) / (float) total);
+    }
+
+    public boolean hasFurnace() {
+        return hasFurnace;
+    }
+
+    @Override
+    public StorageScroll storageScroll() {
+        return scroll;
     }
 
     /** Quest progress: chunks the hive's units have explored so far. */
@@ -379,8 +464,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 return ItemStack.EMPTY;
             }
         } else if (!this.moveItemStackTo(stack, armorStart, toolsEnd, false)
-                && !this.moveItemStackTo(stack, gridStart, gridEnd, false)) {
-            // From storage: gear slots first (each only takes what belongs there), then the crafting grid.
+                && !this.moveItemStackTo(stack, gridStart, gridEnd, false)
+                && !this.moveItemStackTo(stack, furnaceStart, furnaceEnd, false)) {
+            // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace.
             return ItemStack.EMPTY;
         }
 
@@ -425,6 +511,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     private void giveToHive(ItemStack stack) {
         if (stack.isEmpty()) {
+            return;
+        }
+        if (storage == null) {
             return;
         }
         ItemStack leftover = storage.addItem(stack);
@@ -484,6 +573,30 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public Pair<ResourceLocation, ResourceLocation> getNoItemIcon() {
             return Pair.of(InventoryMenu.BLOCK_ATLAS, ARMOR_ICONS[position]);
+        }
+    }
+
+    /** The furnace's fuel slot: only things that burn. */
+    private class FuelSlot extends HiveSlot {
+        FuelSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return HiveFurnace.isFuel(stack);
+        }
+    }
+
+    /** The furnace's output: things come out of it, never go in. */
+    private class OutputSlot extends HiveSlot {
+        OutputSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
         }
     }
 

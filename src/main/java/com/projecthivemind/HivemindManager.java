@@ -33,6 +33,7 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.Containers;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -243,6 +244,7 @@ public final class HivemindManager {
         Containers.dropContents(level, center, heart.getStorage());
         Containers.dropContents(level, center, heart.getArmorGear());
         Containers.dropContents(level, center, heart.getToolGear());
+        Containers.dropContents(level, center, heart.furnace().items());
         HiveInfection.clear(level, heart);
         setHeartChunksForced(level, center, false);
 
@@ -288,7 +290,10 @@ public final class HivemindManager {
         }
         player.openMenu(new SimpleMenuProvider(
                 (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
-                Component.translatable("screen.projecthivemind.hive.title")), buf -> buf.writeVarInt(heart.getStorage().getContainerSize()));
+                Component.translatable("screen.projecthivemind.hive.title")), buf -> {
+            buf.writeVarInt(heart.getStorage().getContainerSize());
+            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL);
+        });
     }
 
     // ---- units ----
@@ -463,9 +468,24 @@ public final class HivemindManager {
     // ---- the level-up quest ----
 
     /**
+     * A living thing died. If a hive unit killed it, and it was not one of the hive's own, the unit's hive gets the
+     * kill for its quest.
+     */
+    public static void onKill(LivingEntity victim, DamageSource source) {
+        Entity killer = source.getEntity();
+        if (killer instanceof HiveUnit unit && victim instanceof Mob && !(victim instanceof HiveUnit) && !(victim instanceof HiveHeart)) {
+            HiveHeart heart = unit.findHeart();
+            if (heart != null) {
+                heart.addKill();
+            }
+        }
+    }
+
+    /**
      * Once a second, from the Heart: work out how far the hive is through its level-up quest, and level it up when
      * every part is done. Logs: the most the hive's storage has held at once counts, and it never goes back down.
      * Exploring: every chunk a unit of the hive has stood in counts once, except the chunks of the hive area itself.
+     * Kills and survival are counted as they happen (see {@link #onUnitKill} and the age added here).
      */
     public static void tickQuests(HiveHeart heart) {
         HiveLevel.Quest quest = HiveLevels.get(heart.hiveLevel()).quest();
@@ -477,6 +497,9 @@ public final class HivemindManager {
             return;
         }
         ServerLevel level = (ServerLevel) heart.level();
+
+        // Time only passes for the quest while its owner is here to live through it.
+        heart.addAge(HiveHeart.QUEST_INTERVAL_TICKS);
 
         int logs = 0;
         for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
@@ -502,7 +525,8 @@ public final class HivemindManager {
             }
         }
 
-        if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()) {
+        if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()
+                && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()) {
             levelUp(heart, owner);
         }
     }

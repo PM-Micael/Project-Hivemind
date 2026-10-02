@@ -14,6 +14,7 @@ import javax.annotation.Nullable;
 import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
+import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HiveSight;
@@ -55,6 +56,9 @@ public class HiveHeart extends Mob {
     private static final String LEVEL_TAG = "HiveLevel";
     private static final String LOGS_TAG = "QuestLogs";
     private static final String EXPLORED_TAG = "ExploredChunks";
+    private static final String KILLS_TAG = "QuestKills";
+    private static final String AGE_TAG = "HiveAge";
+    private static final String FURNACE_TAG = "HiveFurnace";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
@@ -71,6 +75,12 @@ public class HiveHeart extends Mob {
     private int hiveLevel = 1;
     /** Quest progress: the most logs the hive has held at once, up to what the quest asks. It never goes back down. */
     private int logsProgress;
+    /** Quest progress: mobs the hive's units have killed. */
+    private int kills;
+    /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
+    private int ageTicks;
+    /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
+    private final HiveFurnace furnace = new HiveFurnace();
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
     private final Set<Long> exploredChunks = new HashSet<>();
     private SimpleContainer storage = new SimpleContainer(HiveLevels.get(1).storageSlots());
@@ -306,7 +316,7 @@ public class HiveHeart extends Mob {
 
     /** 1 second: how often the owner is told which blocks have units working on them. */
     private static final int ACTION_SYNC_INTERVAL_TICKS = 20;
-    private static final int QUEST_INTERVAL_TICKS = 20;
+    public static final int QUEST_INTERVAL_TICKS = 20;
 
     /** A quarter second: how often what the hive can see is worked out, so hidden mobs appear and vanish promptly. */
     private static final int SIGHT_INTERVAL_TICKS = 5;
@@ -331,6 +341,9 @@ public class HiveHeart extends Mob {
         // Sight first, so the workers' scans and the action sync below always use fresh eyes.
         if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
             HivemindManager.tickSight(this);
+        }
+        if (hiveLevel >= HiveLevels.FURNACE_LEVEL && this.level() instanceof ServerLevel serverLevel) {
+            furnace.tick(serverLevel);
         }
         if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
             HivemindManager.tickQuests(this);
@@ -362,6 +375,26 @@ public class HiveHeart extends Mob {
 
     public void setLogsProgress(int logs) {
         this.logsProgress = logs;
+    }
+
+    public int kills() {
+        return kills;
+    }
+
+    public void addKill() {
+        kills++;
+    }
+
+    public int ageTicks() {
+        return ageTicks;
+    }
+
+    public void addAge(int ticks) {
+        ageTicks += ticks;
+    }
+
+    public HiveFurnace furnace() {
+        return furnace;
     }
 
     public Set<Long> exploredChunks() {
@@ -477,6 +510,9 @@ public class HiveHeart extends Mob {
         }
         tag.putInt(LEVEL_TAG, hiveLevel);
         tag.putInt(LOGS_TAG, logsProgress);
+        tag.putInt(KILLS_TAG, kills);
+        tag.putInt(AGE_TAG, ageTicks);
+        tag.put(FURNACE_TAG, furnace.save(registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
@@ -508,6 +544,11 @@ public class HiveHeart extends Mob {
             hiveLevel = HiveLevels.get(tag.getInt(LEVEL_TAG)).level();
         }
         logsProgress = tag.getInt(LOGS_TAG);
+        kills = tag.getInt(KILLS_TAG);
+        ageTicks = tag.getInt(AGE_TAG);
+        if (tag.contains(FURNACE_TAG)) {
+            furnace.load(tag.getCompound(FURNACE_TAG), registryAccess());
+        }
         exploredChunks.clear();
         for (long chunk : tag.getLongArray(EXPLORED_TAG)) {
             exploredChunks.add(chunk);
