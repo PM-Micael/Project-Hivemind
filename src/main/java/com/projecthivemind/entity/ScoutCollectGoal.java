@@ -10,6 +10,8 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 import net.minecraft.world.entity.ai.goal.Goal;
+import com.projecthivemind.HiveArea;
+
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -101,10 +103,12 @@ public class ScoutCollectGoal extends Goal {
         List<Entity> candidates = new ArrayList<>(scout.level().getEntitiesOfClass(ItemEntity.class, scout.getBoundingBox().inflate(radius),
                 item -> item.isAlive() && !item.getItem().isEmpty() && !isIgnored(item)
                         && item.distanceToSqr(scout) <= radius * radius
+                        && (!scout.behavior().stayInside() || HiveArea.containsXZ(heart, item.getX(), item.getZ()))
                         && heart.getStorage().canAddItem(item.getItem())));
         // Experience is picked up like a player would: it goes to the hivemind's experience bar.
         candidates.addAll(scout.level().getEntitiesOfClass(ExperienceOrb.class, scout.getBoundingBox().inflate(radius),
-                orb -> orb.isAlive() && !isIgnored(orb) && orb.distanceToSqr(scout) <= radius * radius));
+                orb -> orb.isAlive() && !isIgnored(orb) && orb.distanceToSqr(scout) <= radius * radius
+                        && (!scout.behavior().stayInside() || HiveArea.containsXZ(heart, orb.getX(), orb.getZ()))));
         return candidates.stream()
                 .sorted(Comparator.comparingDouble(scout::distanceToSqr))
                 .filter(candidate -> scout.getNavigation().createPath(candidate, 0) != null)

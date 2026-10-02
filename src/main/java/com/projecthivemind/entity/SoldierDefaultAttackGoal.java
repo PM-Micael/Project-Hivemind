@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.HiveInfection;
+import com.projecthivemind.HiveArea;
 import com.projecthivemind.SoldierBehavior;
 
 import net.minecraft.server.level.ServerLevel;
@@ -134,6 +134,11 @@ public class SoldierDefaultAttackGoal extends Goal {
         SoldierBehavior behavior = soldier.behavior();
 
         // The one global trigger: a mob that is hostile to the hive is a target wherever it is.
+        boolean outsideBorder = behavior.stayInside() && !HiveArea.containsXZ(heart, mob.getX(), mob.getZ());
+        if (outsideBorder) {
+            // A soldier set to stay inside the hive area does not go after anything outside it, threats included.
+            return false;
+        }
         if (behavior.threats() && heart.isThreat(mob.getUUID())) {
             return true;
         }
@@ -143,7 +148,7 @@ public class SoldierDefaultAttackGoal extends Goal {
         boolean hostile = mob instanceof Enemy;
 
         // The hive-area options also need the mob to be inside the hive area itself.
-        boolean inHiveArea = HiveInfection.areaBox((ServerLevel) soldier.level(), heart).contains(mob.position());
+        boolean inHiveArea = HiveArea.areaBox((ServerLevel) soldier.level(), heart).contains(mob.position());
         if (inHiveArea) {
             if (behavior.allInHiveArea() && distance <= square(behavior.allInHiveRadius())) {
                 return true;

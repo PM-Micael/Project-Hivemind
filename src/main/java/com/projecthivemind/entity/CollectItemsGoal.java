@@ -8,7 +8,7 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.HiveInfection;
+import com.projecthivemind.HiveArea;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
@@ -197,12 +197,10 @@ public class CollectItemsGoal extends Goal {
 
     @Nullable
     private ItemEntity findItem(HiveHeart heart) {
-        // The collector's job is the hive area, whether or not the creep is still there, plus however far past its edge
-        // the player has allowed. The extra range only reaches sideways: the area already covers every height.
-        int extra = collector.behavior().extraRange();
+        // The collector's job is the hive area, and only the hive area: it never goes past the border.
         ignored.values().removeIf(until -> until <= collector.tickCount);
         List<ItemEntity> items = collector.level().getEntitiesOfClass(ItemEntity.class,
-                HiveInfection.areaBox((ServerLevel) collector.level(), heart).inflate(extra, 0.0D, extra),
+                HiveArea.areaBox((ServerLevel) collector.level(), heart),
                 item -> item.isAlive() && !item.getItem().isEmpty() && !isIgnored(item)
                         && heart.getStorage().canAddItem(item.getItem()));
         return items.stream()

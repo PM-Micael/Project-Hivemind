@@ -61,6 +61,7 @@ public final class ClientPayloads {
 
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
         ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food());
+        ClientState.updateBorder(payload.center(), payload.areaRadius());
     }
 
     public static void onSyncUnits(SyncUnitsPayload payload, IPayloadContext context) {

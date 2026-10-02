@@ -16,6 +16,9 @@ public final class ClientState {
     private static float heartHealth;
     private static float heartMaxHealth;
     private static int heartArmor;
+    @Nullable
+    private static net.minecraft.core.BlockPos borderCenter;
+    private static int borderRadius;
     private static int hiveFood = 20;
 
     private ClientState() {
@@ -35,6 +38,7 @@ public final class ClientState {
         heartHealth = 0.0F;
         heartMaxHealth = 0.0F;
         heartArmor = 0;
+        borderCenter = null;
         hiveFood = 20;
     }
 
@@ -64,6 +68,21 @@ public final class ClientState {
         heartArmor = armor;
         heartHealth = health;
         heartMaxHealth = maxHealth;
+    }
+
+    /** Where the hive area is: the Heart's block, and how many blocks the area reaches from it each way. */
+    public static void updateBorder(net.minecraft.core.BlockPos center, int radius) {
+        borderCenter = center;
+        borderRadius = radius;
+    }
+
+    @Nullable
+    public static net.minecraft.core.BlockPos borderCenter() {
+        return borderCenter;
+    }
+
+    public static int borderRadius() {
+        return borderRadius;
     }
 
     public static int hiveFood() {

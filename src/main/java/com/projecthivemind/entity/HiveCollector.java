@@ -1,19 +1,27 @@
 package com.projecthivemind.entity;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.IntArrayTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
@@ -22,16 +30,53 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.monster.Silverfish;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.MangrovePropaguleBlock;
+import net.minecraft.world.level.block.NetherWartBlock;
+import net.minecraft.world.level.block.PitcherCropBlock;
+import net.minecraft.world.level.block.SaplingBlock;
+import net.minecraft.world.level.block.StemBlock;
+import net.minecraft.world.level.block.TorchflowerCropBlock;
 
 /**
- * Collector unit. Looks like a silverfish and cannot be commanded: it fetches items lying near the Hive Heart
- * and delivers them into the hive's inventory.
+ * Collector unit. Looks like a silverfish. It fetches items lying in the hive area and delivers them into the hive's
+ * inventory, and it can be given planting tasks: crops and saplings, each planted on soil blocks the player has picked. It
+ * only ever works inside the hive area. A collector can be selected, on its own, only to be given those tasks.
  */
 public class HiveCollector extends Silverfish implements HiveUnit {
-    /** This unit's own settings, edited from the hive menu's page for its kind. */
-    private CollectorBehavior behavior = CollectorBehavior.DEFAULT;
+    /** The most planting spots one collector can have, for each kind of planting. */
+    public static final int MAX_PLANT_SPOTS = 16;
+
+    /** The kinds of planting a collector can be given: crops (seeds, carrots...) and saplings. Each has its own spots. */
+    public enum PlantKind {
+        CROP, SAPLING
+    }
+
+    /** One planting task: what is planted, and the blocks (the soil) it is planted on. Set from the hive menu and the world. */
+    public static final class PlantTask {
+        @Nullable
+        private Item item;
+        private final List<BlockPos> spots = new ArrayList<>();
+
+        @Nullable
+        public Item item() {
+            return item;
+        }
+
+        public List<BlockPos> spots() {
+            return spots;
+        }
+    }
+
+    private final PlantTask crops = new PlantTask();
+    private final PlantTask saplings = new PlantTask();
+    /** The seed or sapling it is carrying from the Heart to a spot (one), or empty. Saved. */
+    private ItemStack plantCarried = ItemStack.EMPTY;
 
     private static final String HEART_TAG = "HiveHeartId";
     private static final String CARRIED_TAG = "Carried";
@@ -54,7 +99,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         builder.define(DATA_OWNER, Optional.empty());
     }
 
-    // ---- outline: always white (collectors cannot be selected), visible through walls, for the owner only ----
+    // ---- outline: white, yellow when selected, visible through walls, for the owner only ----
 
     @Override
     public boolean isCurrentlyGlowing() {
@@ -75,6 +120,8 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         // Deliberately not calling super: silverfish goals hide in stone, wake friends and attack players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new CollectItemsGoal(this));
+        // Planting comes after collecting: a collector with items to fetch fetches them first.
+        this.goalSelector.addGoal(2, new CollectorPlantGoal(this));
     }
 
     @Override
@@ -91,26 +138,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         this.heartId = heartId;
     }
 
-    /** Collectors cannot be commanded: they never have an action. */
-    public CollectorBehavior behavior() {
-        return behavior;
-    }
-
-    @Override
-    public int behaviorFlags() {
-        return 0;
-    }
-
-    @Override
-    public int[] behaviorRadii() {
-        return new int[] {behavior.extraRange(), 0, 0, 0};
-    }
-
-    @Override
-    public void setBehavior(int flags, int[] radii) {
-        this.behavior = new CollectorBehavior(radii[0]);
-    }
-
+    /** Collectors take no orders: they never have an action. Their tasks are the planting ones. */
     @Nullable
     @Override
     public UnitAction action() {
@@ -145,9 +173,15 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     @Override
     public void die(DamageSource source) {
         super.die(source);
-        if (!this.level().isClientSide && !carried.isEmpty()) {
-            this.spawnAtLocation(carried);
-            carried = ItemStack.EMPTY;
+        if (!this.level().isClientSide) {
+            if (!carried.isEmpty()) {
+                this.spawnAtLocation(carried);
+                carried = ItemStack.EMPTY;
+            }
+            if (!plantCarried.isEmpty()) {
+                this.spawnAtLocation(plantCarried);
+                plantCarried = ItemStack.EMPTY;
+            }
         }
     }
 
@@ -167,13 +201,108 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         this.entityData.set(DATA_OWNER, Optional.ofNullable(ownerId));
     }
 
+    // ---- planting tasks ----
+
+    public PlantTask task(PlantKind kind) {
+        return kind == PlantKind.CROP ? crops : saplings;
+    }
+
+    /** The seed or sapling it is carrying from the Heart to a spot, or empty. */
+    public ItemStack plantCarried() {
+        return plantCarried;
+    }
+
+    public void setPlantCarried(ItemStack stack) {
+        this.plantCarried = stack;
+    }
+
+    /** Choose what a kind of planting plants: an item that cannot be planted that way clears it. */
+    public void setPlantItem(PlantKind kind, @Nullable Item item) {
+        task(kind).item = item != null && plantBlock(kind, item) != null ? item : null;
+    }
+
+    /** Add a soil block to plant on, up to {@link #MAX_PLANT_SPOTS}; false if it is there already or there is no room. */
+    public boolean addPlantSpot(PlantKind kind, BlockPos pos) {
+        List<BlockPos> spots = task(kind).spots;
+        if (spots.size() >= MAX_PLANT_SPOTS || spots.contains(pos)) {
+            return false;
+        }
+        spots.add(pos.immutable());
+        return true;
+    }
+
+    public void removePlantSpot(PlantKind kind, BlockPos pos) {
+        task(kind).spots.remove(pos);
+    }
+
+    public void clearPlantSpots(PlantKind kind) {
+        task(kind).spots.clear();
+    }
+
+    /**
+     * The block this item plants for this kind of planting, or null if it is not something that can be planted that way.
+     * Crops: seeds, carrots, potatoes, nether warts, melon and pumpkin seeds, and the like. Saplings: the trees' saplings
+     * and mangrove propagules.
+     */
+    @Nullable
+    public static Block plantBlock(PlantKind kind, Item item) {
+        if (!(item instanceof BlockItem blockItem)) {
+            return null;
+        }
+        Block block = blockItem.getBlock();
+        if (kind == PlantKind.SAPLING) {
+            return block instanceof SaplingBlock || block instanceof MangrovePropaguleBlock ? block : null;
+        }
+        return block instanceof CropBlock || block instanceof StemBlock || block instanceof NetherWartBlock
+                || block instanceof PitcherCropBlock || block instanceof TorchflowerCropBlock ? block : null;
+    }
+
+    // ---- saving ----
+
+    private static void saveTask(CompoundTag tag, String key, PlantTask task) {
+        CompoundTag saved = new CompoundTag();
+        if (task.item != null) {
+            saved.putString("Item", BuiltInRegistries.ITEM.getKey(task.item).toString());
+        }
+        ListTag list = new ListTag();
+        for (BlockPos spot : task.spots) {
+            list.add(NbtUtils.writeBlockPos(spot));
+        }
+        saved.put("Spots", list);
+        tag.put(key, saved);
+    }
+
+    private void loadTask(CompoundTag tag, String key, PlantKind kind) {
+        PlantTask task = task(kind);
+        task.item = null;
+        task.spots.clear();
+        if (!tag.contains(key)) {
+            return;
+        }
+        CompoundTag saved = tag.getCompound(key);
+        if (saved.contains("Item")) {
+            ResourceLocation id = ResourceLocation.tryParse(saved.getString("Item"));
+            setPlantItem(kind, id == null ? null : BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        }
+        ListTag list = saved.getList("Spots", Tag.TAG_INT_ARRAY);
+        for (int i = 0; i < list.size() && i < MAX_PLANT_SPOTS; i++) {
+            if (list.get(i) instanceof IntArrayTag array && array.size() == 3) {
+                task.spots.add(new BlockPos(array.get(0).getAsInt(), array.get(1).getAsInt(), array.get(2).getAsInt()));
+            }
+        }
+    }
+
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
-        tag.put("Behavior", behavior.save());
+        saveTask(tag, "Crops", crops);
+        saveTask(tag, "Saplings", saplings);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
+        }
+        if (!plantCarried.isEmpty()) {
+            tag.put("PlantCarried", plantCarried.save(registryAccess()));
         }
         if (!carried.isEmpty()) {
             tag.put(CARRIED_TAG, carried.save(registryAccess()));
@@ -184,12 +313,12 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
-        if (tag.contains("Behavior")) {
-            behavior = CollectorBehavior.load(tag.getCompound("Behavior"));
-        }
+        loadTask(tag, "Crops", PlantKind.CROP);
+        loadTask(tag, "Saplings", PlantKind.SAPLING);
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }
+        plantCarried = tag.contains("PlantCarried") ? ItemStack.parse(registryAccess(), tag.get("PlantCarried")).orElse(ItemStack.EMPTY) : ItemStack.EMPTY;
         if (tag.contains(CARRIED_TAG)) {
             carried = ItemStack.parse(registryAccess(), tag.get(CARRIED_TAG)).orElse(ItemStack.EMPTY);
         }

@@ -59,6 +59,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: skeleton goals flee the sun and shoot players.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        // Above everything else: a unit told to stay inside the hive border does.
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new InteractBlockGoal(this));
         this.goalSelector.addGoal(1, new WorkerBuildGoal(this));

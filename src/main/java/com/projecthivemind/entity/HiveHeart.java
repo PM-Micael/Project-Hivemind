@@ -64,7 +64,6 @@ public class HiveHeart extends Mob {
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
-    private static final String CONSUMED_TAG = "ConsumedGround";
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
     private static final String TOOL_VERSION_TAG = "ToolVersion";
 
@@ -263,16 +262,6 @@ public class HiveHeart extends Mob {
         this.syncedActions = snapshot;
     }
 
-    /** The ground the hive's creep has consumed, by position, so destroying the Heart can put it back. */
-    private final Map<BlockPos, BlockState> consumedBlocks = new LinkedHashMap<>();
-
-    public Map<BlockPos, BlockState> consumedBlocks() {
-        return consumedBlocks;
-    }
-
-    public void recordConsumed(BlockPos pos, BlockState original) {
-        consumedBlocks.put(pos.immutable(), original);
-    }
 
     /** The loaded Hive Heart with this id, or null. */
     @Nullable
@@ -582,14 +571,6 @@ public class HiveHeart extends Mob {
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
         tag.putInt(TOOL_VERSION_TAG, toolVersion);
 
-        ListTag consumed = new ListTag();
-        consumedBlocks.forEach((pos, state) -> {
-            CompoundTag entry = new CompoundTag();
-            entry.putLong("Pos", pos.asLong());
-            entry.put("State", NbtUtils.writeBlockState(state));
-            consumed.add(entry);
-        });
-        tag.put(CONSUMED_TAG, consumed);
     }
 
     @Override
@@ -637,11 +618,5 @@ public class HiveHeart extends Mob {
         lastArmorSignature = null;
         lastToolSignature = null;
 
-        consumedBlocks.clear();
-        for (Tag entry : tag.getList(CONSUMED_TAG, Tag.TAG_COMPOUND)) {
-            CompoundTag consumed = (CompoundTag) entry;
-            consumedBlocks.put(BlockPos.of(consumed.getLong("Pos")),
-                    NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), consumed.getCompound("State")));
-        }
     }
 }

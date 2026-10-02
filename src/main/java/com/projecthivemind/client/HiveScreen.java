@@ -11,20 +11,22 @@ import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.CollectorBehavior;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.WorkerBehavior;
 import com.projecthivemind.menu.HiveMenu;
 import com.projecthivemind.menu.StorageScroll;
 import com.projecthivemind.network.CancelJobPayload;
+import com.projecthivemind.network.FocusUnitPayload;
 import com.projecthivemind.network.HiveMenuClickPayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetJobResumePayload;
+import com.projecthivemind.network.SetCollectorTaskPayload;
 import com.projecthivemind.network.SetMenuViewPayload;
 import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.SetUnitBehaviorPayload;
@@ -32,6 +34,10 @@ import com.projecthivemind.network.ToggleInventoryModePayload;
 import com.projecthivemind.network.ViewUnitPayload;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -80,6 +86,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int HEALTH_Y = 74;
     private static final int JOB_TOP = 88;
     private static final int BEHAVIOR_TOP = 126;
+    /** A collector's two planting rows (crops, then saplings), and the hint under them. */
+    private static final int CROP_ROW_Y = BEHAVIOR_TOP + 22;
+    private static final int SAPLING_ROW_Y = BEHAVIOR_TOP + 52;
     private static final int BEHAVIOR_ROW = 18;
 
     private enum Tab {
@@ -111,21 +120,27 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox allInUnitArea;
     private Checkbox hostileInUnitArea;
     private Checkbox threats;
+    private Checkbox soldierStay;
 
     // Worker settings.
     private final EditBox[] workerRadii = new EditBox[2];
     private Checkbox mineOre;
     private Checkbox chopLogs;
     private Checkbox digThrough;
+    private Checkbox workerStay;
 
     // Collector setting: just the one.
-    private EditBox collectorRangeBox;
-    private int collectorRange;
+    /** The collector's planting task: the seed it plants, and clearing the soil block it plants on. */
+    private Button seedButton;
+    private Button saplingButton;
+    private Button clearSaplingSpotsButton;
+    private Button clearSpotButton;
 
     // Scout settings: the radius and two checkboxes.
     private final EditBox[] scoutRadii = new EditBox[2];
     private Checkbox pickUpItems;
     private Checkbox fleeHostiles;
+    private Checkbox scoutStay;
 
     private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
     private final List<AbstractWidget> workerWidgets = new ArrayList<>();
@@ -158,7 +173,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // Wide enough for the tabs, with room to spare for more.
         this.imageWidth = 360;
         // Tall enough for a unit's page, whatever the storage size.
-        this.imageHeight = Math.max(HiveMenu.panelHeight(menu.storageRows()), 250);
+        this.imageHeight = Math.max(HiveMenu.panelHeight(menu.storageRows()), 262);
         this.titleLabelX = 8;
         this.titleLabelY = 8;
     }
@@ -315,6 +330,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 // Clicking a head also highlights that one unit in the world, and only it.
                 ClientSelection.retain(Set.of());
                 ClientSelection.select(id);
+                // ...and the camera goes to it, 3 blocks away, looking straight at it.
+                PacketDistributor.sendToServer(new FocusUnitPayload(id));
             });
             button.setTooltip(Tooltip.create(name));
             unitButtons.add(addRenderableWidget(button));
@@ -400,6 +417,73 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
+    /** Clearing every planting spot of a kind cannot be undone, so the player is asked first; this screen comes back either way. */
+    private void askToClearSpots(HiveCollector.PlantKind kind) {
+        int unit = viewedUnit;
+        if (unit < 0) {
+            return;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new SetCollectorTaskPayload(unit, taskOp(kind, 2), "", BlockPos.ZERO));
+            }
+            minecraft.setScreen(this);
+        }, Component.translatable("screen.projecthivemind.collector.clear_title." + kind.name().toLowerCase(Locale.ROOT)),
+                Component.translatable("screen.projecthivemind.collector.clear_message"),
+                CommonComponents.GUI_YES, CommonComponents.GUI_NO));
+    }
+
+    /** The operation number the server wants: saplings are the same as crops, plus 10. */
+    private static int taskOp(HiveCollector.PlantKind kind, int op) {
+        return kind == HiveCollector.PlantKind.SAPLING ? op + 10 : op;
+    }
+
+    /** What the viewed collector plants for this kind, as an item stack to draw (empty for none). */
+    private ItemStack currentPlant(HiveCollector.PlantKind kind) {
+        SyncUnitsPayload.Entry entry = ClientUnits.entry(viewedUnit);
+        if (entry == null) {
+            return ItemStack.EMPTY;
+        }
+        String name = kind == HiveCollector.PlantKind.SAPLING ? entry.task().sapling() : entry.task().seed();
+        ResourceLocation id = name.isEmpty() ? null : ResourceLocation.tryParse(name);
+        return id == null ? ItemStack.EMPTY : BuiltInRegistries.ITEM.getOptional(id).map(ItemStack::new).orElse(ItemStack.EMPTY);
+    }
+
+    /** Pick what is planted: a list of everything that can be planted that way, shown over this screen. */
+    private void openPlantPicker(HiveCollector.PlantKind kind) {
+        int unit = viewedUnit;
+        if (unit < 0) {
+            return;
+        }
+        Minecraft.getInstance().setScreen(new SeedPickerScreen(this, kind, item ->
+                PacketDistributor.sendToServer(new SetCollectorTaskPayload(unit, taskOp(kind, 0),
+                        item == null ? "" : BuiltInRegistries.ITEM.getKey(item).toString(), BlockPos.ZERO))));
+    }
+
+    /** A button that shows the seed chosen, as its item, where a label would be. */
+    private static final class SeedButton extends Button {
+        private final Supplier<ItemStack> seed;
+
+        SeedButton(int x, int y, int width, int height, Supplier<ItemStack> seed, Button.OnPress onPress) {
+            super(x, y, width, height, Component.empty(), onPress, DEFAULT_NARRATION);
+            this.seed = seed;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            super.renderWidget(graphics, mouseX, mouseY, partialTick);
+            ItemStack stack = seed.get();
+            if (!stack.isEmpty()) {
+                graphics.renderItem(stack, getX() + 2, getY() + 2);
+            }
+        }
+
+        @Override
+        public void renderString(GuiGraphics graphics, Font font, int color) {
+        }
+    }
+
     // ---- the behaviour settings of the viewed unit ----
 
     /**
@@ -426,6 +510,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         hostileInUnitArea = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.hostile_in_unit", this::sendSoldierBehavior);
         soldierRadii[3] = radiusBox(soldierWidgets, 3, 3, this::sendSoldierBehavior);
         threats = behaviorBox(soldierWidgets, 4, "screen.projecthivemind.behavior.threats", this::sendSoldierBehavior);
+        soldierStay = behaviorBox(soldierWidgets, 5, "screen.projecthivemind.behavior.stay_inside", this::sendSoldierBehavior);
 
         // Workers: what to work on, each with how far to look for it.
         mineOre = behaviorBox(workerWidgets, 0, "screen.projecthivemind.behavior.mine_ore", this::sendWorkerBehavior);
@@ -433,19 +518,33 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         chopLogs = behaviorBox(workerWidgets, 1, "screen.projecthivemind.behavior.chop_logs", this::sendWorkerBehavior);
         workerRadii[1] = radiusBox(workerWidgets, 1, 1, this::sendWorkerBehavior);
         digThrough = behaviorBox(workerWidgets, 2, "screen.projecthivemind.behavior.dig_through", this::sendWorkerBehavior);
+        workerStay = behaviorBox(workerWidgets, 3, "screen.projecthivemind.behavior.stay_inside", this::sendWorkerBehavior);
 
-        // Collectors: just how far past the hive area they may reach for items.
-        collectorRangeBox = areaBox(collectorWidgets, "screen.projecthivemind.behavior.collector_range",
-                "screen.projecthivemind.behavior.collector_range.tooltip", text -> {
-            collectorRange = Integer.parseInt(text);
-            sendCollectorBehavior();
-        });
+        // Collectors: two planting tasks, crops and saplings. For each, the item (picked from a list) and the soil blocks it is
+        // planted on (set in the world). Their rows: the item, how many spots, and a button to clear them.
+        int labelEnd = font.width(Component.translatable("screen.projecthivemind.collector.seed")) + 8;
+        seedButton = addRenderableWidget(new SeedButton(leftPos + BEHAVIOR_X + 4 + labelEnd, topPos + CROP_ROW_Y, 20, 20,
+                () -> currentPlant(HiveCollector.PlantKind.CROP), button -> openPlantPicker(HiveCollector.PlantKind.CROP)));
+        seedButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.collector.seed.tooltip")));
+        collectorWidgets.add(seedButton);
+        clearSpotButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.collector.clear_spots"),
+                button -> askToClearSpots(HiveCollector.PlantKind.CROP)).bounds(leftPos + imageWidth - 12 - 44, topPos + CROP_ROW_Y + 2, 44, 16).build());
+        collectorWidgets.add(clearSpotButton);
+        int saplingLabelEnd = font.width(Component.translatable("screen.projecthivemind.collector.sapling")) + 8;
+        saplingButton = addRenderableWidget(new SeedButton(leftPos + BEHAVIOR_X + 4 + saplingLabelEnd, topPos + SAPLING_ROW_Y, 20, 20,
+                () -> currentPlant(HiveCollector.PlantKind.SAPLING), button -> openPlantPicker(HiveCollector.PlantKind.SAPLING)));
+        saplingButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.collector.sapling.tooltip")));
+        collectorWidgets.add(saplingButton);
+        clearSaplingSpotsButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.collector.clear_spots"),
+                button -> askToClearSpots(HiveCollector.PlantKind.SAPLING)).bounds(leftPos + imageWidth - 12 - 44, topPos + SAPLING_ROW_Y + 2, 44, 16).build());
+        collectorWidgets.add(clearSaplingSpotsButton);
 
         // Scouts: the two things they may do on their own, each with its radius.
         pickUpItems = behaviorBox(scoutWidgets, 0, "screen.projecthivemind.behavior.scout_pickup", this::sendScoutBehavior);
         scoutRadii[0] = radiusBox(scoutWidgets, 0, 0, this::sendScoutBehavior);
         fleeHostiles = behaviorBox(scoutWidgets, 1, "screen.projecthivemind.behavior.scout_flee", this::sendScoutBehavior);
         scoutRadii[1] = radiusBox(scoutWidgets, 1, 1, this::sendScoutBehavior);
+        scoutStay = behaviorBox(scoutWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendScoutBehavior);
 
         setBehaviorEnabled(false);
         filling = false;
@@ -472,25 +571,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         return box.getValue().isEmpty() ? 0 : Integer.parseInt(box.getValue());
     }
 
-    /**
-     * The number field at the top of a page, placed just after its label so it never overlaps it, whatever the
-     * label's length. Reports each valid number the player types.
-     */
-    private EditBox areaBox(List<AbstractWidget> group, String labelKey, String tooltipKey, java.util.function.Consumer<String> onNumber) {
-        Component label = Component.translatable(labelKey);
-        int fieldX = leftPos + BEHAVIOR_X + 4 + font.width(label) + 8;
-        EditBox box = addRenderableWidget(new EditBox(font, fieldX, topPos + BEHAVIOR_TOP, 32, 16, label));
-        box.setMaxLength(2);
-        box.setFilter(text -> text.matches("\\d*"));
-        box.setTooltip(Tooltip.create(Component.translatable(tooltipKey)));
-        box.setResponder(text -> {
-            if (!text.isEmpty() && !filling && behaviorLoaded) {
-                onNumber.accept(text);
-            }
-        });
-        group.add(box);
-        return box;
-    }
 
     private Checkbox behaviorBox(List<AbstractWidget> group, int row, String key, Runnable onChange) {
         Checkbox box = Checkbox.builder(Component.translatable(key), font)
@@ -527,6 +607,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(allInUnitArea, soldier.allInUnitArea());
                 setChecked(hostileInUnitArea, soldier.hostileInUnitArea());
                 setChecked(threats, soldier.threats());
+                setChecked(soldierStay, soldier.stayInside());
                 int[] values = soldier.radii();
                 for (int i = 0; i < soldierRadii.length; i++) {
                     soldierRadii[i].setValue(String.valueOf(values[i]));
@@ -537,19 +618,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(mineOre, worker.mineOre());
                 setChecked(chopLogs, worker.chopLogs());
                 setChecked(digThrough, worker.digThrough());
+                setChecked(workerStay, worker.stayInside());
                 int[] values = worker.radii();
                 for (int i = 0; i < workerRadii.length; i++) {
                     workerRadii[i].setValue(String.valueOf(values[i]));
                 }
             }
             case COLLECTOR -> {
-                collectorRange = new CollectorBehavior(radii[0]).extraRange();
-                collectorRangeBox.setValue(String.valueOf(collectorRange));
+                // Nothing to fill in: a collector's page shows its tasks, which come with the unit list.
             }
             case SCOUT -> {
                 ScoutBehavior scout = ScoutBehavior.from(flags, radii);
                 setChecked(pickUpItems, scout.collectItems());
                 setChecked(fleeHostiles, scout.fleeHostiles());
+                setChecked(scoutStay, scout.stayInside());
                 int[] values = scout.radii();
                 for (int i = 0; i < scoutRadii.length; i++) {
                     scoutRadii[i].setValue(String.valueOf(values[i]));
@@ -576,7 +658,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (canSend()) {
             SoldierBehavior behavior = new SoldierBehavior(allInHiveArea.selected(), number(soldierRadii[0]), hostileInHiveArea.selected(),
                     number(soldierRadii[1]), allInUnitArea.selected(), number(soldierRadii[2]), hostileInUnitArea.selected(),
-                    number(soldierRadii[3]), threats.selected());
+                    number(soldierRadii[3]), threats.selected(), soldierStay.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -584,23 +666,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void sendWorkerBehavior() {
         if (canSend()) {
             WorkerBehavior behavior = new WorkerBehavior(mineOre.selected(), number(workerRadii[0]), chopLogs.selected(),
-                    number(workerRadii[1]), digThrough.selected());
+                    number(workerRadii[1]), digThrough.selected(), workerStay.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
 
     private void sendScoutBehavior() {
         if (canSend()) {
-            ScoutBehavior behavior = new ScoutBehavior(pickUpItems.selected(), number(scoutRadii[0]), fleeHostiles.selected(), number(scoutRadii[1]));
+            ScoutBehavior behavior = new ScoutBehavior(pickUpItems.selected(), number(scoutRadii[0]), fleeHostiles.selected(), number(scoutRadii[1]), scoutStay.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
 
-    private void sendCollectorBehavior() {
-        if (canSend()) {
-            sendBehavior(0, new int[] {collectorRange});
-        }
-    }
 
     private void sendBehavior(int flags, int[] radii) {
         List<Integer> list = new ArrayList<>();
@@ -677,6 +754,27 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
+    /**
+     * The collector page: a note, then a row for crops and one for saplings, each with the label of its item (the button is
+     * a widget) and how many spots it has. The spots themselves are only shown in the world, as particles, not as coordinates.
+     */
+    private void renderCollectorTask(GuiGraphics graphics) {
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.collector_note"),
+                BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0x909090, false);
+        SyncUnitsPayload.Entry entry = ClientUnits.entry(viewedUnit);
+        int crops = entry == null ? 0 : entry.task().spots().size();
+        int saplings = entry == null ? 0 : entry.task().saplingSpots().size();
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.collector.seed"), BEHAVIOR_X + 4, CROP_ROW_Y + 6, 0xE0E0E0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.collector.spots", crops, HiveCollector.MAX_PLANT_SPOTS),
+                BEHAVIOR_X + 150, CROP_ROW_Y + 6, 0xA0A0A0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.collector.sapling"), BEHAVIOR_X + 4, SAPLING_ROW_Y + 6, 0xE0E0E0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.collector.spots", saplings, HiveCollector.MAX_PLANT_SPOTS),
+                BEHAVIOR_X + 150, SAPLING_ROW_Y + 6, 0xA0A0A0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.collector.spot_hint"),
+                BEHAVIOR_X + 4, SAPLING_ROW_Y + 30, 0x909090, false);
+    }
+
+
     /** A unit page: how many of the kind are out, and the labels of the settings (or that there is none). */
     private void renderUnitPage(GuiGraphics graphics) {
         String countKey = "screen.projecthivemind.hive." + unitPage.name().toLowerCase(Locale.ROOT) + "s";
@@ -700,17 +798,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (unitPage != UnitKind.COLLECTOR) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.radius"), imageWidth - 12 - 34, BEHAVIOR_TOP - 12, 0xA0A0A0, false);
         }
-        String labelKey = "screen.projecthivemind.behavior.collector_range";
-        if (unitPage == UnitKind.COLLECTOR) {
-            graphics.drawString(font, Component.translatable(labelKey), BEHAVIOR_X + 4, BEHAVIOR_TOP + 4, 0xE0E0E0, false);
-        }
         switch (unitPage) {
-            case COLLECTOR -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.collector_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + BEHAVIOR_ROW + 4, 0x909090, false);
+            case COLLECTOR -> renderCollectorTask(graphics);
             case SCOUT -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 2 * BEHAVIOR_ROW + 4, 0x909090, false);
-            case WORKER -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),
                     BEHAVIOR_X + 4, BEHAVIOR_TOP + 3 * BEHAVIOR_ROW + 4, 0x909090, false);
+            case WORKER -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.worker_note"),
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 4 * BEHAVIOR_ROW + 4, 0x909090, false);
             default -> {
             }
         }

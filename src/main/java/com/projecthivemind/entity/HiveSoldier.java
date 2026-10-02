@@ -73,6 +73,8 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         // Deliberately not calling super: zombie goals hunt players, villagers and turtle eggs.
         // Soldiers walk where told and fight what they are told to attack. Digging and interacting is worker-only.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        // Above everything else: a unit told to stay inside the hive border does.
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
         // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));

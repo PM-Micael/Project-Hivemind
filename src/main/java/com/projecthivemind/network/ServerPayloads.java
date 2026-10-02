@@ -91,9 +91,21 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onFocusUnit(FocusUnitPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.focusUnit(player, payload.unitId());
+        }
+    }
+
     public static void onDropItem(DropItemPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HiveActions.scoutDrop(player, payload);
+        }
+    }
+
+    public static void onSetCollectorTask(SetCollectorTaskPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setCollectorTask(player, payload.unitId(), payload.op(), payload.seed(), payload.pos());
         }
     }
 

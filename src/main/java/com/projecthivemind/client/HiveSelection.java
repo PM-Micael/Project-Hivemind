@@ -17,9 +17,12 @@ import com.projecthivemind.MobAction;
 import com.projecthivemind.ProjectHivemind;
 import com.projecthivemind.ScoutItems;
 import com.projecthivemind.UnitKind;
+import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ScoutUsePayload;
+import com.projecthivemind.network.SetCollectorTaskPayload;
+import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 import com.projecthivemind.network.BlockActionPayload;
@@ -188,6 +191,10 @@ public final class HiveSelection {
         }
 
         List<Integer> selected = List.copyOf(ClientSelection.selected());
+        if (!unitsOfKind(minecraft, selected, UnitKind.COLLECTOR).isEmpty()) {
+            // A selected collector only takes tasks from the right-click menu.
+            return;
+        }
         if (selected.isEmpty()) {
             minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.select_units_first"), false);
             return;
@@ -240,7 +247,7 @@ public final class HiveSelection {
         double closestDistance = Double.MAX_VALUE;
         for (Entity entity : minecraft.level.entitiesForRendering()) {
             // Units show through walls, so they can be picked through walls too: no block check.
-            if (!(entity instanceof HiveUnit unit) || unit.kind() == UnitKind.COLLECTOR
+            if (!(entity instanceof HiveUnit unit)
                     || !minecraft.player.getUUID().equals(unit.ownerId())) {
                 continue;
             }
@@ -256,6 +263,22 @@ public final class HiveSelection {
         }
         if (closest == null) {
             return false;
+        }
+        // A collector is selected on its own, one at a time, only to give it tasks inside the hive border; nothing else
+        // can be selected with it. Selecting anything else lets it go.
+        boolean collector = closest instanceof HiveUnit pickedUnit && pickedUnit.kind() == UnitKind.COLLECTOR;
+        if (collector) {
+            boolean wasSelected = ClientSelection.isSelected(closest.getId());
+            ClientSelection.retain(Set.of());
+            if (!wasSelected) {
+                ClientSelection.select(closest.getId());
+            }
+            return true;
+        }
+        for (int id : List.copyOf(ClientSelection.selected())) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit other && other.kind() == UnitKind.COLLECTOR) {
+                ClientSelection.deselect(id);
+            }
         }
         ClientSelection.toggle(closest.getId());
         return true;
@@ -299,6 +322,13 @@ public final class HiveSelection {
         if (!blockHit) {
             return;
         }
+        // One collector selected: the only things to offer are its tasks, and only inside the hive border.
+        List<Integer> collectors = unitsOfKind(minecraft, selected, UnitKind.COLLECTOR);
+        if (!collectors.isEmpty()) {
+            openCollectorMenu(minecraft, collectors.get(0), hit.getBlockPos());
+            return;
+        }
+
         BlockPos pos = hit.getBlockPos();
         boolean working = ClientActions.isActive(pos);
         if (selected.isEmpty() && !working) {
@@ -337,6 +367,38 @@ public final class HiveSelection {
         }
         if (working) {
             options.add(option("action.projecthivemind.cancel", List.of(), pos, BlockAction.CANCEL));
+        }
+        int[] cursor = ContextMenu.cursor(minecraft);
+        ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);
+    }
+
+    /** True if this block is inside the hive border (as the Heart last told us): collectors only work in there. */
+    private static boolean insideHiveBorder(BlockPos pos) {
+        BlockPos center = ClientState.borderCenter();
+        int radius = ClientState.borderRadius();
+        return center != null && Math.abs(pos.getX() - center.getX()) <= radius && Math.abs(pos.getZ() - center.getZ()) <= radius;
+    }
+
+    /** The menu for a block with a collector selected: set the soil it plants on (and clear it, if one is set). */
+    private static void openCollectorMenu(Minecraft minecraft, int collectorId, BlockPos pos) {
+        if (!insideHiveBorder(pos)) {
+            minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.plant_outside"), false);
+            return;
+        }
+        List<ContextMenu.Option> options = new ArrayList<>();
+        SyncUnitsPayload.Entry entry = ClientUnits.entry(collectorId);
+        // For each kind of planting: a block that is one of its spots already can be taken off, any other can be added.
+        for (HiveCollector.PlantKind kind : HiveCollector.PlantKind.values()) {
+            boolean sapling = kind == HiveCollector.PlantKind.SAPLING;
+            java.util.List<BlockPos> spots = entry == null ? java.util.List.of() : sapling ? entry.task().saplingSpots() : entry.task().spots();
+            int offset = sapling ? 10 : 0;
+            if (spots.contains(pos)) {
+                options.add(new ContextMenu.Option(Component.translatable(sapling ? "action.projecthivemind.remove_sapling_spot" : "action.projecthivemind.remove_plant_spot"),
+                        () -> PacketDistributor.sendToServer(new SetCollectorTaskPayload(collectorId, 3 + offset, "", pos))));
+            } else {
+                options.add(new ContextMenu.Option(Component.translatable(sapling ? "action.projecthivemind.add_sapling_spot" : "action.projecthivemind.add_plant_spot"),
+                        () -> PacketDistributor.sendToServer(new SetCollectorTaskPayload(collectorId, 1 + offset, "", pos))));
+            }
         }
         int[] cursor = ContextMenu.cursor(minecraft);
         ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);

@@ -98,6 +98,10 @@ public final class CommandBar {
     /** Select all of a kind of unit, or if they are all selected already, deselect them all. */
     private static void toggleGroup(Minecraft minecraft, int index) {
         Group group = GROUPS.get(index);
+        // A collector is only ever selected alone: selecting these lets it go.
+        for (int id : ownUnits(minecraft, UnitKind.COLLECTOR)) {
+            ClientSelection.deselect(id);
+        }
         List<Integer> ids = ownUnits(minecraft, group.kind());
         if (ids.isEmpty()) {
             minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.no_such_units",

@@ -155,6 +155,26 @@ public final class HivemindManager {
         refresh(player);
     }
 
+    /** How far from a unit the camera stands when the player jumps to it, in blocks. */
+    private static final double FOCUS_DISTANCE = 3.0D;
+
+    /**
+     * Put the camera 3 blocks from one of the player's units, at its eye height and looking straight at it, keeping the
+     * direction the camera was already facing (so the view does not spin round). The tilt is the camera's lowest.
+     */
+    public static void focusUnit(ServerPlayer player, int unitId) {
+        if (get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        if (player.serverLevel().getEntity(unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                && player.getUUID().equals(unit.ownerId())) {
+            float yaw = player.getYRot();
+            double x = mob.getX() + Mth.sin(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
+            double z = mob.getZ() - Mth.cos(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
+            player.teleportTo(player.serverLevel(), x, mob.getEyeY(), z, yaw, 5.0F);
+        }
+    }
+
     /** Move the camera back above the Hive Heart, keeping the player's own view angle. Hive stage only. */
     public static void returnToHeart(ServerPlayer player) {
         if (get(player).stage() != HivemindStage.HIVE) {
@@ -227,7 +247,6 @@ public final class HivemindManager {
 
         setHeartChunksForced(level, target, true);
         level.addFreshEntity(heart);
-        HiveInfection.spread(level, heart);
         level.playSound(null, target, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 1.0F, 0.8F);
 
         set(player, data.withStage(HivemindStage.HIVE)
@@ -248,7 +267,7 @@ public final class HivemindManager {
         sync(player);
     }
 
-    /** The Heart died: the hive collapses. Its items drop, the creep goes, units die, and the owner is a larva again. */
+    /** The Heart died: the hive collapses. Its items drop, units die, and the owner is a larva again. */
     public static void onHeartDestroyed(ServerLevel level, HiveHeart heart) {
         BlockPos center = heart.blockPosition();
         Containers.dropContents(level, center, heart.getStorage());
@@ -257,7 +276,6 @@ public final class HivemindManager {
         Containers.dropContents(level, center, heart.furnace().items());
         Containers.dropContents(level, center, heart.scoutHand());
         Containers.dropContents(level, center, heart.foodSlot());
-        HiveInfection.clear(level, heart);
         setHeartChunksForced(level, center, false);
 
         UUID ownerId = heart.ownerId();
@@ -340,6 +358,53 @@ public final class HivemindManager {
         }
     }
 
+    /** A collector's planting tasks, for the unit pages; everything else has none. */
+    private static SyncUnitsPayload.Task taskOf(Mob mob) {
+        if (mob instanceof HiveCollector collector) {
+            return new SyncUnitsPayload.Task(itemName(collector.task(HiveCollector.PlantKind.CROP).item()),
+                    List.copyOf(collector.task(HiveCollector.PlantKind.CROP).spots()),
+                    itemName(collector.task(HiveCollector.PlantKind.SAPLING).item()),
+                    List.copyOf(collector.task(HiveCollector.PlantKind.SAPLING).spots()));
+        }
+        return SyncUnitsPayload.Task.NONE;
+    }
+
+    private static String itemName(@Nullable net.minecraft.world.item.Item item) {
+        return item == null ? "" : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item).toString();
+    }
+
+    /**
+     * The player set up one of a collector's planting tasks. {@code op} is 0 to choose the item (an item name, empty for
+     * none), 1 to add a soil block to plant on, 2 to clear all the blocks, 3 to remove one; add 10 for saplings instead of
+     * crops. Only for the player's own collectors, and a block only inside the hive area.
+     */
+    public static void setCollectorTask(ServerPlayer player, int unitId, int op, String item, BlockPos pos) {
+        if (!(player.serverLevel().getEntity(unitId) instanceof HiveCollector collector) || !collector.isAlive()
+                || !player.getUUID().equals(collector.ownerId())) {
+            return;
+        }
+        HiveHeart heart = findHeart(player);
+        HiveCollector.PlantKind kind = op >= 10 ? HiveCollector.PlantKind.SAPLING : HiveCollector.PlantKind.CROP;
+        switch (op % 10) {
+            case 0 -> {
+                net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(item);
+                collector.setPlantItem(kind, id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+            }
+            case 1 -> {
+                if (heart == null || !player.serverLevel().isLoaded(pos) || !HiveArea.containsXZ(heart, pos.getX() + 0.5D, pos.getZ() + 0.5D)) {
+                    player.displayClientMessage(Component.translatable("message.projecthivemind.plant_outside"), true);
+                } else {
+                    collector.addPlantSpot(kind, pos);
+                }
+            }
+            case 2 -> collector.clearPlantSpots(kind);
+            case 3 -> collector.removePlantSpot(kind, pos);
+            default -> {
+            }
+        }
+        sendUnits(player);
+    }
+
     /** Tell the owner who their units are, for the unit pages of the hive menu. */
     public static void sendUnits(ServerPlayer owner) {
         ServerLevel level = owner.serverLevel();
@@ -353,7 +418,8 @@ public final class HivemindManager {
                     Component text = job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
-                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob()), mob.getHealth(), mob.getMaxHealth()));
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob()),
+                            new SyncUnitsPayload.Vitals(mob.getHealth(), mob.getMaxHealth()), taskOf(mob)));
                 }
             }
         }
@@ -419,7 +485,13 @@ public final class HivemindManager {
         // At the cap: replace the oldest unit if it is out of date.
         Mob oldest = oldestOutOfDate(owner, heart, kind);
         if (oldest != null) {
-            oldest.kill();
+            // The hive itself is ending this unit, to make a new one with the new gear: that costs the Heart nothing.
+            replacingUnit = true;
+            try {
+                oldest.kill();
+            } finally {
+                replacingUnit = false;
+            }
             // The kill frees the slot through the normal death handling; only replace it if that happened.
             if (get(owner).count(kind) < cap) {
                 createUnit(owner, heart, kind);
@@ -565,7 +637,7 @@ public final class HivemindManager {
      * spectator mode, and the bodyless hivemind always is, so without this the world would go quiet: no hostile mobs
      * to fight (or to survive a night against), no animals. This runs the game's own spawning, with its own rules,
      * caps and light levels, on the chunks within 128 blocks of the camera, once a tick like the game does.
-     * (Spawns inside the hive area are still refused by the creep, see CommonEvents.)
+     * (Spawns inside the hive area are still refused, see CommonEvents.)
      */
     public static void tickNaturalSpawning(HiveHeart heart) {
         if (heart.ownerId() == null || heart.getServer() == null || !(heart.level() instanceof ServerLevel level)) {
@@ -692,7 +764,7 @@ public final class HivemindManager {
         }
         heart.setLogsProgress(Math.max(heart.logsProgress(), Math.min(logs, quest.logs())));
 
-        AABB area = HiveInfection.areaBox(level, heart);
+        AABB area = HiveArea.areaBox(level, heart);
         int areaMinX = Mth.floor(area.minX) >> 4;
         int areaMaxX = Mth.floor(area.maxX - 1.0E-4D) >> 4;
         int areaMinZ = Mth.floor(area.minZ) >> 4;
@@ -721,7 +793,6 @@ public final class HivemindManager {
         if (owner.containerMenu != owner.inventoryMenu) {
             owner.closeContainer();
         }
-        HiveInfection.spread(level, heart);
         level.playSound(null, heart.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 0.8F);
         owner.sendSystemMessage(Component.translatable("message.projecthivemind.level_up", heart.hiveLevel()));
     }
@@ -745,7 +816,8 @@ public final class HivemindManager {
             heart.setSyncedFood(foodLevel);
             heart.setSyncedArmor(armor);
             heart.setSyncedHealth(health);
-            PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor, foodLevel));
+            PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor, foodLevel,
+                    HiveLevels.get(heart.hiveLevel()).infectionRadius(), heart.blockPosition()));
         }
     }
 
@@ -834,6 +906,9 @@ public final class HivemindManager {
     /** What it costs the Heart when one of its units dies: 4 health points, 2 hearts. */
     public static final float UNIT_DEATH_DAMAGE = 4.0F;
 
+    /** True while the hive is itself ending a unit to replace it (so that death is not a loss). Server thread only. */
+    private static boolean replacingUnit;
+
     public static void onUnitDied(ServerLevel level, Mob unit) {
         if (!(unit instanceof HiveUnit hiveUnit) || hiveUnit.ownerId() == null) {
             return;
@@ -845,7 +920,7 @@ public final class HivemindManager {
         // Losing a unit hurts the hive: the Heart loses 2 hearts. Armor and invulnerability do not count, it is exactly that.
         // (When the Heart itself was destroyed it is not alive, and its units dying with it cost it nothing.)
         HiveHeart heart = hiveUnit.findHeart();
-        if (heart != null && heart.isAlive()) {
+        if (heart != null && heart.isAlive() && !replacingUnit) {
             heart.invulnerableTime = 0;
             heart.hurt(level.damageSources().genericKill(), UNIT_DEATH_DAMAGE);
         }

@@ -81,6 +81,8 @@ public class HiveScout extends Husk implements HiveUnit {
     protected void registerGoals() {
         // Deliberately not calling super: husk goals hunt players, villagers and turtle eggs.
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        // Above everything else: a unit told to stay inside the hive border does.
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside()));
         // Running away comes before collecting items, so it can interrupt a trip to an item.
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
         this.goalSelector.addGoal(1, new ScoutInteractGoal(this));

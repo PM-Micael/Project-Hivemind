@@ -8,6 +8,7 @@ import javax.annotation.Nullable;
 
 import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveSight;
+import com.projecthivemind.HiveArea;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.WorkerBehavior;
 
@@ -42,6 +43,10 @@ public final class WorkerAutoJobs {
         BlockPos origin = worker.blockPosition();
 
         List<BlockPos> wanted = scan(level, origin, behavior);
+        // A worker set to stay inside the hive area does not look for work outside it.
+        if (behavior.stayInside()) {
+            wanted.removeIf(pos -> !HiveArea.containsXZ(heart, pos.getX() + 0.5D, pos.getZ() + 0.5D));
+        }
         wanted.sort(Comparator.comparingDouble(pos -> pos.distSqr(origin)));
 
         int checked = 0;

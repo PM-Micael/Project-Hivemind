@@ -15,17 +15,19 @@ import net.minecraft.util.Mth;
  * @param chopLogs   chop the logs of natural trees
  * @param logRadius  how far around itself a worker looks for logs, in blocks
  * @param digThrough if a block it wants cannot be reached on foot, dig toward it in a straight line
+ * @param stayInside when not selected, always try to be inside the hive area: this wins over everything else, jobs included
  */
-public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough) {
+public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside) {
     /** Kept lower than the soldiers' limit because workers scan every block in their range for work. */
     public static final int MAX_RADIUS = 32;
 
     /** Workers do nothing on their own until the player turns something on. */
-    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false);
+    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false, false);
 
     private static final int MINE_ORE = 1;
     private static final int CHOP_LOGS = 2;
     private static final int DIG_THROUGH = 4;
+    private static final int STAY_INSIDE = 8;
 
     public WorkerBehavior {
         oreRadius = Mth.clamp(oreRadius, 0, MAX_RADIUS);
@@ -34,7 +36,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
 
     /** The three checkboxes packed into one number. */
     public int flags() {
-        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0);
+        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0) | (stayInside ? STAY_INSIDE : 0);
     }
 
     /** The radii, in the order of the options above that have one. */
@@ -43,7 +45,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
     }
 
     public static WorkerBehavior from(int flags, int[] radii) {
-        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0);
+        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0, (flags & STAY_INSIDE) != 0);
     }
 
     /** True if there is any kind of work for an idle worker to look for. Digging through alone is not work. */

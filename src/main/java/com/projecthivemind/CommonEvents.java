@@ -26,10 +26,12 @@ import com.projecthivemind.network.OpenBookPayload;
 import com.projecthivemind.network.OpenSignPayload;
 import com.projecthivemind.network.CancelJobPayload;
 import com.projecthivemind.network.DropItemPayload;
+import com.projecthivemind.network.FocusUnitPayload;
 import com.projecthivemind.network.ScoutUsePayload;
 import com.projecthivemind.network.SetJobResumePayload;
 import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.ViewUnitPayload;
+import com.projecthivemind.network.SetCollectorTaskPayload;
 import com.projecthivemind.network.SetUnitBehaviorPayload;
 import com.projecthivemind.network.SignTextPayload;
 import com.projecthivemind.network.ScrollStoragePayload;
@@ -83,7 +85,9 @@ public final class CommonEvents {
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
         registrar.playToServer(SelectionPayload.TYPE, SelectionPayload.STREAM_CODEC, ServerPayloads::onSelection);
         registrar.playToServer(SetMenuViewPayload.TYPE, SetMenuViewPayload.STREAM_CODEC, ServerPayloads::onSetMenuView);
+        registrar.playToServer(FocusUnitPayload.TYPE, FocusUnitPayload.STREAM_CODEC, ServerPayloads::onFocusUnit);
         registrar.playToServer(DropItemPayload.TYPE, DropItemPayload.STREAM_CODEC, ServerPayloads::onDropItem);
+        registrar.playToServer(SetCollectorTaskPayload.TYPE, SetCollectorTaskPayload.STREAM_CODEC, ServerPayloads::onSetCollectorTask);
         registrar.playToServer(SetUnitBehaviorPayload.TYPE, SetUnitBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetUnitBehavior);
         registrar.playToServer(CancelJobPayload.TYPE, CancelJobPayload.STREAM_CODEC, ServerPayloads::onCancelJob);
         registrar.playToServer(SetJobResumePayload.TYPE, SetJobResumePayload.STREAM_CODEC, ServerPayloads::onSetJobResume);
@@ -159,7 +163,7 @@ public final class CommonEvents {
     /** Nothing spawns inside an infected area. */
     @SubscribeEvent
     static void onSpawnPlacementCheck(MobSpawnEvent.SpawnPlacementCheck event) {
-        if (BLOCKED_SPAWNS.contains(event.getSpawnType()) && HiveInfection.isInfected(event.getLevel(), event.getPos())) {
+        if (BLOCKED_SPAWNS.contains(event.getSpawnType()) && HiveArea.contains(event.getLevel(), event.getPos())) {
             event.setResult(MobSpawnEvent.SpawnPlacementCheck.Result.FAIL);
         }
     }
