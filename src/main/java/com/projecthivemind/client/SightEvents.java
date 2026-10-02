@@ -23,7 +23,7 @@ public final class SightEvents {
 
     /** Whether a mob should be hidden from the player right now. */
     public static boolean isHidden(LivingEntity mob) {
-        if (!ClientState.hiveMode() || mob instanceof HiveHeart) {
+        if (!ClientState.hiveMode() || !ClientConfig.fogOfWar() || mob instanceof HiveHeart) {
             return false;
         }
         Minecraft minecraft = Minecraft.getInstance();

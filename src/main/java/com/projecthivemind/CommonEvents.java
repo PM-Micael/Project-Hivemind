@@ -76,6 +76,7 @@ public final class CommonEvents {
         registrar.playToServer(ChooseModePayload.TYPE, ChooseModePayload.STREAM_CODEC, ServerPayloads::onChooseMode);
         registrar.playToServer(ReturnToBasePayload.TYPE, ReturnToBasePayload.STREAM_CODEC, ServerPayloads::onReturnToBase);
         registrar.playToServer(ToggleTeamPayload.TYPE, ToggleTeamPayload.STREAM_CODEC, ServerPayloads::onToggleTeam);
+        registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
         registrar.playToServer(HiveMenuClickPayload.TYPE, HiveMenuClickPayload.STREAM_CODEC, ServerPayloads::onHiveMenuClick);
         registrar.playToServer(BlockActionPayload.TYPE, BlockActionPayload.STREAM_CODEC, ServerPayloads::onBlockAction);
@@ -90,6 +91,9 @@ public final class CommonEvents {
         registrar.playToServer(SetJobResumePayload.TYPE, SetJobResumePayload.STREAM_CODEC, ServerPayloads::onSetJobResume);
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);
+        registrar.playToClient(com.projecthivemind.network.SyncTeamPayload.TYPE, com.projecthivemind.network.SyncTeamPayload.STREAM_CODEC, ClientPayloads::onSyncTeam);
+        registrar.playToServer(com.projecthivemind.network.SetTeamRadiusPayload.TYPE, com.projecthivemind.network.SetTeamRadiusPayload.STREAM_CODEC, ServerPayloads::onSetTeamRadius);
+        registrar.playToServer(com.projecthivemind.network.PlaceTorchPayload.TYPE, com.projecthivemind.network.PlaceTorchPayload.STREAM_CODEC, ServerPayloads::onPlaceTorch);
         registrar.playToServer(ScoutUsePayload.TYPE, ScoutUsePayload.STREAM_CODEC, ServerPayloads::onScoutUse);
         registrar.playToServer(SignTextPayload.TYPE, SignTextPayload.STREAM_CODEC, ServerPayloads::onSignText);
         registrar.playToClient(OpenBookPayload.TYPE, OpenBookPayload.STREAM_CODEC, ClientPayloads::onOpenBook);
@@ -167,6 +171,9 @@ public final class CommonEvents {
                 : event.getEntity() instanceof HiveUnit unit ? unit.findHeart() : null;
         if (heart != null && event.getNewDamage() > 0.0F) {
             heart.food().exhaust(event.getSource().getFoodExhaustion());
+        }
+        if (event.getNewDamage() > 0.0F && event.getEntity() instanceof Mob hurt && hurt instanceof HiveUnit) {
+            HivemindManager.onUnitHurt(hurt);
         }
     }
     @SubscribeEvent

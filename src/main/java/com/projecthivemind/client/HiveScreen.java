@@ -28,6 +28,7 @@ import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetJobResumePayload;
 import com.projecthivemind.network.SetCollectorTaskPayload;
 import com.projecthivemind.network.ToggleTeamPayload;
+import com.projecthivemind.network.SetTeamRadiusPayload;
 import com.projecthivemind.network.SetMenuViewPayload;
 import com.projecthivemind.network.SyncUnitsPayload;
 import com.projecthivemind.network.SetUnitBehaviorPayload;
@@ -116,12 +117,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private int viewSeq;
 
     // Soldier settings.
-    private final EditBox[] soldierRadii = new EditBox[4];
     private Checkbox allInHiveArea;
     private Checkbox hostileInHiveArea;
-    private Checkbox allInUnitArea;
-    private Checkbox hostileInUnitArea;
-    private Checkbox threats;
     private Checkbox soldierStay;
     private Checkbox soldierWander;
 
@@ -330,7 +327,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** Where the unit page's settings end if nothing is scrolled: how tall the settings of this kind of unit are. */
     private int behaviorContentBottom() {
         return switch (unitPage) {
-            case SOLDIER -> BEHAVIOR_TOP + 7 * BEHAVIOR_ROW;
+            case SOLDIER -> BEHAVIOR_TOP + 4 * BEHAVIOR_ROW;
             case WORKER -> BEHAVIOR_TOP + 11 * BEHAVIOR_ROW;
             case SCOUT -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
             default -> 0;
@@ -624,16 +621,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         // Soldiers: four options with a radius each, then the one that reaches anywhere.
         allInHiveArea = behaviorBox(soldierWidgets, 0, "screen.projecthivemind.behavior.all_in_hive", this::sendSoldierBehavior);
-        soldierRadii[0] = radiusBox(soldierWidgets, 0, 0, this::sendSoldierBehavior);
+
         hostileInHiveArea = behaviorBox(soldierWidgets, 1, "screen.projecthivemind.behavior.hostile_in_hive", this::sendSoldierBehavior);
-        soldierRadii[1] = radiusBox(soldierWidgets, 1, 1, this::sendSoldierBehavior);
-        allInUnitArea = behaviorBox(soldierWidgets, 2, "screen.projecthivemind.behavior.all_in_unit", this::sendSoldierBehavior);
-        soldierRadii[2] = radiusBox(soldierWidgets, 2, 2, this::sendSoldierBehavior);
-        hostileInUnitArea = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.hostile_in_unit", this::sendSoldierBehavior);
-        soldierRadii[3] = radiusBox(soldierWidgets, 3, 3, this::sendSoldierBehavior);
-        threats = behaviorBox(soldierWidgets, 4, "screen.projecthivemind.behavior.threats", this::sendSoldierBehavior);
-        soldierStay = behaviorBox(soldierWidgets, 5, "screen.projecthivemind.behavior.stay_inside", this::sendSoldierBehavior);
-        soldierWander = behaviorBox(soldierWidgets, 6, "screen.projecthivemind.behavior.wander", this::sendSoldierBehavior);
+        soldierStay = behaviorBox(soldierWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendSoldierBehavior);
+        soldierWander = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.wander", this::sendSoldierBehavior);
 
         // Workers: what to work on, each with how far to look for it.
         mineOre = behaviorBox(workerWidgets, 0, "screen.projecthivemind.behavior.mine_ore", this::sendWorkerBehavior);
@@ -746,15 +737,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 SoldierBehavior soldier = SoldierBehavior.from(flags, radii);
                 setChecked(allInHiveArea, soldier.allInHiveArea());
                 setChecked(hostileInHiveArea, soldier.hostileInHiveArea());
-                setChecked(allInUnitArea, soldier.allInUnitArea());
-                setChecked(hostileInUnitArea, soldier.hostileInUnitArea());
-                setChecked(threats, soldier.threats());
                 setChecked(soldierStay, soldier.stayInside());
                 setChecked(soldierWander, soldier.wander());
-                int[] values = soldier.radii();
-                for (int i = 0; i < soldierRadii.length; i++) {
-                    soldierRadii[i].setValue(String.valueOf(values[i]));
-                }
             }
             case WORKER -> {
                 WorkerBehavior worker = WorkerBehavior.from(flags, radii);
@@ -806,9 +790,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void sendSoldierBehavior() {
         if (canSend()) {
-            SoldierBehavior behavior = new SoldierBehavior(allInHiveArea.selected(), number(soldierRadii[0]), hostileInHiveArea.selected(),
-                    number(soldierRadii[1]), allInUnitArea.selected(), number(soldierRadii[2]), hostileInUnitArea.selected(),
-                    number(soldierRadii[3]), threats.selected(), soldierStay.selected(), soldierWander.selected());
+            SoldierBehavior behavior = new SoldierBehavior(allInHiveArea.selected(), hostileInHiveArea.selected(), soldierStay.selected(), soldierWander.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -953,7 +935,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                     : Component.translatable("screen.projecthivemind.job.none");
             graphics.drawString(font, Component.translatable("screen.projecthivemind.job.title", job), BEHAVIOR_X + 4, JOB_TOP, 0xE0E0E0, false);
         }
-        if (unitPage != UnitKind.COLLECTOR) {
+        if (unitPage != UnitKind.COLLECTOR && unitPage != UnitKind.SOLDIER) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.radius"), imageWidth - 12 - 34, BEHAVIOR_TOP - 12, 0xA0A0A0, false);
         }
         switch (unitPage) {
@@ -1011,6 +993,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                     ? "screen.projecthivemind.team.click_remove" : "screen.projecthivemind.team.click_add"))));
             unitButtons.add(addRenderableWidget(button));
         }
+        // How far around its scout the team keeps together: the ring of flames round the scout shows it.
+        TeamAreaSlider slider = new TeamAreaSlider(leftPos + UNIT_LIST_X, topPos + imageHeight - 72, 180, 18, ClientTeams.radius(0),
+                radius -> PacketDistributor.sendToServer(new SetTeamRadiusPayload(0, radius)));
+        slider.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.team.area.tooltip")));
+        unitButtons.add(addRenderableWidget(slider));
     }
 
     private void renderTeam(GuiGraphics graphics) {
@@ -1163,10 +1150,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case HiveMenu.STATUS_SPAWNING -> {
                 status = Component.translatable("screen.projecthivemind.hive.status.spawning", seconds);
                 colour = 0x77DD77;
-            }
-            case HiveMenu.STATUS_REFRESHING -> {
-                status = Component.translatable("screen.projecthivemind.hive.status.refreshing", seconds);
-                colour = 0xFFDD55;
             }
             default -> {
                 status = Component.translatable("screen.projecthivemind.hive.status.idle");

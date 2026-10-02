@@ -21,10 +21,16 @@ public final class HiveTeams {
     public static final int TEAM_COUNT = 1;
 
     private final List<Set<UUID>> teams = new ArrayList<>();
+    /** How close each team keeps to its scout, in blocks: the area around the scout. */
+    private final int[] radius = new int[TEAM_COUNT];
+    public static final int MIN_RADIUS = 3;
+    public static final int MAX_RADIUS = 24;
+    public static final int DEFAULT_RADIUS = 8;
 
     public HiveTeams() {
         for (int i = 0; i < TEAM_COUNT; i++) {
             teams.add(new LinkedHashSet<>());
+            radius[i] = DEFAULT_RADIUS;
         }
     }
 
@@ -67,6 +73,16 @@ public final class HiveTeams {
         }
     }
 
+    public int radius(int team) {
+        return team >= 0 && team < radius.length ? radius[team] : DEFAULT_RADIUS;
+    }
+
+    public void setRadius(int team, int blocks) {
+        if (team >= 0 && team < radius.length) {
+            radius[team] = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, blocks));
+        }
+    }
+
     public ListTag save() {
         ListTag list = new ListTag();
         for (Set<UUID> members : teams) {
@@ -74,6 +90,7 @@ public final class HiveTeams {
             members.forEach(id -> saved.add(NbtUtils.createUUID(id)));
             CompoundTag tag = new CompoundTag();
             tag.put("Members", saved);
+            tag.putInt("Radius", radius[list.size()]);
             list.add(tag);
         }
         return list;
@@ -83,6 +100,7 @@ public final class HiveTeams {
         teams.forEach(Set::clear);
         for (int i = 0; i < list.size() && i < teams.size(); i++) {
             ListTag saved = list.getCompound(i).getList("Members", Tag.TAG_INT_ARRAY);
+            radius[i] = list.getCompound(i).contains("Radius") ? Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, list.getCompound(i).getInt("Radius"))) : DEFAULT_RADIUS;
             for (Tag member : saved) {
                 teams.get(i).add(NbtUtils.loadUUID(member));
             }

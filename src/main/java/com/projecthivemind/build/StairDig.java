@@ -25,9 +25,11 @@ public record StairDig(BlockPos start, Direction direction, int stopY, boolean t
     /** A torch goes on every this many steps, starting with the first. */
     private static final int TORCH_EVERY = 6;
 
-    /** True for a block of the staircase that still has to be dug: not air, not a fluid, and not something that cannot be broken. */
+    /** True for a block of the staircase that still has to be dug: not air, not a torch of its own, not a fluid, and not something that cannot be broken. */
     private static boolean needsDig(ServerLevel level, BlockPos pos, BlockState state) {
-        return !state.isAir() && state.getFluidState().isEmpty() && state.getDestroySpeed(level, pos) >= 0.0F;
+        // A torch the workers put up on the way is part of the staircase, not something to dig out.
+        return !state.isAir() && !state.is(net.minecraft.world.level.block.Blocks.TORCH) && !state.is(net.minecraft.world.level.block.Blocks.WALL_TORCH)
+                && state.getFluidState().isEmpty() && state.getDestroySpeed(level, pos) >= 0.0F;
     }
 
     /** The next block still to dig, as a dig order, or null when the whole staircase is dug. Blocks that cannot be dug are skipped. */

@@ -161,6 +161,33 @@ public final class HiveActions {
         }
     }
 
+    /** Selected workers place a torch from the hive against the face of the block that was clicked (not the underside). */
+    public static void placeTorch(ServerPlayer player, com.projecthivemind.network.PlaceTorchPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        BlockPos pos = request.pos();
+        if (heart == null || request.face() == Direction.DOWN || !level.isInWorldBounds(pos) || !level.isLoaded(pos)) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        if (heart.getStorage().countItem(net.minecraft.world.item.Items.TORCH) <= 0) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_torches"), true);
+            return;
+        }
+        // One worker is enough for one torch: the nearest.
+        Vec3 spot = Vec3.atCenterOf(pos.relative(request.face()));
+        Mob nearest = workers.stream().min(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(spot))).orElseThrow();
+        nearest.getNavigation().stop();
+        ((HiveUnit) nearest).setAction(UnitAction.torch(pos, request.face()));
+    }
+
     /**
      * Workers and scouts dig the block. If none of the hive's tools can harvest it, the player is asked first (once); digging
      * anyway still breaks the block, it just drops nothing.

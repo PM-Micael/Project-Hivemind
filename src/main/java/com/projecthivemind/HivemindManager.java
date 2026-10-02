@@ -11,6 +11,7 @@ import javax.annotation.Nullable;
 import com.projecthivemind.client.ClientState;
 import com.projecthivemind.entity.HiveCollector;
 import com.projecthivemind.entity.HiveHeart;
+import com.projecthivemind.entity.HiveTeams;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
 import com.projecthivemind.entity.HiveUnit;
@@ -362,6 +363,19 @@ public final class HivemindManager {
         }
     }
 
+    /** The player told one of their workers to build the wall round the hive out of this block (empty for none). */
+    public static void setWorkerWall(ServerPlayer player, int unitId, String item) {
+        if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
+                || !player.getUUID().equals(worker.ownerId())) {
+            return;
+        }
+        ResourceLocation id = item.isEmpty() ? null : ResourceLocation.tryParse(item);
+        worker.setWallItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        if (worker.wallItem() != null) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.wall_started"), true);
+        }
+    }
+
     /** The player chose the block one of their workers fills gaps in the ground with (empty for none). */
     public static void setWorkerFill(ServerPlayer player, int unitId, String item) {
         if (!(player.serverLevel().getEntity(unitId) instanceof HiveWorker worker) || !worker.isAlive()
@@ -424,6 +438,15 @@ public final class HivemindManager {
         sendUnits(player);
     }
 
+    /** The player set how far around its scout a team keeps together. */
+    public static void setTeamRadius(ServerPlayer player, int team, int radius) {
+        HiveHeart heart = findHeart(player);
+        if (heart != null) {
+            heart.teams().setRadius(team, radius);
+            sendUnits(player);
+        }
+    }
+
     /** The player added one of their units to the team, or took it out. */
     public static void toggleTeam(ServerPlayer player, int unitId) {
         HiveHeart heart = findHeart(player);
@@ -458,6 +481,14 @@ public final class HivemindManager {
             }
         }
         PacketDistributor.sendToPlayer(owner, new SyncUnitsPayload(entries));
+        HiveHeart teamHeart = findHeart(owner);
+        if (teamHeart != null) {
+            List<Integer> radii = new ArrayList<>();
+            for (int team = 0; team < HiveTeams.TEAM_COUNT; team++) {
+                radii.add(teamHeart.teams().radius(team));
+            }
+            PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncTeamPayload(radii));
+        }
     }
 
     public static void openMenu(ServerPlayer player) {
@@ -501,70 +532,44 @@ public final class HivemindManager {
             return;
         }
 
-        heart.refreshGearVersions();
         for (UnitKind kind : UnitKind.values()) {
             spawnOrRefresh(owner, heart, kind);
         }
     }
 
+    /** Make a unit of this kind if the hive has room for one. */
     private static void spawnOrRefresh(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
         int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
-        if (cap <= 0) {
-            return;
-        }
-        if (get(owner).count(kind) < cap) {
+        if (cap > 0 && get(owner).count(kind) < cap) {
             createUnit(owner, heart, kind);
+        }
+    }
+
+    /**
+     * When the hive's armor or tool slots change, every unit that carries something from them is brought up to date at once (see
+     * {@link HiveUnit#onGearChanged}): soldiers put on the new armor and take up the best weapon, workers and scouts pick their tools
+     * afresh. No unit is lost for it. Called a few times a second from the Heart.
+     */
+    public static void tickGearSync(HiveHeart heart) {
+        int changed = heart.refreshGearVersions();
+        if (changed == 0 || heart.ownerId() == null || heart.getServer() == null) {
             return;
         }
-        // At the cap: replace the oldest unit if it is out of date.
-        Mob oldest = oldestOutOfDate(owner, heart, kind);
-        if (oldest != null) {
-            // The hive itself is ending this unit, to make a new one with the new gear: that costs the Heart nothing.
-            // The new unit takes over the old one's settings, so the player does not have to set it up again.
-            HiveUnit old = (HiveUnit) oldest;
-            int inheritedFlags = old.behaviorFlags();
-            int[] inheritedRadii = old.behaviorRadii();
-            net.minecraft.world.item.Item inheritedFill = old instanceof HiveWorker oldWorker ? oldWorker.fillItem() : null;
-            boolean inheritedTeam = heart.teams().isMember(oldest.getUUID());
-            replacingUnit = true;
-            try {
-                oldest.kill();
-            } finally {
-                replacingUnit = false;
-            }
-            // The kill frees the slot through the normal death handling; only replace it if that happened.
-            if (get(owner).count(kind) < cap) {
-                createUnit(owner, heart, kind, inheritedFlags, inheritedRadii, inheritedFill, inheritedTeam);
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null) {
+            return;
+        }
+        for (UUID id : get(owner).allUnits()) {
+            Mob unit = findUnit(owner, id);
+            if (unit instanceof HiveUnit hiveUnit) {
+                hiveUnit.onGearChanged(heart, changed);
             }
         }
     }
 
-    /**
-     * The oldest unit of this kind, if it was made before the gear last changed. Units are tracked oldest first, and
-     * the oldest is the most out of date. Collectors use no gear and are never out of date.
-     */
-    @Nullable
-    private static Mob oldestOutOfDate(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
-        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
-        if (kind == UnitKind.COLLECTOR || units.isEmpty()) {
-            return null;
-        }
-        Mob oldest = findUnit(owner, units.get(0));
-        return oldest instanceof HiveUnit unit && unit.gearVersion() < heart.gearVersionFor(kind) ? oldest : null;
-    }
-
-    /**
-     * What the next interval will do for this kind of unit, for the hive menu to show: {@link HiveMenu#STATUS_SPAWNING}
-     * below the cap; {@link HiveMenu#STATUS_REFRESHING} at the cap when a gear change is waiting to be noticed or the
-     * oldest unit is already out of date; otherwise {@link HiveMenu#STATUS_IDLE}.
-     */
+    /** What the next interval will do for this kind of unit, for the hive menu to show: spawning below the cap, otherwise idle. */
     public static int spawnStatus(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
-        int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
-        if (get(owner).count(kind) < cap) {
-            return HiveMenu.STATUS_SPAWNING;
-        }
-        boolean refreshing = heart.gearChangePending(kind) || oldestOutOfDate(owner, heart, kind) != null;
-        return refreshing ? HiveMenu.STATUS_REFRESHING : HiveMenu.STATUS_IDLE;
+        return get(owner).count(kind) < HiveLevels.get(heart.hiveLevel()).cap(kind) ? HiveMenu.STATUS_SPAWNING : HiveMenu.STATUS_IDLE;
     }
 
     @Nullable
@@ -579,11 +584,6 @@ public final class HivemindManager {
 
     /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
     private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
-        createUnit(player, heart, kind, -1, null, null, false);
-    }
-
-    /** As above; with {@code inheritedRadii} given, the new unit starts with those settings (a replacement keeps its predecessor's). */
-    private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind, int inheritedFlags, @Nullable int[] inheritedRadii, @Nullable net.minecraft.world.item.Item inheritedFill, boolean inheritedTeam) {
         ServerLevel level = (ServerLevel) heart.level();
 
         // Stand each kind on a different side of the heart.
@@ -601,15 +601,6 @@ public final class HivemindManager {
         }
         ((HiveUnit) unit).setOwnerId(player.getUUID());
         ((HiveUnit) unit).setGearVersion(heart.gearVersionFor(kind));
-        if (inheritedTeam) {
-            heart.teams().join(unit.getUUID(), 0);
-        }
-        if (inheritedRadii != null) {
-            ((HiveUnit) unit).setBehavior(inheritedFlags, inheritedRadii);
-            if (unit instanceof HiveWorker newWorker) {
-                newWorker.setFillItem(inheritedFill);
-            }
-        }
         if (unit instanceof HiveCollector collector) {
             collector.setHeartId(heart.getUUID());
         } else if (unit instanceof HiveSoldier soldier) {
@@ -627,10 +618,7 @@ public final class HivemindManager {
         level.addFreshEntity(unit);
 
         // Summoning a unit costs the hive 2 saturation (a saturation point is 4 exhaustion, as in the game's own food).
-        // A replacement (the hive ended the old unit itself, for new gear) costs nothing.
-        if (inheritedRadii == null) {
-            heart.food().payForUnit();
-        }
+        heart.food().payForUnit();
         set(player, get(player).withUnit(kind, unit.getUUID()));
         sync(player);
     }
@@ -645,8 +633,6 @@ public final class HivemindManager {
             HiveActions.syncActions(owner, heart);
             // The names of the units (Soldier 1, Soldier 2...) are shown over them in the world, so the list is kept up to date.
             sendUnits(owner);
-            // Only bother looking for threats if the soldiers are set to respond to them.
-            heart.setThreats(anySoldierRespondsToThreats(owner) ? findThreats(owner, heart) : Set.of());
         }
     }
 
@@ -931,56 +917,6 @@ public final class HivemindManager {
 
 
 
-    /** How far around each hive member to look for mobs that are coming for it. */
-    private static final double THREAT_SCAN_RADIUS = 24.0D;
-
-    /**
-     * The mobs that are hostile to the hive right now: any that recently hurt the Heart or one of the owner's units,
-     * plus any that currently have one of them as their target. Players are not mobs, so they are never threats.
-     */
-    private static Set<UUID> findThreats(ServerPlayer owner, HiveHeart heart) {
-        ServerLevel level = (ServerLevel) heart.level();
-        List<LivingEntity> hive = new ArrayList<>();
-        hive.add(heart);
-        for (UUID id : get(owner).allUnits()) {
-            if (level.getEntity(id) instanceof LivingEntity unit && unit.isAlive()) {
-                hive.add(unit);
-            }
-        }
-
-        Set<UUID> threats = new HashSet<>();
-        for (LivingEntity member : hive) {
-            // The game forgets who hurt an entity after about five seconds, which is what "recently" means here.
-            if (member.getLastHurtByMob() instanceof Mob attacker && isOutsider(attacker)) {
-                threats.add(attacker.getUUID());
-            }
-            for (Mob mob : level.getEntitiesOfClass(Mob.class, member.getBoundingBox().inflate(THREAT_SCAN_RADIUS),
-                    mob -> isOutsider(mob) && isHiveMember(mob.getTarget()))) {
-                threats.add(mob.getUUID());
-            }
-        }
-        return threats;
-    }
-
-    private static boolean isHiveMember(@Nullable Entity entity) {
-        return entity instanceof HiveUnit || entity instanceof HiveHeart;
-    }
-
-    private static boolean isOutsider(Mob mob) {
-        return mob.isAlive() && !isHiveMember(mob);
-    }
-
-    /** True if any of the owner's soldiers is set to respond to mobs that threaten the hive. */
-    private static boolean anySoldierRespondsToThreats(ServerPlayer owner) {
-        ServerLevel level = owner.serverLevel();
-        for (UUID id : get(owner).allUnits()) {
-            if (level.getEntity(id) instanceof HiveSoldier soldier && soldier.isAlive() && soldier.behavior().threats()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * The player edited one unit's behaviour settings on its page of the hive menu. Only valid with the hive menu open,
      * and only for the player's own units.
@@ -1009,17 +945,47 @@ public final class HivemindManager {
     }
 
 
+    /** When each unit's owner was last told it is being hurt (by game time), so a fight is one notice every few seconds, not a stream. */
+    private static final java.util.Map<UUID, Long> LAST_HURT_NOTICE = new java.util.HashMap<>();
+    private static final long HURT_NOTICE_INTERVAL = 100L;
+
+    /**
+     * A unit of the hive took damage: its owner is told, wherever the unit is (this does not depend on the unit being in view of the
+     * camera). The notice names the unit, says how far it is from the camera and how many hearts it has left, and sounds a bell.
+     */
+    public static void onUnitHurt(Mob unit) {
+        if (!(unit instanceof HiveUnit hiveUnit) || hiveUnit.ownerId() == null || unit.level().getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = unit.level().getServer().getPlayerList().getPlayer(hiveUnit.ownerId());
+        if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        long now = unit.level().getGameTime();
+        Long last = LAST_HURT_NOTICE.get(unit.getUUID());
+        if (last != null && now - last < HURT_NOTICE_INTERVAL) {
+            return;
+        }
+        LAST_HURT_NOTICE.put(unit.getUUID(), now);
+        UnitKind kind = hiveUnit.kind();
+        int number = get(owner).units().getOrDefault(kind, List.of()).indexOf(unit.getUUID()) + 1;
+        Component name = Component.translatable("screen.projecthivemind.unit.numbered",
+                Component.translatable("unit." + ProjectHivemind.MODID + "." + kind.name().toLowerCase(java.util.Locale.ROOT)), Math.max(1, number));
+        int distance = (int) owner.position().distanceTo(unit.position());
+        int hearts = (int) Math.ceil(unit.getHealth() / 2.0F);
+        owner.displayClientMessage(Component.translatable("message.projecthivemind.unit_hurt", name, distance, hearts), true);
+        owner.playNotifySound(SoundEvents.NOTE_BLOCK_BELL.value(), SoundSource.PLAYERS, 0.8F, 0.7F);
+    }
+
     /** A unit died: free its owner's slot so they can spawn a replacement. */
     /** What it costs the Heart when one of its units dies: 4 health points, 2 hearts. */
     public static final float UNIT_DEATH_DAMAGE = 4.0F;
-
-    /** True while the hive is itself ending a unit to replace it (so that death is not a loss). Server thread only. */
-    private static boolean replacingUnit;
 
     public static void onUnitDied(ServerLevel level, Mob unit) {
         if (!(unit instanceof HiveUnit hiveUnit) || hiveUnit.ownerId() == null) {
             return;
         }
+        LAST_HURT_NOTICE.remove(unit.getUUID());
         // A unit that is gone is out of its team.
         HiveHeart teamHeart = hiveUnit.findHeart();
         if (teamHeart != null) {
@@ -1032,7 +998,7 @@ public final class HivemindManager {
         // Losing a unit hurts the hive: the Heart loses 2 hearts. Armor and invulnerability do not count, it is exactly that.
         // (When the Heart itself was destroyed it is not alive, and its units dying with it cost it nothing.)
         HiveHeart heart = hiveUnit.findHeart();
-        if (heart != null && heart.isAlive() && !replacingUnit) {
+        if (heart != null && heart.isAlive()) {
             heart.invulnerableTime = 0;
             heart.hurt(level.damageSources().genericKill(), UNIT_DEATH_DAMAGE);
         }

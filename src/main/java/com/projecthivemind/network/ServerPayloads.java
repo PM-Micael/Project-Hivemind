@@ -84,6 +84,12 @@ public final class ServerPayloads {
             HiveActions.scoutUse(player, payload);
         }
     }
+    public static void onPlaceTorch(com.projecthivemind.network.PlaceTorchPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.placeTorch(player, payload);
+        }
+    }
+
 
     public static void onSignText(SignTextPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
@@ -195,6 +201,18 @@ public final class ServerPayloads {
     public static void onToggleTeam(ToggleTeamPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.toggleTeam(player, payload.unitId());
+        }
+    }
+
+    public static void onSetTeamRadius(com.projecthivemind.network.SetTeamRadiusPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setTeamRadius(player, payload.team(), payload.radius());
+        }
+    }
+
+    public static void onBuildWall(com.projecthivemind.network.BuildWallPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.setWorkerWall(player, payload.unitId(), payload.item());
         }
     }
 

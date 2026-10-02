@@ -20,13 +20,18 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * A worker set to channel walks up to a crop that is not fully grown and channels on it until it is: while it does, the crop
- * grows twice as fast. Only a worker that is not selected does this, and nothing but staying inside the border comes before it.
+ * grows 300 times as fast. Only a worker that is not selected does this, and nothing but staying inside the border comes before it.
  *
- * <p>Twice as fast is done by giving the crop a second share of the game's own random ticks, the ones that make crops grow, at
- * exactly the rate the game gives every block. So the crop still needs what it always needs to grow (light, moist ground).
+ * <p>That is done by giving the crop extra helpings of the game's own random ticks, the ones that make crops grow: the extra rate is
+ * worked out exactly each tick (see {@link #GROWTH_MULTIPLIER}), not rolled for. So the crop still needs what it always needs to grow
+ * (light, moist ground), and a crop that cannot grow is left alone after a while and the worker moves on.
  */
 public class WorkerChannelGoal extends Goal {
     private static final double SPEED = 1.0D;
+    /** How many times faster than normal a channelled crop grows, when it is able to grow at all. */
+    private static final int GROWTH_MULTIPLIER = 300;
+    /** A crop that has not grown for this long (10 seconds) while channelled cannot (too dark, too dry): the worker leaves it. */
+    private static final int STALL_TICKS = 200;
     private static final int SCAN_INTERVAL = 20;
     private static final int REPATH_INTERVAL = 10;
     /** How close, squared, the worker stands to channel: about two blocks. */
@@ -40,6 +45,12 @@ public class WorkerChannelGoal extends Goal {
     private int nextScan;
     private int repathCooldown;
     private int stuckTicks;
+    /** The tick of the worker the extra growth was last given on, so that it is the same however often the goal gets to tick. */
+    private int lastGrowTick;
+    /** The part of a random tick the crop is owed but has not had yet: ticks are whole, the rate is not. */
+    private double growthCarry;
+    /** The last tick the channelled crop got older, for telling a crop that grows from one that cannot. */
+    private int lastAdvanceTick;
     private final Map<BlockPos, Integer> ignored = new HashMap<>();
 
     public WorkerChannelGoal(HiveWorker worker) {
@@ -72,7 +83,15 @@ public class WorkerChannelGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
+        lastGrowTick = worker.tickCount;
+        lastAdvanceTick = worker.tickCount;
+        growthCarry = 0.0D;
         repathCooldown = 0;
         stuckTicks = 0;
     }
@@ -104,10 +123,37 @@ public class WorkerChannelGoal extends Goal {
         worker.getNavigation().stop();
         worker.getLookControl().setLookAt(center);
 
-        // The extra growth: one more share of random ticks, at the rate the game gives every block.
-        BlockState state = level.getBlockState(target);
-        if (worker.getRandom().nextInt(4096) < level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING)) {
+        // The extra growth, worked out exactly: the extra random ticks a block gets per tick at this multiplier, with the fraction
+        // carried over. Each goes through the crop's own growth code, so light and soil still decide whether it grows.
+        int elapsed = Math.max(1, Math.min(worker.tickCount - lastGrowTick, 10));
+        lastGrowTick = worker.tickCount;
+        int ageBefore = ageOf(level.getBlockState(target));
+        growthCarry += GROWTH_MULTIPLIER * level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING) / 4096.0D * elapsed;
+        int extraTicks = (int) growthCarry;
+        growthCarry -= extraTicks;
+        for (int i = 0; i < extraTicks; i++) {
+            BlockState state = level.getBlockState(target);
+            if (!WorkerAutoJobs.isGrowing(state)) {
+                break;
+            }
             state.randomTick(level, target, worker.getRandom());
+        }
+        BlockState after = level.getBlockState(target);
+        if (ageOf(after) > ageBefore) {
+            // It grew: a burst of green, so growth is seen when it happens.
+            lastAdvanceTick = worker.tickCount;
+            level.sendParticles(ParticleTypes.HAPPY_VILLAGER, center.x, center.y, center.z, 6, 0.3D, 0.3D, 0.3D, 0.0D);
+        } else if (WorkerAutoJobs.isGrowing(after)) {
+            if (worker.tickCount - lastAdvanceTick > STALL_TICKS) {
+                // Ten seconds and not a stage: it cannot grow here (dark, dry), so go and find another.
+                ignored.put(target, worker.tickCount + IGNORE_TICKS);
+                target = null;
+                return;
+            }
+            if (worker.tickCount - lastAdvanceTick > 40 && worker.tickCount % 10 == 0) {
+                // Nothing for two seconds: grey puffs, so it is clear the crop is refusing and not just slow.
+                level.sendParticles(ParticleTypes.SMOKE, center.x, center.y + 0.2D, center.z, 3, 0.2D, 0.1D, 0.2D, 0.0D);
+            }
         }
         // Bone meal from the hive, if the worker is set to use it: one every half second until the crop is grown.
         if (worker.behavior().useBoneMeal() && worker.tickCount % 10 == 0) {
@@ -116,13 +162,21 @@ public class WorkerChannelGoal extends Goal {
                 useBoneMeal(level, heart);
             }
         }
-        // What channelling looks like: sparkles rising from the crop, and the worker's arm moving now and then.
-        if (worker.tickCount % 5 == 0) {
-            level.sendParticles(ParticleTypes.HAPPY_VILLAGER, center.x, center.y, center.z, 2, 0.25D, 0.25D, 0.25D, 0.0D);
-        }
+        // The worker's arm moves now and then while it channels.
         if (worker.tickCount % 20 == 0) {
             worker.swing(InteractionHand.MAIN_HAND);
         }
+    }
+
+    /** How old a growing crop is (its growth stage), or -1 if the block is not a growing crop. */
+    private static int ageOf(BlockState state) {
+        if (state.getBlock() instanceof net.minecraft.world.level.block.CropBlock crop) {
+            return crop.getAge(state);
+        }
+        if (state.getBlock() instanceof net.minecraft.world.level.block.NetherWartBlock) {
+            return state.getValue(net.minecraft.world.level.block.NetherWartBlock.AGE);
+        }
+        return -1;
     }
 
     /** Take one bone meal from the hive and use it on the crop, as a player does: the crop grows a stage or more. */

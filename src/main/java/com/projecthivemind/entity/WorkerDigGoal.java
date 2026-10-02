@@ -173,12 +173,8 @@ public class WorkerDigGoal extends Goal {
     private void breakBlock(ServerLevel level, HiveHeart heart, BlockPos pos, BlockState state, ItemStack tool, boolean correct) {
         BlockEntity blockEntity = level.getBlockEntity(pos);
         if (correct) {
-            if (worker instanceof HiveWorker hiveWorker && hiveWorker.onStaircase()) {
-                // A staircase being dug down: what comes out goes into the hive.
-                HiveDrops.store(level, heart, pos, state, blockEntity, worker, tool);
-            } else {
-                Block.dropResources(state, level, pos, blockEntity, worker, tool);
-            }
+            // Whatever a worker or scout breaks goes into the hive's inventory (what does not fit is dropped), not onto the ground.
+            HiveDrops.store(level, heart, pos, state, blockEntity, worker, tool);
         }
         level.destroyBlock(pos, false, worker);
         heart.food().exhaust(HiveFood.BREAK_BLOCK);

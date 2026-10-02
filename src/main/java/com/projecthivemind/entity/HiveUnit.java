@@ -91,4 +91,11 @@ public interface HiveUnit {
             setOwnerId(tag.getUUID(OWNER_TAG));
         }
     }
+
+    /**
+     * The hive's armor or tool slots changed (bit 1 armor, bit 2 tools): bring what this unit carries up to date at once. By default
+     * a unit carries nothing from them.
+     */
+    default void onGearChanged(HiveHeart heart, int changed) {
+    }
 }

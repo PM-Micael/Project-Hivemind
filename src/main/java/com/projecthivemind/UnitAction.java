@@ -30,7 +30,9 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Building a tower with other workers: {@code pos} is the block it stands on (workers only). */
         BUILD,
         /** Using the item in the scout's hand on a face of a block: placing it, reading it, throwing it (scouts only). */
-        USE_ITEM;
+        USE_ITEM,
+        /** Placing a torch from the hive against a face of a block (workers only): {@code pos} is the block, {@code face} the face it goes on. */
+        TORCH;
 
         /**
          * Whether this is a job: something a unit keeps at until it is done, like mining a block, fighting a mob or building.
@@ -87,6 +89,11 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
 
     public static UnitAction attack(UUID target) {
         return new UnitAction(Kind.ATTACK, null, target, null);
+    }
+
+    /** Place a torch from the hive against this face of this block (workers). */
+    public static UnitAction torch(BlockPos pos, Direction face) {
+        return new UnitAction(Kind.TORCH, pos, null, face);
     }
 
     /** Use the scout's item on this face of this block. */

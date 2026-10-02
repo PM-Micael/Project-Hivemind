@@ -61,6 +61,19 @@ public final class ClientEvents {
         event.register(ModMenus.SCOUT_TRADE.get(), ScoutTradeScreen::new);
     }
 
+    /**
+     * Hold to rotate and tilt the view in the RTS camera. The middle mouse button by default, but it is an ordinary control: change it
+     * (to any key or mouse button) under Options, Controls, Key Binds.
+     */
+    public static final net.minecraft.client.KeyMapping ROTATE_CAMERA = new net.minecraft.client.KeyMapping("key.projecthivemind.rotate_camera",
+            net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME, com.mojang.blaze3d.platform.InputConstants.Type.MOUSE,
+            org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_MIDDLE, "key.categories.projecthivemind");
+
+    @SubscribeEvent
+    static void registerKeys(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
+        event.register(ROTATE_CAMERA);
+    }
+
     @SubscribeEvent
     static void registerGuiLayers(RegisterGuiLayersEvent event) {
         event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);

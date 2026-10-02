@@ -64,6 +64,10 @@ public final class ClientPayloads {
         ClientState.updateBorder(payload.center(), payload.areaRadius());
     }
 
+    public static void onSyncTeam(com.projecthivemind.network.SyncTeamPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientTeams.update(payload.radii());
+    }
+
     public static void onSyncUnits(SyncUnitsPayload payload, IPayloadContext context) {
         ClientUnits.update(payload.units());
     }

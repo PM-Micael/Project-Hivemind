@@ -20,7 +20,7 @@ import net.minecraft.util.Mth;
  * @param clearPlants clear the grass and flowers inside the hive area (no radius: the whole area)
  * @param wander walk about at random while idle, instead of standing still
  * @param flattenGround fill the gaps in the ground inside the hive area, up to the Heart's own level, with the block the worker was given
- * @param channelCrops walk up to crops that are not fully grown and channel on them, making them grow twice as fast; second only to staying inside
+ * @param channelCrops walk up to crops that are not fully grown and channel on them, making them grow 300 times as fast; second only to staying inside
  * @param useBoneMeal while channelling, also use bone meal from the hive on the crop; only counts with channelCrops
  */
 public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside, boolean harvestCrops, boolean clearPlants, boolean wander, boolean flattenGround, boolean channelCrops, boolean useBoneMeal) {

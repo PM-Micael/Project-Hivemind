@@ -124,7 +124,7 @@ public final class FogOfWar {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (shader == null || minecraft.level == null || !ClientState.hiveMode()
+        if (shader == null || minecraft.level == null || !ClientState.hiveMode() || !ClientConfig.fogOfWar()
                 || ClientSight.eyes().isEmpty()) {
             passActive = false;
             return;

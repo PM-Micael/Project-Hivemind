@@ -155,7 +155,6 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
     public static final int STATUS_SPAWNING = 1;
-    public static final int STATUS_REFRESHING = 2;
 
     /** Empty-slot icons, in {@link HiveEquipment#ARMOR_SLOTS} order. */
     private static final ResourceLocation[] ARMOR_ICONS = {

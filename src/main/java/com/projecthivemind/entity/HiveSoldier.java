@@ -21,6 +21,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -77,8 +78,8 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
-        // A team member stays close to the team's scout when it has nothing else to do.
-        this.goalSelector.addGoal(3, new TeamFollowGoal(this));
+        // A team member stays inside the team's area around its scout: before everything but floating.
+        this.goalSelector.addGoal(0, new TeamFollowGoal(this));
         this.goalSelector.addGoal(1, new SoldierAttackGoal(this));
         // With no orders and not selected, the hive's behaviour settings decide what a soldier goes after.
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));
@@ -89,6 +90,21 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         HiveHeart heart = findHeart();
         return heart != null && heart.teams().isMember(this.getUUID());
     }
+
+    /** The hive's gear changed: put on what the hive has now, right away, and take off what it no longer has. */
+    @Override
+    public void onGearChanged(HiveHeart heart, int changed) {
+        gearMirror.reset();
+        for (EquipmentSlot slot : EquipmentSlot.values()) {
+            if (slot.getType() == EquipmentSlot.Type.HUMANOID_ARMOR || slot == EquipmentSlot.MAINHAND) {
+                this.setItemSlot(slot, ItemStack.EMPTY);
+            }
+        }
+        HiveEquipment.equipSoldier(this, heart);
+    }
+
+    /** Carries a walk order a long way, past what one path can reach. */
+    private final WalkProgress walkProgress = new WalkProgress();
 
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
@@ -163,7 +179,7 @@ public class HiveSoldier extends Zombie implements HiveUnit {
             }
             speedProbe.tick(this);
             resumeJobIfFree(heart);
-            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
                 action = null;
             }
         }

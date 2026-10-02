@@ -9,16 +9,19 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.goal.Goal;
 
 /**
- * The first team rule: a worker or a soldier in a team stays close to the team's scout and follows it. It only walks to the scout
- * when it has nothing else to do, so any order or job it is given comes first, and when that is done it goes straight back. It
- * walks whether or not the player has it selected: selecting a team member does not let the player move it.
+ * The team rule for workers and soldiers: stay inside the team's area, the circle around its scout that the ring of flames shows,
+ * and follow the scout when outside it.
+ *
+ * <p>The ring is the whole rule. A unit anywhere inside it is free to do what it likes. The moment it is outside (further from the
+ * scout than the ring's radius sideways, or more than that above or below it) it drops everything and heads back in: this goal comes
+ * before any order, job or fight, and the order is taken up again once the unit is back inside. It does this whether or not the
+ * player has the unit selected.
  */
 public class TeamFollowGoal extends Goal {
     private static final double SPEED = 1.2D;
-    /** The unit starts to follow when the scout is further than this, and stops when it is closer than the other. */
-    private static final double START_DISTANCE_SQR = 6.0D * 6.0D;
-    private static final double STOP_DISTANCE_SQR = 3.0D * 3.0D;
     private static final int REPATH_INTERVAL = 10;
+    /** A unit that has come back keeps going until it is this far inside the ring, so that it does not stand on the edge and drift out again. */
+    private static final double MARGIN = 1.5D;
 
     private final PathfinderMob mob;
     private final HiveUnit unit;
@@ -32,22 +35,29 @@ public class TeamFollowGoal extends Goal {
         this.setFlags(EnumSet.of(Flag.MOVE));
     }
 
-    @Nullable
-    private Mob findLeader() {
-        HiveHeart heart = unit.findHeart();
-        return heart == null || unit.action() != null ? null : heart.teamLeader(mob);
+    /** How far, sideways, the unit is from the scout; or the height difference if that is more. The ring's radius is what this is held to. */
+    private static double separation(Mob mob, Mob leader) {
+        double dx = mob.getX() - leader.getX();
+        double dz = mob.getZ() - leader.getZ();
+        return Math.max(Math.sqrt(dx * dx + dz * dz), Math.abs(mob.getY() - leader.getY()));
+    }
+
+    private double ringRadius(HiveHeart heart) {
+        return heart.teams().radius(heart.teams().teamOf(mob.getUUID()));
     }
 
     @Override
     public boolean canUse() {
-        leader = findLeader();
-        return leader != null && mob.distanceToSqr(leader) > START_DISTANCE_SQR;
+        HiveHeart heart = unit.findHeart();
+        leader = heart == null ? null : heart.teamLeader(mob);
+        return heart != null && leader != null && separation(mob, leader) > ringRadius(heart);
     }
 
     @Override
     public boolean canContinueToUse() {
-        leader = findLeader();
-        return leader != null && mob.distanceToSqr(leader) > STOP_DISTANCE_SQR;
+        HiveHeart heart = unit.findHeart();
+        leader = heart == null ? null : heart.teamLeader(mob);
+        return heart != null && leader != null && separation(mob, leader) > Math.max(1.0D, ringRadius(heart) - MARGIN);
     }
 
     @Override

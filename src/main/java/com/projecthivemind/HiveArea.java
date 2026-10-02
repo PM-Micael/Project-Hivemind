@@ -16,12 +16,15 @@ public final class HiveArea {
     private HiveArea() {
     }
 
-    /** The hive area of a Heart as a box, measured from the Heart's block, at every height. */
+    /**
+     * The hive area of a Heart as a box, measured from the Heart's block: a cube, reaching as far up and down as it does sideways, so
+     * what is deep underground or high in the sky is not in it.
+     */
     public static AABB areaBox(ServerLevel level, HiveHeart heart) {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
         BlockPos center = heart.blockPosition();
-        return new AABB(center.getX() - radius, level.getMinBuildHeight(), center.getZ() - radius,
-                center.getX() + radius + 1, level.getMaxBuildHeight(), center.getZ() + radius + 1);
+        return new AABB(center.getX() - radius, Math.max(level.getMinBuildHeight(), center.getY() - radius), center.getZ() - radius,
+                center.getX() + radius + 1, Math.min(level.getMaxBuildHeight(), center.getY() + radius + 1), center.getZ() + radius + 1);
     }
 
     /** True if this point is inside this Heart's area (sideways: the area covers every height). */
@@ -29,6 +32,13 @@ public final class HiveArea {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
         BlockPos center = heart.blockPosition();
         return x >= center.getX() - radius && x < center.getX() + radius + 1 && z >= center.getZ() - radius && z < center.getZ() + radius + 1;
+    }
+
+    /** True if this point is inside this Heart's area as a cube: sideways as for {@link #containsXZ}, and no further up or down than sideways. */
+    public static boolean containsCube(HiveHeart heart, double x, double y, double z) {
+        int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
+        BlockPos center = heart.blockPosition();
+        return containsXZ(heart, x, z) && y >= center.getY() - radius && y < center.getY() + radius + 1;
     }
 
     /** The point of the area nearest to this one, kept a block and a half in from the edge: a walking mob stops about a block short of where it is sent, and must still end up inside. */

@@ -36,7 +36,7 @@ import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
  * keeps the chunks around the camera loaded. On top of that this class:
  * <ul>
  *   <li>keeps the mouse cursor free instead of grabbed, and stops clicks from doing vanilla things;</li>
- *   <li>lets the player hold the middle mouse button to rotate and tilt the view with the mouse;</li>
+ *   <li>lets the player hold the rotate control (middle mouse button by default, see Controls) to rotate and tilt the view with the mouse;</li>
  *   <li>rotates the view with Q and R as a keyboard alternative;</li>
  *   <li>turns the scroll wheel into zoom (moving the camera up and down);</li>
  *   <li>hides the survival HUD.</li>
@@ -84,6 +84,15 @@ public final class HiveCamera {
     @SubscribeEvent
     static void onKey(InputEvent.Key event) {
         Minecraft minecraft = Minecraft.getInstance();
+        if (controlling(minecraft) && ClientEvents.ROTATE_CAMERA.getKey().getType() == InputConstants.Type.KEYSYM
+                && event.getKey() == ClientEvents.ROTATE_CAMERA.getKey().getValue()) {
+            if (event.getAction() == GLFW.GLFW_PRESS) {
+                startRotating(minecraft);
+            } else if (event.getAction() == GLFW.GLFW_RELEASE) {
+                stopRotating(minecraft);
+            }
+            return;
+        }
         if (event.getAction() != GLFW.GLFW_PRESS || event.getKey() != GLFW.GLFW_KEY_Q || !controlling(minecraft)
                 || minecraft.level == null) {
             return;
@@ -107,7 +116,22 @@ public final class HiveCamera {
         return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null;
     }
 
-    /** True while the middle mouse button is held to rotate the view; clicks are not commands then. */
+    /** True if this mouse button is the one the player has set to rotate the view (Controls: "Rotate camera"). */
+    static boolean isRotateMouse(int button) {
+        com.mojang.blaze3d.platform.InputConstants.Key key = ClientEvents.ROTATE_CAMERA.getKey();
+        return key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE && key.getValue() == button;
+    }
+
+    /** True while the control set to rotate the view is held, whether it is a mouse button or a key. */
+    private static boolean isRotateHeld(Minecraft minecraft) {
+        com.mojang.blaze3d.platform.InputConstants.Key key = ClientEvents.ROTATE_CAMERA.getKey();
+        long window = minecraft.getWindow().getWindow();
+        return key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE
+                ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
+                : InputConstants.isKeyDown(window, key.getValue());
+    }
+
+    /** True while the rotate control is held to turn the view; clicks are not commands then. */
     static boolean isRotating() {
         return rotating;
     }
@@ -136,7 +160,7 @@ public final class HiveCamera {
         Minecraft minecraft = Minecraft.getInstance();
         if (rotating) {
             // End the drag if the button came up while we weren't looking (menu opened, focus lost, left the hive...).
-            boolean stillHeld = GLFW.glfwGetMouseButton(minecraft.getWindow().getWindow(), GLFW.GLFW_MOUSE_BUTTON_MIDDLE) == GLFW.GLFW_PRESS;
+            boolean stillHeld = isRotateHeld(minecraft);
             if (!stillHeld || !controlling(minecraft)) {
                 stopRotating(minecraft);
             }
@@ -165,7 +189,7 @@ public final class HiveCamera {
     }
 
     /**
-     * Middle mouse button held = rotate. Every other click is swallowed until the hive has its own click commands,
+     * The rotate control held (the middle mouse button unless the player changed it) = rotate. Every other click is swallowed until the hive has its own click commands,
      * because vanilla would re-grab the mouse (or attack/use) on a click.
      */
     @SubscribeEvent
@@ -175,7 +199,7 @@ public final class HiveCamera {
             return;
         }
         event.setCanceled(true);
-        if (event.getButton() == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+        if (isRotateMouse(event.getButton())) {
             if (event.getAction() == GLFW.GLFW_PRESS) {
                 startRotating(minecraft);
             } else if (event.getAction() == GLFW.GLFW_RELEASE) {

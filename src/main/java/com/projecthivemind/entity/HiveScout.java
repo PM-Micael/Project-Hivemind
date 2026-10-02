@@ -133,6 +133,20 @@ public class HiveScout extends Husk implements HiveUnit {
         return heart != null && heart.teams().isMember(this.getUUID());
     }
 
+    /** The hive's tools changed: a tool held for an order is put away, and the order picks again from what the hive has now. */
+    @Override
+    public void onGearChanged(HiveHeart heart, int changed) {
+        if ((changed & 2) != 0 && toolOverride) {
+            toolOverride = false;
+            gearMirror.reset();
+            this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+            wasHolding = false;
+        }
+    }
+
+    /** Carries a walk order a long way, past what one path can reach. */
+    private final WalkProgress walkProgress = new WalkProgress();
+
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
     }
@@ -150,7 +164,7 @@ public class HiveScout extends Husk implements HiveUnit {
             return;
         }
         speedProbe.tick(this);
-        if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+        if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
             action = null;
         }
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and

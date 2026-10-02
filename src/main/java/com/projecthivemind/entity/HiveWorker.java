@@ -86,18 +86,65 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         return true;
     }
 
+    /** The block this worker is building the border wall out of, if it was given the job. Saved. */
+    @Nullable
+    private net.minecraft.world.item.Item wallItem;
+    private int nextWallScan;
+
+    /** Start building the wall round the hive out of this block (null stops it). Anything that is not a plain full block stops it too. */
+    public void setWallItem(@Nullable net.minecraft.world.item.Item item) {
+        this.wallItem = item != null && fillBlock(item) != null ? item : null;
+        this.nextWallScan = 0;
+    }
+
+    @Nullable
+    public net.minecraft.world.item.Item wallItem() {
+        return wallItem;
+    }
+
+    /**
+     * One step of the wall, when the worker is free: first the ground in the outer rings that has to be dug away (as an ordinary dig
+     * order, its drops going into the hive), then the wall itself, one block at a time from the hive's stock, walking to where it can
+     * reach. Does nothing, and the job ends, once there is nothing left to do.
+     */
+    private void tickWall(HiveHeart heart) {
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) this.level();
+        net.minecraft.world.level.block.Block block = fillBlock(wallItem);
+        if (block == null) {
+            wallItem = null;
+            return;
+        }
+        nextWallScan = this.tickCount + 5;
+        net.minecraft.core.BlockPos dig = BorderWall.nextDig(level, heart, this.position());
+        if (dig != null) {
+            setAction(new UnitAction(UnitAction.Kind.DIG, dig));
+            return;
+        }
+        net.minecraft.world.level.block.state.BlockState state = block.defaultBlockState();
+        net.minecraft.core.BlockPos place = BorderWall.nextPlace(level, heart, this.position(), state);
+        if (place == null) {
+            wallItem = null;
+            return;
+        }
+        if (heart.getStorage().countItem(wallItem) <= 0) {
+            // Out of the block: wait for the hive to get some.
+            nextWallScan = this.tickCount + 40;
+            return;
+        }
+        if (WorkerDigGoal.inDigReach(this, place)) {
+            heart.getStorage().removeItemType(wallItem, 1);
+            level.setBlock(place, state, net.minecraft.world.level.block.Block.UPDATE_ALL);
+            level.playSound(null, place, state.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 0.8F);
+            this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        } else {
+            this.getNavigation().moveTo(place.getX() + 0.5D, place.getY(), place.getZ() + 0.5D, 1.0D);
+        }
+    }
+
     /** The staircase this worker is digging down, if it was given one. Saved. */
     @Nullable
     private com.projecthivemind.build.StairDig staircase;
     private int nextStairScan;
-    /** The dig order the staircase last gave this worker, so the digging goal can tell a staircase block from any other. */
-    @Nullable
-    private UnitAction stairAction;
-
-    /** True while the worker is on a block of its staircase: what it breaks goes into the hive. */
-    public boolean onStaircase() {
-        return staircase != null && stairAction != null && stairAction.equals(action);
-    }
 
     public void setStaircase(@Nullable com.projecthivemind.build.StairDig staircase) {
         this.staircase = staircase;
@@ -127,12 +174,13 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
-        // A team member stays close to the team's scout when it has nothing else to do.
-        this.goalSelector.addGoal(3, new TeamFollowGoal(this));
+        // A team member stays inside the team's area around its scout: before everything but floating.
+        this.goalSelector.addGoal(0, new TeamFollowGoal(this));
         // Second only to staying inside the border: channelling on crops, when set to.
         this.goalSelector.addGoal(1, new WorkerChannelGoal(this));
         this.goalSelector.addGoal(2, new WorkerDigGoal(this));
         this.goalSelector.addGoal(2, new InteractBlockGoal(this));
+        this.goalSelector.addGoal(2, new WorkerTorchGoal(this));
         this.goalSelector.addGoal(2, new WorkerBuildGoal(this));
         this.goalSelector.addGoal(2, new WorkerFillGoal(this));
     }
@@ -142,6 +190,18 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         HiveHeart heart = findHeart();
         return heart != null && heart.teams().isMember(this.getUUID());
     }
+
+    /** The hive's tools changed: the tool in hand is put away, and the digging goal picks the best of what the hive has now at once. */
+    @Override
+    public void onGearChanged(HiveHeart heart, int changed) {
+        if ((changed & 2) != 0) {
+            gearMirror.reset();
+            this.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, net.minecraft.world.item.ItemStack.EMPTY);
+        }
+    }
+
+    /** Carries a walk order a long way, past what one path can reach. */
+    private final WalkProgress walkProgress = new WalkProgress();
 
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
@@ -179,7 +239,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 // The tool in hand is a copy of one in the hive: wear on it is charged to the original.
                 gearMirror.tick(this, heart);
             }
-            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone()) {
+            if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
                 action = null;
             }
             resumeJobIfFree(heart);
@@ -214,9 +274,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 if (next == null) {
                     staircase = null;
                 } else {
-                    stairAction = next;
                     setAction(next);
                 }
+            }
+            // The border wall, if the worker was given it: second to a staircase, before its own work.
+            if (action == null && wallItem != null && heart != null && !heart.isUnitSelected(this.getId()) && this.tickCount >= nextWallScan) {
+                tickWall(heart);
             }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
             if (action == null && heart != null && this.tickCount >= nextJobScan) {
@@ -346,6 +409,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Override
     public void cancelJob() {
         staircase = null;
+        wallItem = null;
         UnitAction ended = job;
         job = null;
         if (ended != null && ended.equals(action)) {
@@ -380,6 +444,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             tag.putBoolean("JobActive", job.equals(action));
         }
         tag.putBoolean("ResumeJob", resumeJob);
+        if (wallItem != null) {
+            tag.putString("WallItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(wallItem).toString());
+        }
         if (staircase != null) {
             tag.put("Staircase", staircase.save());
         }
@@ -401,6 +468,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         staircase = tag.contains("Staircase") ? com.projecthivemind.build.StairDig.load(tag.getCompound("Staircase")) : null;
         net.minecraft.resources.ResourceLocation fillId = tag.contains("FillItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("FillItem")) : null;
         setFillItem(fillId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(fillId).orElse(null));
+        net.minecraft.resources.ResourceLocation wallId = tag.contains("WallItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("WallItem")) : null;
+        setWallItem(wallId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(wallId).orElse(null));
         if (job != null && tag.getBoolean("JobActive")) {
             action = job;
         }

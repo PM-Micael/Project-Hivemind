@@ -144,7 +144,8 @@ public final class HiveSelection {
     @SubscribeEvent(priority = EventPriority.HIGH)
     static void onMouseButton(InputEvent.MouseButton.Pre event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (!HiveCamera.controlling(minecraft) || HiveCamera.isRotating() || event.getAction() != GLFW.GLFW_PRESS) {
+        if (!HiveCamera.controlling(minecraft) || HiveCamera.isRotating() || event.getAction() != GLFW.GLFW_PRESS
+                || HiveCamera.isRotateMouse(event.getButton())) {
             return;
         }
         int button = event.getButton();
@@ -306,13 +307,21 @@ public final class HiveSelection {
         // One of the player's own units under the cursor: its menu is offered, whatever is behind it.
         HiveUnit ownUnit = unitUnderCursor(minecraft);
         if (ownUnit instanceof Entity ownEntity) {
-            List<ContextMenu.Option> unitOptions = List.of(new ContextMenu.Option(Component.translatable("action.projecthivemind.open_menu"), () -> {
+            List<ContextMenu.Option> unitOptions = new ArrayList<>(List.of(new ContextMenu.Option(Component.translatable("action.projecthivemind.open_menu"), () -> {
                 HiveScreen.requestUnitPage(ownUnit.kind(), ownEntity.getId());
                 PacketDistributor.sendToServer(new OpenHiveMenuPayload());
             }), new ContextMenu.Option(Component.translatable("action.projecthivemind.return_to_base"), () -> {
                 ClientSelection.deselect(ownEntity.getId());
                 PacketDistributor.sendToServer(new ReturnToBasePayload(ownEntity.getId()));
-            }));
+            })));
+            if (ownUnit.kind() == UnitKind.WORKER) {
+                // A worker can be given the wall round the hive: pick what it is built from.
+                unitOptions.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_wall"),
+                        () -> minecraft.setScreen(new SeedPickerScreen(null, Component.translatable("screen.projecthivemind.wall.title"),
+                                item -> com.projecthivemind.entity.HiveWorker.fillBlock(item) != null,
+                                item -> PacketDistributor.sendToServer(new com.projecthivemind.network.BuildWallPayload(ownEntity.getId(),
+                                        item == null ? "" : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item).toString()))))));
+            }
             int[] unitCursor = ContextMenu.cursor(minecraft);
             ContextMenu.open(minecraft, unitCursor[0], unitCursor[1], unitOptions, null, ownEntity.getId());
             return;
@@ -373,6 +382,12 @@ public final class HiveSelection {
                         () -> minecraft.setScreen(new DigStaircaseScreen(builders, pos))));
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_tower"),
                         () -> minecraft.setScreen(new BuildTowerScreen(builders, pos))));
+            }
+            // Workers put up a torch from the hive against the face that was clicked, unless it is the underside.
+            if (hasWorker && hit.getDirection() != Direction.DOWN) {
+                Direction torchFace = hit.getDirection();
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_torch"),
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlaceTorchPayload(selected, pos, torchFace))));
             }
             if (hasWorker || scoutCanOpen) {
                 options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));

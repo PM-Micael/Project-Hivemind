@@ -130,8 +130,6 @@ public class HiveHeart extends Mob {
     private Set<Integer> selectedUnits = Set.of();
     /** The hive's teams of units. Saved. */
     private final HiveTeams teams = new HiveTeams();
-    /** Mobs that have hurt the hive or its units, or are trying to, as of the last look. Not saved. */
-    private Set<UUID> threats = Set.of();
 
 
 
@@ -166,18 +164,6 @@ public class HiveHeart extends Mob {
         this.selectedUnits = entityIds;
     }
 
-    public boolean isThreat(UUID mobId) {
-        return threats.contains(mobId);
-    }
-
-    public Set<UUID> threats() {
-        return threats;
-    }
-
-    public void setThreats(Set<UUID> mobIds) {
-        this.threats = mobIds;
-    }
-
     /** Counts how many times the armor slots have really been changed. Saved, so units made earlier stay comparable. */
     private int armorVersion;
     /** Counts how many times the tool slots have really been changed. */
@@ -194,23 +180,6 @@ public class HiveHeart extends Mob {
     }
 
     /**
-     * True if the gear slots have been changed in a way that matters to this kind of unit since the last interval, so
-     * the next interval will count it as a change. (Soldiers care about armor and tools, workers only about tools.)
-     */
-    public boolean gearChangePending(UnitKind kind) {
-        if (lastArmorSignature == null || lastToolSignature == null) {
-            return false;
-        }
-        boolean tools = !sameSignature(signature(toolSlots), lastToolSignature);
-        boolean armor = !sameSignature(signature(armorSlots), lastArmorSignature);
-        return switch (kind) {
-            case SOLDIER -> armor || tools;
-            case WORKER -> tools;
-            case SCOUT, COLLECTOR -> false;
-        };
-    }
-
-    /**
      * The gear version a unit of this kind is made with. Soldiers care about armor and tools, workers only about
      * tools, and collectors use no gear. A unit made at an older version than this is out of date.
      */
@@ -223,26 +192,31 @@ public class HiveHeart extends Mob {
     }
 
     /**
-     * Look for changes to the armor and tool slots since last time and bump the versions if there are any. Only a real
+     * Look for changes to the armor and tool slots since last time, bump the versions if there are any, and say which changed (bit 1 armor,
+     * bit 2 tools; 0 for none). Only a real
      * change counts: a tool wearing down, or the hidden link stamp being added, does not.
      */
-    public void refreshGearVersions() {
+    public int refreshGearVersions() {
         List<ItemStack> armor = signature(armorSlots);
         List<ItemStack> tools = signature(toolSlots);
         if (lastArmorSignature == null || lastToolSignature == null) {
             // First look since the Heart loaded: take it as the starting point rather than as a change.
             lastArmorSignature = armor;
             lastToolSignature = tools;
-            return;
+            return 0;
         }
+        int changed = 0;
         if (!sameSignature(armor, lastArmorSignature)) {
             armorVersion++;
             lastArmorSignature = armor;
+            changed |= 1;
         }
         if (!sameSignature(tools, lastToolSignature)) {
             toolVersion++;
             lastToolSignature = tools;
+            changed |= 2;
         }
+        return changed;
     }
 
     /** The contents of a gear container, with wear and the link stamp stripped off so only a real swap shows up. */
@@ -336,6 +310,9 @@ public class HiveHeart extends Mob {
         if (this.tickCount % SIGHT_INTERVAL_TICKS == 0) {
             HivemindManager.tickSight(this);
             HivemindManager.tickHealthSync(this);
+        }
+        if (this.tickCount % 5 == 0) {
+            HivemindManager.tickGearSync(this);
         }
         HivemindManager.tickNaturalSpawning(this);
         if (this.level() instanceof ServerLevel foodLevel) {
