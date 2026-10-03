@@ -194,7 +194,7 @@ public final class HiveSelection {
         }
 
         List<Integer> selected = List.copyOf(ClientSelection.selected());
-        if (!unitsOfKind(minecraft, selected, UnitKind.COLLECTOR).isEmpty()) {
+        if (hasPassiveSelected(minecraft, selected)) {
             // A selected collector only takes tasks from the right-click menu.
             return;
         }
@@ -232,6 +232,16 @@ public final class HiveSelection {
     }
 
     /** The ids among these units that are of this kind. */
+    /** True if one of these units cannot be commanded (a collector or a feeder): it is selected alone, and takes no orders from clicks. */
+    private static boolean hasPassiveSelected(Minecraft minecraft, List<Integer> ids) {
+        for (UnitKind kind : UnitKind.values()) {
+            if (kind.passive() && !unitsOfKind(minecraft, ids, kind).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static List<Integer> unitsOfKind(Minecraft minecraft, List<Integer> ids, UnitKind kind) {
         List<Integer> result = new ArrayList<>();
         for (int id : ids) {
@@ -269,7 +279,7 @@ public final class HiveSelection {
         }
         // A collector is selected on its own, one at a time, only to give it tasks inside the hive border; nothing else
         // can be selected with it. Selecting anything else lets it go.
-        boolean collector = closest instanceof HiveUnit pickedUnit && pickedUnit.kind() == UnitKind.COLLECTOR;
+        boolean collector = closest instanceof HiveUnit pickedUnit && pickedUnit.kind().passive();
         if (collector) {
             boolean wasSelected = ClientSelection.isSelected(closest.getId());
             ClientSelection.retain(Set.of());
@@ -279,7 +289,7 @@ public final class HiveSelection {
             return true;
         }
         for (int id : List.copyOf(ClientSelection.selected())) {
-            if (minecraft.level.getEntity(id) instanceof HiveUnit other && other.kind() == UnitKind.COLLECTOR) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit other && other.kind().passive()) {
                 ClientSelection.deselect(id);
             }
         }
@@ -361,6 +371,9 @@ public final class HiveSelection {
             openCollectorMenu(minecraft, collectors.get(0), hit.getBlockPos());
             return;
         }
+        if (hasPassiveSelected(minecraft, selected)) {
+            return; // a feeder takes no tasks from the menu
+        }
 
         BlockPos pos = hit.getBlockPos();
         boolean working = ClientActions.isActive(pos);
@@ -387,6 +400,12 @@ public final class HiveSelection {
                 options.add(new ContextMenu.Option(Component.translatable(scoutItem.getItem() instanceof BlockItem
                         ? "action.projecthivemind.place_block" : "action.projecthivemind.use_item"),
                         () -> PacketDistributor.sendToServer(new ScoutUsePayload(selected, pos, face))));
+            }
+            // A scout can place a hive portal on the face that was clicked, once the hive has portals to place.
+            if (ClientPortals.max() > 0 && selectionHas(minecraft, selected, UnitKind.SCOUT)) {
+                Direction portalFace = hit.getDirection();
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_portal"),
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlacePortalPayload(selected, pos, portalFace, false))));
             }
             // Workers can build a tower on the block: one for the single staircase, two or more for the double.
             List<Integer> builders = unitsOfKind(minecraft, selected, UnitKind.WORKER);

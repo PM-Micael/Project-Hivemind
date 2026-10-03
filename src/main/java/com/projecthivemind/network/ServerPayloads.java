@@ -92,6 +92,24 @@ public final class ServerPayloads {
             menu.broadcastChanges();
         }
     }
+    public static void onPlacePortal(PlacePortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.placePortal(player, payload);
+        }
+    }
+    public static void onDeletePortal(DeletePortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HivePortals.delete(player, payload.index());
+        }
+    }
+
+
+    public static void onSummonUnits(SummonUnitsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HivePortals.summon(player, payload.target(), payload.unitIds());
+        }
+    }
+
 
     public static void onScoutUse(ScoutUsePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {

@@ -29,6 +29,11 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
                         boolean nether, int blazeRods) {
     }
 
+    /** How many hive portals the hive may have standing at once: none before level 3, one from then on. */
+    public int maxPortals() {
+        return level >= HiveLevels.PORTAL_LEVEL ? 1 : 0;
+    }
+
     public int cap(UnitKind kind) {
         return unitCaps.getOrDefault(kind, 0);
     }

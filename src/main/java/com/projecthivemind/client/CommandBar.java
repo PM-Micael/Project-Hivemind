@@ -95,11 +95,22 @@ public final class CommandBar {
         return ids;
     }
 
+    /** The entity ids of the player's own living collectors and feeders. */
+    private static List<Integer> ownPassiveUnits(Minecraft minecraft) {
+        List<Integer> ids = new ArrayList<>();
+        for (UnitKind kind : UnitKind.values()) {
+            if (kind.passive()) {
+                ids.addAll(ownUnits(minecraft, kind));
+            }
+        }
+        return ids;
+    }
+
     /** Select all of a kind of unit, or if they are all selected already, deselect them all. */
     private static void toggleGroup(Minecraft minecraft, int index) {
         Group group = GROUPS.get(index);
         // A collector is only ever selected alone: selecting these lets it go.
-        for (int id : ownUnits(minecraft, UnitKind.COLLECTOR)) {
+        for (int id : ownPassiveUnits(minecraft)) {
             ClientSelection.deselect(id);
         }
         List<Integer> ids = ownUnits(minecraft, group.kind());

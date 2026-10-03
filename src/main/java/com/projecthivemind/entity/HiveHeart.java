@@ -15,6 +15,7 @@ import com.projecthivemind.HiveActions;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveFood;
 import com.projecthivemind.HiveBrewing;
+import com.projecthivemind.HivePortals;
 import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
@@ -97,6 +98,8 @@ public class HiveHeart extends Mob {
     private final HiveFurnace furnace = new HiveFurnace();
     /** The brewing stand built into the Heart from level 5. */
     private final HiveBrewing brewing = new HiveBrewing();
+    /** The portals standing and the summoning going on (from level 3). */
+    private final PortalNetwork portals = new PortalNetwork();
     /** Where each of the hive's units was last seen (dimension and chunk), so they can be loaded again after a restart. */
     private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
@@ -213,7 +216,7 @@ public class HiveHeart extends Mob {
         return switch (kind) {
             case SOLDIER -> armorVersion + toolVersion;
             case WORKER -> toolVersion;
-            case SCOUT, COLLECTOR -> 0;
+            case SCOUT, COLLECTOR, FEEDER -> 0;
         };
     }
 
@@ -444,6 +447,7 @@ public class HiveHeart extends Mob {
         if (hiveLevel >= HiveLevels.BREWING_LEVEL && this.level() instanceof ServerLevel serverLevel) {
             brewing.tick(serverLevel);
         }
+        HivePortals.tick(this);
         if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
             HivemindManager.tickQuests(this);
         }
@@ -617,6 +621,10 @@ public class HiveHeart extends Mob {
         return brewing;
     }
 
+    public PortalNetwork portals() {
+        return portals;
+    }
+
     @Nullable
     public com.projecthivemind.HivemindManager.UnitSpot unitSpot(UUID unit) {
         return unitSpots.get(unit);
@@ -768,6 +776,7 @@ public class HiveHeart extends Mob {
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
         tag.put("HiveBrewing", brewing.save(registryAccess()));
+        tag.put("PortalNetwork", portals.save());
         net.minecraft.nbt.ListTag spots = new net.minecraft.nbt.ListTag();
         for (java.util.Map.Entry<UUID, com.projecthivemind.HivemindManager.UnitSpot> entry : unitSpots.entrySet()) {
             CompoundTag spot = new CompoundTag();
@@ -859,6 +868,9 @@ public class HiveHeart extends Mob {
                 unitSpots.put(spot.getUUID("Unit"), new com.projecthivemind.HivemindManager.UnitSpot(
                         net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension), new net.minecraft.world.level.ChunkPos(spot.getLong("Chunk"))));
             }
+        }
+        if (tag.contains("PortalNetwork")) {
+            portals.load(tag.getCompound("PortalNetwork"));
         }
         if (tag.contains("HiveBrewing")) {
             brewing.load(tag.getCompound("HiveBrewing"), registryAccess());

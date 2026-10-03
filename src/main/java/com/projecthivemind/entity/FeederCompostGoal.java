@@ -1,13 +1,13 @@
 package com.projecthivemind.entity;
 
 import java.util.EnumSet;
-import java.util.List;
 
 import javax.annotation.Nullable;
 
+import com.projecthivemind.HiveArea;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
@@ -19,23 +19,24 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-import com.projecthivemind.HiveArea;
-
 /**
- * A worker set to use composters looks after the composters inside the hive area: it feeds each one that has room, one of the item it
- * was given at a time from the hive's inventory, the way a player does; and when one is ready it takes the bone meal out and puts it in
- * the hive's inventory. A ready composter comes first. Only while the worker is idle and not selected.
+ * A feeder set to use composters looks after the composters inside the hive area: it flies up to each one that has room and feeds it, one
+ * of the item it was given at a time from the hive's inventory, the way a player does; and when one is ready it takes the bone meal out
+ * and puts it in the hive's inventory. A ready composter comes first.
  */
-public class WorkerCompostGoal extends Goal {
+public class FeederCompostGoal extends Goal {
     private static final double SPEED = 1.0D;
     private static final int SCAN_INTERVAL = 20;
     private static final int REPATH_INTERVAL = 10;
     /** The ticks between one item going in and the next. */
     private static final int FEED_INTERVAL = 6;
     private static final int GIVE_UP_TICKS = 200;
-    private static final int HEIGHT = 6;
+    private static final int HEIGHT = 8;
+    /** How high above the composter the feeder hovers, and how close, squared, to that spot it has to be to work. */
+    private static final double HOVER_HEIGHT = 1.4D;
+    private static final double WORK_DISTANCE_SQR = 1.5D * 1.5D;
 
-    private final HiveWorker worker;
+    private final HiveFeeder feeder;
     @Nullable
     private BlockPos target;
     private int nextScan;
@@ -43,16 +44,15 @@ public class WorkerCompostGoal extends Goal {
     private int stuckTicks;
     private int feedCooldown;
 
-    public WorkerCompostGoal(HiveWorker worker) {
-        this.worker = worker;
+    public FeederCompostGoal(HiveFeeder feeder) {
+        this.feeder = feeder;
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
     @Nullable
     private HiveHeart allowedHeart() {
-        HiveHeart heart = worker.findLocalHeart();
-        return heart != null && worker.behavior().useComposter() && worker.compostItem() != null && worker.action() == null
-                && !heart.isUnitSelected(worker.getId()) ? heart : null;
+        HiveHeart heart = feeder.findLocalHeart();
+        return heart != null && feeder.behavior().useComposter() && feeder.compostItem() != null ? heart : null;
     }
 
     private static boolean ready(BlockState state) {
@@ -60,14 +60,14 @@ public class WorkerCompostGoal extends Goal {
     }
 
     private boolean hungry(HiveHeart heart, BlockState state) {
-        Item item = worker.compostItem();
+        Item item = feeder.compostItem();
         return item != null && state.is(Blocks.COMPOSTER) && state.getValue(ComposterBlock.LEVEL) < ComposterBlock.MAX_LEVEL
                 && heart.getStorage().countItem(item) > 0;
     }
 
-    /** True while the composter still needs this worker: it is ready to empty, or has room and the hive has the item. */
+    /** True while the composter still needs this feeder: it is ready to empty, or has room and the hive has the item. */
     private boolean needsWork(HiveHeart heart, BlockPos pos) {
-        BlockState state = worker.level().getBlockState(pos);
+        BlockState state = feeder.level().getBlockState(pos);
         return ready(state) || hungry(heart, state);
     }
 
@@ -75,10 +75,10 @@ public class WorkerCompostGoal extends Goal {
     public boolean canUse() {
         HiveHeart heart = allowedHeart();
         // A deadline, not tickCount % N: goals are only evaluated on some ticks, so a modulo check can silently never line up.
-        if (heart == null || worker.tickCount < nextScan) {
+        if (heart == null || feeder.tickCount < nextScan) {
             return false;
         }
-        nextScan = worker.tickCount + SCAN_INTERVAL;
+        nextScan = feeder.tickCount + SCAN_INTERVAL;
         target = findComposter(heart);
         return target != null;
     }
@@ -90,6 +90,11 @@ public class WorkerCompostGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         repathCooldown = 0;
         stuckTicks = 0;
@@ -98,16 +103,16 @@ public class WorkerCompostGoal extends Goal {
 
     @Override
     public void stop() {
-        worker.getNavigation().stop();
+        feeder.getNavigation().stop();
         target = null;
     }
 
     /** The nearest composter in the hive area that needs work: one that is ready first, otherwise one that has room. */
     @Nullable
     private BlockPos findComposter(HiveHeart heart) {
-        ServerLevel level = (ServerLevel) worker.level();
+        ServerLevel level = (ServerLevel) feeder.level();
         AABB area = HiveArea.areaBox(level, heart);
-        BlockPos origin = worker.blockPosition();
+        BlockPos origin = feeder.blockPosition();
         BlockPos bestReady = null;
         BlockPos bestHungry = null;
         double readyDistance = Double.MAX_VALUE;
@@ -135,16 +140,7 @@ public class WorkerCompostGoal extends Goal {
                 }
             }
         }
-        BlockPos best = bestReady != null ? bestReady : bestHungry;
-        return best != null && reachable(best) ? best : null;
-    }
-
-    private boolean reachable(BlockPos pos) {
-        if (WorkerDigGoal.inDigReach(worker, pos)) {
-            return true;
-        }
-        net.minecraft.world.level.pathfinder.Path path = worker.getNavigation().createPath(pos, 1);
-        return path != null && path.canReach();
+        return bestReady != null ? bestReady : bestHungry;
     }
 
     @Override
@@ -153,25 +149,26 @@ public class WorkerCompostGoal extends Goal {
         if (heart == null || target == null) {
             return;
         }
-        ServerLevel level = (ServerLevel) worker.level();
-        if (!WorkerDigGoal.inDigReach(worker, target)) {
+        ServerLevel level = (ServerLevel) feeder.level();
+        Vec3 center = Vec3.atCenterOf(target);
+        Vec3 hover = new Vec3(center.x, target.getY() + HOVER_HEIGHT, center.z);
+        if (feeder.position().distanceToSqr(hover) > WORK_DISTANCE_SQR) {
             if (++stuckTicks > GIVE_UP_TICKS) {
                 target = null;
             } else if (--repathCooldown <= 0) {
-                Vec3 center = Vec3.atCenterOf(target);
-                worker.getNavigation().moveTo(center.x, center.y, center.z, SPEED);
+                feeder.getNavigation().moveTo(hover.x, hover.y, hover.z, SPEED);
                 repathCooldown = REPATH_INTERVAL;
             }
             return;
         }
         stuckTicks = 0;
-        worker.getNavigation().stop();
-        worker.getLookControl().setLookAt(Vec3.atCenterOf(target));
+        feeder.getNavigation().stop();
+        feeder.getLookControl().setLookAt(center);
         BlockState state = level.getBlockState(target);
 
         if (ready(state)) {
             // Take the bone meal out, and into the hive's inventory.
-            ComposterBlock.extractProduce(worker, state, level, target);
+            ComposterBlock.extractProduce(feeder, state, level, target);
             for (ItemEntity drop : level.getEntitiesOfClass(ItemEntity.class, new AABB(target).inflate(2.0D), item -> item.getItem().is(Items.BONE_MEAL))) {
                 ItemStack left = heart.getStorage().addItem(drop.getItem());
                 if (left.isEmpty()) {
@@ -180,18 +177,15 @@ public class WorkerCompostGoal extends Goal {
                     drop.setItem(left);
                 }
             }
-            worker.swing(InteractionHand.MAIN_HAND);
             return;
         }
         if (--feedCooldown > 0 || !hungry(heart, state)) {
             return;
         }
         // One item in, as a player does it; what is put in is gone from the hive whether or not it made the pile rise.
-        Item item = worker.compostItem();
-        ItemStack one = new ItemStack(item);
-        ComposterBlock.insertItem(worker, state, level, one, target);
+        Item item = feeder.compostItem();
+        ComposterBlock.insertItem(feeder, state, level, new ItemStack(item), target);
         heart.getStorage().removeItemType(item, 1);
-        worker.swing(InteractionHand.MAIN_HAND);
         feedCooldown = FEED_INTERVAL;
     }
 }

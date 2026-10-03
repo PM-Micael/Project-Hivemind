@@ -445,6 +445,39 @@ public final class HiveActions {
     }
 
     /**
+     * A scout places a hive portal (hive level 3 and up). With the portal limit reached, the player is asked first: placing another takes
+     * the oldest down.
+     */
+    public static void placePortal(ServerPlayer player, com.projecthivemind.network.PlacePortalPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        BlockPos pos = request.pos();
+        if (heart == null || !level.isInWorldBounds(pos) || !level.isLoaded(pos)) {
+            return;
+        }
+        if (HivePortals.max(heart) <= 0) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.portal_locked"), true);
+            return;
+        }
+        List<Mob> scouts = commandable(player, level, request.unitIds(), UnitKind.SCOUT);
+        if (scouts.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts_use"), true);
+            return;
+        }
+        if (!request.confirmed() && heart.portals().portals().size() >= HivePortals.max(heart)) {
+            PacketDistributor.sendToPlayer(player, new com.projecthivemind.network.ConfirmPortalPayload(request));
+            return;
+        }
+        Mob scout = scouts.get(0);
+        scout.getNavigation().stop();
+        ((HiveUnit) scout).setAction(UnitAction.portal(pos, request.face()));
+        syncActions(player, heart);
+    }
+
+    /**
      * The selected scouts each drop one item from the stack in their hand, in the order of their numbers (Scout 1 first).
      * The hand is one stack, so with several scouts and a short stack the first ones drop and the rest have nothing left:
      * a single item is dropped by Scout 1 alone. Each item is thrown a little way in front of the scout, and cannot be
@@ -598,7 +631,7 @@ public final class HiveActions {
         List<Mob> units = new ArrayList<>();
         for (int id : ids) {
             if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
-                    && player.getUUID().equals(unit.ownerId()) && unit.kind() != UnitKind.COLLECTOR
+                    && player.getUUID().equals(unit.ownerId()) && !unit.kind().passive()
                     && (only == null || unit.kind() == only)) {
                 units.add(mob);
             }

@@ -12,6 +12,7 @@ public class ProjectHivemind {
     public static final String MODID = "projecthivemind";
 
     public ProjectHivemind(IEventBus modEventBus, ModContainer container) {
+        ModBlocks.BLOCKS.register(modEventBus);
         ModComponents.COMPONENTS.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModMenus.MENU_TYPES.register(modEventBus);

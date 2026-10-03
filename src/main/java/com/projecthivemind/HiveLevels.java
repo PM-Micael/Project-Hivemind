@@ -11,35 +11,40 @@ public final class HiveLevels {
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 1,
                     UnitKind.SOLDIER, 1,
-                    UnitKind.COLLECTOR, 1),
+                    UnitKind.COLLECTOR, 1,
+                    UnitKind.FEEDER, 1),
                     new HiveLevel.Quest(10, 5, 0, 0, null, 0, 0, false, 0)),
             // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, 3 soldiers, 2 workers.
             new HiveLevel(2, 40.0F, 54, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 2,
                     UnitKind.SOLDIER, 3,
-                    UnitKind.COLLECTOR, 1),
+                    UnitKind.COLLECTOR, 1,
+                    UnitKind.FEEDER, 2),
                     new HiveLevel.Quest(0, 0, 10, 24000, null, 0, 0, false, 0)),
             // Level 3: 30 hearts, 81 storage slots (scrolled), a 29x29 hive area, 3 workers, 5 soldiers and 2 collectors.
             new HiveLevel(3, 60.0F, 81, 3, 14, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 3,
                     UnitKind.SOLDIER, 5,
-                    UnitKind.COLLECTOR, 2),
+                    UnitKind.COLLECTOR, 2,
+                    UnitKind.FEEDER, 3),
                     new HiveLevel.Quest(0, 0, 0, 0, 0, 10, 24, false, 0)),
             // Level 4: 40 hearts, 108 storage slots (scrolled), a 61x61 hive area, 7 workers and 7 soldiers. The other units stay as they were.
             new HiveLevel(4, 80.0F, 108, 3, 30, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 7,
                     UnitKind.SOLDIER, 7,
-                    UnitKind.COLLECTOR, 2),
+                    UnitKind.COLLECTOR, 2,
+                    UnitKind.FEEDER, 3),
                     new HiveLevel.Quest(0, 0, 0, 0, null, 0, 0, true, 3)),
             // Level 5: 50 hearts. Everything else is as it was at level 4 (more to come).
             new HiveLevel(5, 100.0F, 108, 3, 30, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 7,
                     UnitKind.SOLDIER, 7,
-                    UnitKind.COLLECTOR, 2),
+                    UnitKind.COLLECTOR, 2,
+                    UnitKind.FEEDER, 3),
                     null));
 
     /** The level at which the Heart has its own furnace. */
@@ -47,6 +52,9 @@ public final class HiveLevels {
 
     /** The level at which the Heart has its own brewing stand. */
     public static final int BREWING_LEVEL = 5;
+
+    /** The level at which scouts can place hive portals. */
+    public static final int PORTAL_LEVEL = 3;
 
     private HiveLevels() {
     }
