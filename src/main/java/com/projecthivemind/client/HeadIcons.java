@@ -39,6 +39,7 @@ final class HeadIcons {
                 case SOLDIER -> ModEntities.HIVE_SOLDIER.get().create(level);
                 case WORKER -> ModEntities.HIVE_WORKER.get().create(level);
                 case COLLECTOR -> ModEntities.HIVE_COLLECTOR.get().create(level);
+                case FEEDER -> ModEntities.HIVE_FEEDER.get().create(level);
             };
             if (entity != null) {
                 STAND_INS.put(kind, entity);
@@ -49,7 +50,7 @@ final class HeadIcons {
 
     /** How many pixels a block is, drawn: small mobs need blowing up for their head to fill a button. */
     private static int scale(UnitKind kind) {
-        return kind == UnitKind.COLLECTOR ? 110 : 44;
+        return kind == UnitKind.COLLECTOR ? 110 : kind == UnitKind.FEEDER ? 80 : 44;
     }
 
     /** Draw the head of this entity into the box, cut off at its edges. */

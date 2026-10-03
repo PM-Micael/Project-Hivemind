@@ -12,23 +12,23 @@ import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 
 /**
- * The teams of a hive: groups of its units that act together. For now a hive has the one team, but everything here works on a list of
+ * The teams of a hive: groups of its units that act together. A hive has a team for the Heart and one for each portal it may have; this works on a list of
  * them, so more can be added later. A unit is in at most one team. What being in a team means is up to the units: see
  * {@link TeamFollowGoal} for the first rule, that workers and soldiers stay close to the team's scout.
  */
 public final class HiveTeams {
-    /** How many teams a hive has for now. */
-    public static final int TEAM_COUNT = 1;
+    /** The most teams a hive can have; how many it has now depends on its level (see HiveLevel#teamCount). */
+    public static final int MAX_TEAMS = 8;
 
     private final List<Set<UUID>> teams = new ArrayList<>();
     /** How close each team keeps to its scout, in blocks: the area around the scout. */
-    private final int[] radius = new int[TEAM_COUNT];
+    private final int[] radius = new int[MAX_TEAMS];
     public static final int MIN_RADIUS = 3;
     public static final int MAX_RADIUS = 24;
     public static final int DEFAULT_RADIUS = 8;
 
     public HiveTeams() {
-        for (int i = 0; i < TEAM_COUNT; i++) {
+        for (int i = 0; i < MAX_TEAMS; i++) {
             teams.add(new LinkedHashSet<>());
             radius[i] = DEFAULT_RADIUS;
         }
@@ -62,15 +62,6 @@ public final class HiveTeams {
 
     public void leave(UUID unit) {
         teams.forEach(members -> members.remove(unit));
-    }
-
-    /** In the first team if it was not, out of it if it was. */
-    public void toggle(UUID unit) {
-        if (isMember(unit)) {
-            leave(unit);
-        } else {
-            join(unit, 0);
-        }
     }
 
     public int radius(int team) {

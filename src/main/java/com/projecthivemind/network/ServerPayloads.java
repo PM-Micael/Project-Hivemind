@@ -92,6 +92,24 @@ public final class ServerPayloads {
             menu.broadcastChanges();
         }
     }
+    public static void onPlacePortal(PlacePortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.placePortal(player, payload);
+        }
+    }
+    public static void onDeletePortal(DeletePortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HivePortals.delete(player, payload.index());
+        }
+    }
+
+
+    public static void onSummonUnits(SummonUnitsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HivePortals.summon(player, payload.target(), payload.unitIds());
+        }
+    }
+
 
     public static void onScoutUse(ScoutUsePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
@@ -224,9 +242,15 @@ public final class ServerPayloads {
         }
     }
 
-    public static void onToggleTeam(ToggleTeamPayload payload, IPayloadContext context) {
+    public static void onSetUnitTeam(SetUnitTeamPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
-            HivemindManager.toggleTeam(player, payload.unitId());
+            HivemindManager.setUnitTeam(player, payload.unitId(), payload.team());
+        }
+    }
+
+    public static void onFocusTeam(FocusTeamPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.focusTeam(player, payload.team());
         }
     }
 

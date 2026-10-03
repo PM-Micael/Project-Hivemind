@@ -69,6 +69,10 @@ public class CollectItemsGoal extends Goal {
         if (!collector.carried().isEmpty()) {
             return true;
         }
+        // Switched off: no new items (one already being carried is still taken to the Heart, above).
+        if (!collector.pickUpItems()) {
+            return false;
+        }
         // Do not gate on tickCount % N: the game only evaluates goals on ticks where tickCount + entityId is even, and
         // entity ids change every time a world loads, so a modulo check can silently never line up for some entities.
         if (collector.tickCount < nextSearchTick) {
@@ -84,7 +88,8 @@ public class CollectItemsGoal extends Goal {
         if (collector.findLocalHeart() == null) {
             return false;
         }
-        return !collector.carried().isEmpty() || (target != null && target.isAlive());
+        // Switched off mid-trip: an item not yet picked up is dropped at once, one being carried is still delivered.
+        return !collector.carried().isEmpty() || (collector.pickUpItems() && target != null && target.isAlive());
     }
 
     @Override

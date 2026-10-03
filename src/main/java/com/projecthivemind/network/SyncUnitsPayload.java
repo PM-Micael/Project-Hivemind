@@ -54,8 +54,11 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
         /** The unit is in another dimension than the camera: it cannot be seen or clicked in the world, only through its page. */
         public static final int AWAY = 8;
 
-        public static int flags(boolean paused, boolean resume, boolean team) {
-            return (paused ? PAUSED : 0) | (resume ? RESUME : 0) | (team ? TEAM : 0);
+        /** The team the unit is in, 0 for the first, as one more than that in the bits above these flags; none for no team. */
+        private static final int TEAM_SHIFT = 8;
+
+        public static int flags(boolean paused, boolean resume, int team) {
+            return (paused ? PAUSED : 0) | (resume ? RESUME : 0) | (team >= 0 ? TEAM : 0) | ((team + 1) << TEAM_SHIFT);
         }
 
         public static final StreamCodec<RegistryFriendlyByteBuf, Entry> STREAM_CODEC = StreamCodec.composite(
@@ -73,6 +76,11 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
 
         public boolean away() {
             return (flags & AWAY) != 0;
+        }
+
+        /** The team the unit is in (0 for the first), or -1 for none. */
+        public int teamIndex() {
+            return (flags >> TEAM_SHIFT) - 1;
         }
 
         public boolean team() {

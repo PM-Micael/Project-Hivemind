@@ -137,7 +137,14 @@ public class SoldierDefaultAttackGoal extends Goal {
             AABB area = HiveArea.areaBox(level, heart);
             candidates.addAll(level.getEntitiesOfClass(Mob.class, area, mob -> matchesSettings(heart, mob)));
         }
-        return candidates.stream().min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
+        return candidates.stream().filter(this::withinHeight).min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
+    }
+
+    /** A soldier only goes after what is within this many blocks of its own height: not at things far above or below it. */
+    private static final double MAX_HEIGHT_DIFFERENCE = 3.0D;
+
+    private boolean withinHeight(Mob mob) {
+        return Math.abs(mob.getY() - soldier.getY()) <= MAX_HEIGHT_DIFFERENCE;
     }
 
     private static boolean isOutsider(Mob mob) {
@@ -146,7 +153,7 @@ public class SoldierDefaultAttackGoal extends Goal {
 
     /** Whether this mob is still a valid target for this soldier. */
     private boolean matches(HiveHeart heart, Mob mob) {
-        if (!isOutsider(mob) || mob == soldier) {
+        if (!isOutsider(mob) || mob == soldier || !withinHeight(mob)) {
             return false;
         }
         if (settingsApply(heart) && matchesSettings(heart, mob)) {

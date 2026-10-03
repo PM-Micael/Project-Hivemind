@@ -95,6 +95,18 @@ public final class HiveSelection {
         }
     }
 
+
+    /** Units picked with a team hotkey that the client may not have loaded yet, and the player tick until which they are waited for. */
+    private static final Set<Integer> PENDING = new HashSet<>();
+    private static int pendingUntil;
+
+    /** Wait for these units to be loaded (the camera is on its way to them) before forgetting them for not being there. */
+    static void expectUnits(Set<Integer> ids, int untilTick) {
+        PENDING.clear();
+        PENDING.addAll(ids);
+        pendingUntil = untilTick;
+    }
+
     /** Keep the player id current (units outline for their owner only) and forget units that are gone. */
     @SubscribeEvent
     static void onClientTick(ClientTickEvent.Post event) {
@@ -112,7 +124,12 @@ public final class HiveSelection {
         Set<Integer> alive = new HashSet<>();
         for (int id : ClientSelection.selected()) {
             Entity entity = minecraft.level.getEntity(id);
-            // Units in a team cannot be selected, except its scout: the team does what the scout is told.
+            // A unit just picked with a team hotkey may be far off, and not loaded here until the camera has got there: wait for it a few seconds.
+            if (entity == null && PENDING.contains(id) && minecraft.player.tickCount < pendingUntil) {
+                alive.add(id);
+                continue;
+            }
+            // Units following a team scout cannot be selected: the team does what the scout is told.
             if (entity != null && entity.isAlive() && !isTeamFollower(id)) {
                 alive.add(id);
             }
@@ -194,7 +211,7 @@ public final class HiveSelection {
         }
 
         List<Integer> selected = List.copyOf(ClientSelection.selected());
-        if (!unitsOfKind(minecraft, selected, UnitKind.COLLECTOR).isEmpty()) {
+        if (hasPassiveSelected(minecraft, selected)) {
             // A selected collector only takes tasks from the right-click menu.
             return;
         }
@@ -232,6 +249,33 @@ public final class HiveSelection {
     }
 
     /** The ids among these units that are of this kind. */
+    /** True if one of these units cannot be commanded (a collector or a feeder): it is selected alone, and takes no orders from clicks. */
+    private static boolean hasPassiveSelected(Minecraft minecraft, List<Integer> ids) {
+        for (UnitKind kind : UnitKind.values()) {
+            if (kind.passive() && !unitsOfKind(minecraft, ids, kind).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The selected workers, and the workers of the team of each selected scout (those follow it, and build when it is told to). */
+    private static List<Integer> withTeamWorkers(Minecraft minecraft, List<Integer> selected) {
+        List<Integer> workers = new ArrayList<>(unitsOfKind(minecraft, selected, UnitKind.WORKER));
+        for (int scoutId : unitsOfKind(minecraft, selected, UnitKind.SCOUT)) {
+            SyncUnitsPayload.Entry scout = ClientUnits.entry(scoutId);
+            if (scout == null || scout.teamIndex() < 0) {
+                continue;
+            }
+            for (SyncUnitsPayload.Entry entry : ClientUnits.all()) {
+                if (entry.kind() == UnitKind.WORKER.ordinal() && entry.teamIndex() == scout.teamIndex() && !entry.away() && !workers.contains(entry.entityId())) {
+                    workers.add(entry.entityId());
+                }
+            }
+        }
+        return workers;
+    }
+
     private static List<Integer> unitsOfKind(Minecraft minecraft, List<Integer> ids, UnitKind kind) {
         List<Integer> result = new ArrayList<>();
         for (int id : ids) {
@@ -269,7 +313,7 @@ public final class HiveSelection {
         }
         // A collector is selected on its own, one at a time, only to give it tasks inside the hive border; nothing else
         // can be selected with it. Selecting anything else lets it go.
-        boolean collector = closest instanceof HiveUnit pickedUnit && pickedUnit.kind() == UnitKind.COLLECTOR;
+        boolean collector = closest instanceof HiveUnit pickedUnit && pickedUnit.kind().passive();
         if (collector) {
             boolean wasSelected = ClientSelection.isSelected(closest.getId());
             ClientSelection.retain(Set.of());
@@ -279,7 +323,7 @@ public final class HiveSelection {
             return true;
         }
         for (int id : List.copyOf(ClientSelection.selected())) {
-            if (minecraft.level.getEntity(id) instanceof HiveUnit other && other.kind() == UnitKind.COLLECTOR) {
+            if (minecraft.level.getEntity(id) instanceof HiveUnit other && other.kind().passive()) {
                 ClientSelection.deselect(id);
             }
         }
@@ -287,10 +331,13 @@ public final class HiveSelection {
         return true;
     }
 
-    /** True for a unit in a team that is not its scout: it follows the scout, and cannot be selected. */
+    /** True for a unit in a team with a scout that is not that scout: it follows the scout, and cannot be selected by clicking. */
     private static boolean isTeamFollower(int entityId) {
         com.projecthivemind.network.SyncUnitsPayload.Entry entry = ClientUnits.entry(entityId);
-        return entry != null && entry.team() && entry.kind() != UnitKind.SCOUT.ordinal();
+        if (entry == null || entry.teamIndex() < 0 || entry.kind() == UnitKind.SCOUT.ordinal()) {
+            return false;
+        }
+        return ClientUnits.all().stream().anyMatch(other -> other.kind() == UnitKind.SCOUT.ordinal() && other.teamIndex() == entry.teamIndex());
     }
 
     // ---- commanding ----
@@ -361,6 +408,9 @@ public final class HiveSelection {
             openCollectorMenu(minecraft, collectors.get(0), hit.getBlockPos());
             return;
         }
+        if (hasPassiveSelected(minecraft, selected)) {
+            return; // a feeder takes no tasks from the menu
+        }
 
         BlockPos pos = hit.getBlockPos();
         boolean working = ClientActions.isActive(pos);
@@ -388,8 +438,15 @@ public final class HiveSelection {
                         ? "action.projecthivemind.place_block" : "action.projecthivemind.use_item"),
                         () -> PacketDistributor.sendToServer(new ScoutUsePayload(selected, pos, face))));
             }
+            // A scout can place a hive portal on the face that was clicked, once the hive has portals to place.
+            if (ClientPortals.max() > 0 && selectionHas(minecraft, selected, UnitKind.SCOUT)) {
+                Direction portalFace = hit.getDirection();
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_portal"),
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlacePortalPayload(selected, pos, portalFace, false))));
+            }
             // Workers can build a tower on the block: one for the single staircase, two or more for the double.
-            List<Integer> builders = unitsOfKind(minecraft, selected, UnitKind.WORKER);
+            // A scout that is selected also builds: it is the team's conduit, so the build goes to the workers following it.
+            List<Integer> builders = withTeamWorkers(minecraft, selected);
             if (!builders.isEmpty()) {
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.dig_staircase"),
                         () -> minecraft.setScreen(new DigStaircaseScreen(builders, pos))));
@@ -399,10 +456,10 @@ public final class HiveSelection {
                         () -> minecraft.setScreen(new BuildBridgeScreen(builders, pos))));
             }
             // Workers put up a torch from the hive against the face that was clicked, unless it is the underside.
-            if (hasWorker && hit.getDirection() != Direction.DOWN) {
+            if (!builders.isEmpty() && hit.getDirection() != Direction.DOWN) {
                 Direction torchFace = hit.getDirection();
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_torch"),
-                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlaceTorchPayload(selected, pos, torchFace))));
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlaceTorchPayload(builders, pos, torchFace))));
             }
             if (hasWorker || scoutCanOpen) {
                 options.add(option("action.projecthivemind.interact", selected, pos, BlockAction.INTERACT));

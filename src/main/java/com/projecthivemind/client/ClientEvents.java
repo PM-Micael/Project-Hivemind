@@ -52,6 +52,7 @@ public final class ClientEvents {
         event.registerEntityRenderer(ModEntities.HIVE_WORKER.get(), SkeletonRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_SOLDIER.get(), ZombieRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_COLLECTOR.get(), SilverfishRenderer::new);
+        event.registerEntityRenderer(ModEntities.HIVE_FEEDER.get(), net.minecraft.client.renderer.entity.BeeRenderer::new);
     }
 
     @SubscribeEvent
@@ -69,9 +70,15 @@ public final class ClientEvents {
             net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME, com.mojang.blaze3d.platform.InputConstants.Type.MOUSE,
             org.lwjgl.glfw.GLFW.GLFW_MOUSE_BUTTON_MIDDLE, "key.categories.projecthivemind");
 
+    /** A second control for the same thing, so that two keys (or buttons) can rotate the view. Not bound until the player sets it. */
+    public static final net.minecraft.client.KeyMapping ROTATE_CAMERA_ALT = new net.minecraft.client.KeyMapping("key.projecthivemind.rotate_camera_alt",
+            net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME, com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM,
+            org.lwjgl.glfw.GLFW.GLFW_KEY_UNKNOWN, "key.categories.projecthivemind");
+
     @SubscribeEvent
     static void registerKeys(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
         event.register(ROTATE_CAMERA);
+        event.register(ROTATE_CAMERA_ALT);
     }
 
     @SubscribeEvent

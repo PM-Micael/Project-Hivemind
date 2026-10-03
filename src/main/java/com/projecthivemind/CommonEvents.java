@@ -3,6 +3,7 @@ package com.projecthivemind;
 import java.util.Set;
 
 import com.projecthivemind.entity.HiveCollector;
+import com.projecthivemind.entity.HiveFeeder;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
@@ -21,7 +22,8 @@ import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakStairsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
-import com.projecthivemind.network.ToggleTeamPayload;
+import com.projecthivemind.network.SetUnitTeamPayload;
+import com.projecthivemind.network.FocusTeamPayload;
 import com.projecthivemind.network.ReturnToBasePayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.BuildTowerPayload;
@@ -78,7 +80,8 @@ public final class CommonEvents {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToServer(ChooseModePayload.TYPE, ChooseModePayload.STREAM_CODEC, ServerPayloads::onChooseMode);
         registrar.playToServer(ReturnToBasePayload.TYPE, ReturnToBasePayload.STREAM_CODEC, ServerPayloads::onReturnToBase);
-        registrar.playToServer(ToggleTeamPayload.TYPE, ToggleTeamPayload.STREAM_CODEC, ServerPayloads::onToggleTeam);
+        registrar.playToServer(SetUnitTeamPayload.TYPE, SetUnitTeamPayload.STREAM_CODEC, ServerPayloads::onSetUnitTeam);
+        registrar.playToServer(FocusTeamPayload.TYPE, FocusTeamPayload.STREAM_CODEC, ServerPayloads::onFocusTeam);
         registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
         registrar.playToServer(BuildBridgePayload.TYPE, BuildBridgePayload.STREAM_CODEC, ServerPayloads::onBuildBridge);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
@@ -97,6 +100,11 @@ public final class CommonEvents {
         registrar.playToServer(SetJobResumePayload.TYPE, SetJobResumePayload.STREAM_CODEC, ServerPayloads::onSetJobResume);
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);
+        registrar.playToClient(com.projecthivemind.network.SyncPortalsPayload.TYPE, com.projecthivemind.network.SyncPortalsPayload.STREAM_CODEC, ClientPayloads::onSyncPortals);
+        registrar.playToClient(com.projecthivemind.network.ConfirmPortalPayload.TYPE, com.projecthivemind.network.ConfirmPortalPayload.STREAM_CODEC, ClientPayloads::onConfirmPortal);
+        registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
+        registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
+        registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
         registrar.playToClient(com.projecthivemind.network.SyncTeamPayload.TYPE, com.projecthivemind.network.SyncTeamPayload.STREAM_CODEC, ClientPayloads::onSyncTeam);
         registrar.playToServer(com.projecthivemind.network.SetTeamRadiusPayload.TYPE, com.projecthivemind.network.SetTeamRadiusPayload.STREAM_CODEC, ServerPayloads::onSetTeamRadius);
         registrar.playToServer(com.projecthivemind.network.PlaceTorchPayload.TYPE, com.projecthivemind.network.PlaceTorchPayload.STREAM_CODEC, ServerPayloads::onPlaceTorch);
@@ -129,6 +137,7 @@ public final class CommonEvents {
         event.put(ModEntities.HIVE_WORKER.get(), Skeleton.createAttributes().build());
         event.put(ModEntities.HIVE_SOLDIER.get(), HiveSoldier.createHiveAttributes().build());
         event.put(ModEntities.HIVE_COLLECTOR.get(), HiveCollector.createCollectorAttributes().build());
+        event.put(ModEntities.HIVE_FEEDER.get(), HiveFeeder.createFeederAttributes().build());
     }
 
     // ---- game bus ----

@@ -135,7 +135,8 @@ public class CollectorPlantGoal extends Goal {
     @Override
     public boolean canUse() {
         // Not tickCount % N: goals are only evaluated on some ticks, so a modulo check can silently never line up.
-        if (collector.tickCount < nextCheckTick) {
+        // An item on its way to the Heart is delivered before anything is planted.
+        if (!collector.carried().isEmpty() || collector.tickCount < nextCheckTick) {
             return false;
         }
         nextCheckTick = collector.tickCount + CHECK_INTERVAL;

@@ -20,20 +20,17 @@ import net.minecraft.util.Mth;
  * @param clearPlants clear the grass and flowers inside the hive area (no radius: the whole area)
  * @param wander walk about at random while idle, instead of standing still
  * @param flattenGround fill the gaps in the ground inside the hive area, up to the Heart's own level, with the block the worker was given
- * @param channelCrops walk up to crops that are not fully grown and channel on them, making them grow 300 times as fast; second only to staying inside
- * @param useBoneMeal while channelling, also use bone meal from the hive on the crop; only counts with channelCrops
- * @param channelSaplings the same as channelCrops, for saplings: channel on them until they are trees
+ * @param flattenTeam   the same inside the team area around the team's scout (the scout's own floor is the level), for a worker that follows a scout
  * @param fellTrees       fell the natural trees inside the hive border: every log, and the leaves
- * @param useComposter    feed the composters inside the hive border with the item the worker was given, and take out the bone meal they make
  * @param fleeHostiles   run away from hostile mobs that come within fleeRadius: the highest priority a worker has, and it holds even while the worker is on a job
  * @param fleeRadius     how close, in blocks, a hostile mob has to come for the worker to run
  */
-public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside, boolean harvestCrops, boolean clearPlants, boolean wander, boolean flattenGround, boolean channelCrops, boolean useBoneMeal, boolean channelSaplings, boolean fellTrees, boolean useComposter, boolean fleeHostiles, int fleeRadius) {
+public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside, boolean harvestCrops, boolean clearPlants, boolean wander, boolean flattenGround, boolean flattenTeam, boolean fellTrees, boolean fleeHostiles, int fleeRadius) {
     /** Kept lower than the soldiers' limit because workers scan every block in their range for work. */
     public static final int MAX_RADIUS = 32;
 
     /** Workers do nothing on their own until the player turns something on. */
-    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false, false, false, false, false, false, false, false, false, false, false, false, 16);
+    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false, false, false, false, false, false, false, false, false, 16);
 
     private static final int MINE_ORE = 1;
     private static final int CHOP_LOGS = 2;
@@ -43,11 +40,8 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
     private static final int CLEAR_PLANTS = 32;
     private static final int WANDER = 64;
     private static final int FLATTEN_GROUND = 128;
-    private static final int CHANNEL_CROPS = 256;
-    private static final int USE_BONE_MEAL = 512;
-    private static final int CHANNEL_SAPLINGS = 1024;
     private static final int FELL_TREES = 2048;
-    private static final int USE_COMPOSTER = 4096;
+    private static final int FLATTEN_TEAM = 16384;
     private static final int FLEE_HOSTILES = 8192;
 
     public WorkerBehavior {
@@ -58,7 +52,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
 
     /** The three checkboxes packed into one number. */
     public int flags() {
-        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0) | (stayInside ? STAY_INSIDE : 0) | (harvestCrops ? HARVEST_CROPS : 0) | (clearPlants ? CLEAR_PLANTS : 0) | (wander ? WANDER : 0) | (flattenGround ? FLATTEN_GROUND : 0) | (channelCrops ? CHANNEL_CROPS : 0) | (useBoneMeal ? USE_BONE_MEAL : 0) | (channelSaplings ? CHANNEL_SAPLINGS : 0) | (fellTrees ? FELL_TREES : 0) | (useComposter ? USE_COMPOSTER : 0) | (fleeHostiles ? FLEE_HOSTILES : 0);
+        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0) | (stayInside ? STAY_INSIDE : 0) | (harvestCrops ? HARVEST_CROPS : 0) | (clearPlants ? CLEAR_PLANTS : 0) | (wander ? WANDER : 0) | (flattenGround ? FLATTEN_GROUND : 0) | (flattenTeam ? FLATTEN_TEAM : 0) | (fellTrees ? FELL_TREES : 0) | (fleeHostiles ? FLEE_HOSTILES : 0);
     }
 
     /** The radii, in the order of the options above that have one. */
@@ -67,7 +61,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
     }
 
     public static WorkerBehavior from(int flags, int[] radii) {
-        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0, (flags & STAY_INSIDE) != 0, (flags & HARVEST_CROPS) != 0, (flags & CLEAR_PLANTS) != 0, (flags & WANDER) != 0, (flags & FLATTEN_GROUND) != 0, (flags & CHANNEL_CROPS) != 0, (flags & USE_BONE_MEAL) != 0, (flags & CHANNEL_SAPLINGS) != 0, (flags & FELL_TREES) != 0, (flags & USE_COMPOSTER) != 0, (flags & FLEE_HOSTILES) != 0, radii.length > 2 ? radii[2] : 16);
+        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0, (flags & STAY_INSIDE) != 0, (flags & HARVEST_CROPS) != 0, (flags & CLEAR_PLANTS) != 0, (flags & WANDER) != 0, (flags & FLATTEN_GROUND) != 0, (flags & FLATTEN_TEAM) != 0, (flags & FELL_TREES) != 0, (flags & FLEE_HOSTILES) != 0, radii.length > 2 ? radii[2] : 16);
     }
 
     /** True if there is any kind of work for an idle worker to look for. Digging through alone is not work. */

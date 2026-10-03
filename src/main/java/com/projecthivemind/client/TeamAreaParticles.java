@@ -33,14 +33,14 @@ public final class TeamAreaParticles {
             return;
         }
         for (SyncUnitsPayload.Entry entry : ClientUnits.all()) {
-            if (!entry.team() || entry.kind() != UnitKind.SCOUT.ordinal()) {
+            if (entry.teamIndex() < 0 || entry.kind() != UnitKind.SCOUT.ordinal()) {
                 continue;
             }
             Entity scout = level.getEntity(entry.entityId());
             if (scout == null) {
                 continue;
             }
-            int radius = ClientTeams.radius(0);
+            int radius = ClientTeams.radius(entry.teamIndex());
             // About one flame for every two blocks of the ring, in random places, so it reads as a ring without being solid.
             int count = Math.max(6, (int) (Math.PI * radius));
             for (int i = 0; i < count; i++) {

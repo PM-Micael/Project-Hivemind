@@ -88,10 +88,10 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         this.goalSelector.addGoal(2, new SoldierDefaultAttackGoal(this));
     }
 
-    /** True while this unit is in one of the hive's teams: a team member never has to stay inside the border. */
+    /** True while this unit follows a team scout: it then goes where the scout goes and need not stay inside the border. (A team with no scout alive leaves its members to the hive's ordinary rules.) */
     private boolean inTeam() {
         HiveHeart heart = findHeart();
-        return heart != null && heart.teams().isMember(this.getUUID());
+        return heart != null && heart.teamLeader(this) != null;
     }
 
     /** The hive's gear changed: put on what the hive has now, right away, and take off what it no longer has. */

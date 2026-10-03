@@ -222,7 +222,7 @@ public final class WorkerAutoJobs {
     }
 
     /**
-     * The next block a worker flattening the ground digs off: in the hive area, from one block above the floor the Heart stands on up to
+     * The next block a worker flattening the ground digs off: in the hive area (or the team area, if set to), from one block above the floor up to
      * {@value #FLATTEN_CUT_HEIGHT} blocks above it, only stone, dirt and grass; the highest block of the nearest column that has any, so a rise is
      * taken down from the top. Null when nothing is left to cut that the worker can get to.
      */
@@ -231,22 +231,23 @@ public final class WorkerAutoJobs {
         if (!(worker.level() instanceof ServerLevel level)) {
             return null;
         }
-        net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
-        int floorTop = (int) Math.floor(heart.getY()) - 1;
         BlockPos origin = worker.blockPosition();
         List<BlockPos> candidates = new ArrayList<>();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
-            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
-                if (!level.hasChunkAt(pos.set(x, floorTop, z))) {
-                    continue;
-                }
-                for (int y = floorTop + FLATTEN_CUT_HEIGHT; y > floorTop; y--) {
-                    pos.set(x, y, z);
-                    BlockState state = level.getBlockState(pos);
-                    if (isFlattenCut(state) && state.getFluidState().isEmpty() && canBreakProperly(level, heart, state, pos)) {
-                        candidates.add(pos.immutable());
-                        break;
+        for (FlattenRegion region : FlattenRegion.of(worker, heart)) {
+            int floorTop = region.floorTop();
+            for (int x = region.minX(); x < region.maxX(); x++) {
+                for (int z = region.minZ(); z < region.maxZ(); z++) {
+                    if (!region.contains(x, z) || !level.hasChunkAt(pos.set(x, floorTop, z))) {
+                        continue;
+                    }
+                    for (int y = floorTop + FLATTEN_CUT_HEIGHT; y > floorTop; y--) {
+                        pos.set(x, y, z);
+                        BlockState state = level.getBlockState(pos);
+                        if (isFlattenCut(state) && state.getFluidState().isEmpty() && canBreakProperly(level, heart, state, pos)) {
+                            candidates.add(pos.immutable());
+                            break;
+                        }
                     }
                 }
             }
@@ -267,52 +268,6 @@ public final class WorkerAutoJobs {
     /** True for a sapling (or a propagule) that has not grown into a tree yet. */
     public static boolean isSapling(BlockState state) {
         return state.getBlock() instanceof net.minecraft.world.level.block.SaplingBlock;
-    }
-
-    /** True for what this worker is set to channel on right now: young crops, saplings, or both, according to its settings. */
-    public static boolean channelable(HiveWorker worker, BlockState state) {
-        WorkerBehavior behavior = worker.behavior();
-        return (behavior.channelCrops() && isGrowing(state)) || (behavior.channelSaplings() && isSapling(state));
-    }
-
-    /**
-     * The nearest crop or sapling (as the worker is set to channel on) inside the hive area that is not grown and that the worker can get to, other than the ones to leave
-     * alone for now, or null if there is none. Only crops near the worker's height are looked at.
-     */
-    @Nullable
-    public static BlockPos findGrowing(HiveWorker worker, HiveHeart heart, java.util.Set<BlockPos> leaveAlone, boolean includeSaplings) {
-        if (!(worker.level() instanceof ServerLevel level)) {
-            return null;
-        }
-        net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
-        BlockPos origin = worker.blockPosition();
-        List<BlockPos> growing = new ArrayList<>();
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
-            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
-                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
-                    continue;
-                }
-                for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
-                    pos.set(x, y, z);
-                    BlockState found = level.getBlockState(pos);
-                    if ((channelable(worker, found) && (includeSaplings || !isSapling(found))) && !leaveAlone.contains(pos)) {
-                        growing.add(pos.immutable());
-                    }
-                }
-            }
-        }
-        growing.sort(Comparator.comparingDouble(crop -> crop.distSqr(origin)));
-        int checked = 0;
-        for (BlockPos crop : growing) {
-            if (checked++ >= MAX_CANDIDATES) {
-                break;
-            }
-            if (reachable(worker, crop)) {
-                return crop;
-            }
-        }
-        return null;
     }
 
     /** True for plants that grow wild and can be cleared: grass, ferns, and every kind of flower (tall ones too). */

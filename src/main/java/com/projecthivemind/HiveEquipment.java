@@ -158,7 +158,8 @@ public final class HiveEquipment {
 
     /**
      * The tool slot of the hive's best tool for this block: a tool that can harvest it (so it drops its items) beats one that
-     * cannot; among those, the one that breaks it fastest wins, Efficiency included. -1 if the hive has no tools.
+     * cannot; among those, the one that breaks it fastest wins, Efficiency included. Only tools fitted for the block count: -1 if the hive has
+     * none (the hand stays empty).
      */
     public static int bestToolSlot(HiveHeart heart, RegistryAccess registries, BlockState state) {
         int best = -1;
@@ -170,6 +171,11 @@ public final class HiveEquipment {
                 continue;
             }
             boolean correct = tool.isCorrectToolForDrops(state);
+            // An item that is neither the right tool for the block nor any faster on it than a bare hand (a sword on dirt, an axe on stone, a
+            // block, food) is not fitted for the job: it is never taken up.
+            if (!correct && tool.getDestroySpeed(state) <= 1.0F) {
+                continue;
+            }
             float speed = miningSpeed(tool, state, registries);
             if (best == -1 || (correct && !bestCorrect) || (correct == bestCorrect && speed > bestSpeed)) {
                 best = i;

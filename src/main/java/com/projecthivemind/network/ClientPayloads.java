@@ -67,6 +67,27 @@ public final class ClientPayloads {
     public static void onSyncTeam(com.projecthivemind.network.SyncTeamPayload payload, IPayloadContext context) {
         com.projecthivemind.client.ClientTeams.update(payload.radii());
     }
+    public static void onSyncPortals(SyncPortalsPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientPortals.update(payload);
+    }
+
+    /** The hive is at its portal limit: let the player choose whether the new portal replaces the oldest. */
+    public static void onConfirmPortal(ConfirmPortalPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        PlacePortalPayload order = payload.order();
+        minecraft.setScreen(new ConfirmScreen(
+                replace -> {
+                    minecraft.setScreen(null);
+                    if (replace) {
+                        PacketDistributor.sendToServer(new PlacePortalPayload(order.unitIds(), order.pos(), order.face(), true));
+                    }
+                },
+                Component.translatable("screen.projecthivemind.portal.replace_title"),
+                Component.translatable("screen.projecthivemind.portal.replace_message"),
+                Component.translatable("screen.projecthivemind.portal.replace_yes"),
+                Component.translatable("screen.projecthivemind.portal.replace_no")));
+    }
+
 
     public static void onSyncUnits(SyncUnitsPayload payload, IPayloadContext context) {
         ClientUnits.update(payload.units());

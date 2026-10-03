@@ -15,6 +15,11 @@ public final class ClientTeams {
         radii = List.copyOf(newRadii);
     }
 
+    /** How many teams the hive has right now. */
+    public static int count() {
+        return Math.max(1, radii.size());
+    }
+
     public static int radius(int team) {
         return team >= 0 && team < radii.size() ? radii.get(team) : HiveTeams.DEFAULT_RADIUS;
     }

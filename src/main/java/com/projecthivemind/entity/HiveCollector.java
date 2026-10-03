@@ -77,6 +77,8 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     private final PlantTask saplings = new PlantTask();
     /** The seed or sapling it is carrying from the Heart to a spot (one), or empty. Saved. */
     private ItemStack plantCarried = ItemStack.EMPTY;
+    /** The tick box for picking up items inside the border. On to begin with (and for collectors saved before there was a box). Saved. */
+    private boolean pickUpItems = true;
 
     private static final String HEART_TAG = "HiveHeartId";
     private static final String CARRIED_TAG = "Carried";
@@ -121,9 +123,10 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new LeavePortalGoal(this));
 
-        this.goalSelector.addGoal(1, new CollectItemsGoal(this));
-        // Planting comes after collecting: a collector with items to fetch fetches them first.
-        this.goalSelector.addGoal(2, new CollectorPlantGoal(this));
+        this.goalSelector.addGoal(2, new CollectItemsGoal(this));
+        // Planting comes before collecting: a collector with something to plant plants it first, but one that is already carrying an item
+        // to the Heart finishes that trip first (see CollectorPlantGoal#canUse).
+        this.goalSelector.addGoal(1, new CollectorPlantGoal(this));
     }
 
     @Override
@@ -138,6 +141,20 @@ public class HiveCollector extends Silverfish implements HiveUnit {
 
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
+    }
+
+    public boolean pickUpItems() {
+        return pickUpItems;
+    }
+
+    @Override
+    public int behaviorFlags() {
+        return pickUpItems ? 1 : 0;
+    }
+
+    @Override
+    public void setBehavior(int flags, int[] radii) {
+        this.pickUpItems = (flags & 1) != 0;
     }
 
     /** Collectors take no orders: they never have an action. Their tasks are the planting ones. */
@@ -312,6 +329,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         saveOwner(tag);
         saveTask(tag, "Crops", crops);
         saveTask(tag, "Saplings", saplings);
+        tag.putBoolean("PickUpItems", pickUpItems);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -329,6 +347,7 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         loadOwner(tag);
         loadTask(tag, "Crops", PlantKind.CROP);
         loadTask(tag, "Saplings", PlantKind.SAPLING);
+        pickUpItems = !tag.contains("PickUpItems") || tag.getBoolean("PickUpItems");
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }

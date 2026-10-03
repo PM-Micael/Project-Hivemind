@@ -1,6 +1,7 @@
 package com.projecthivemind;
 
 import com.projecthivemind.entity.HiveCollector;
+import com.projecthivemind.entity.HiveFeeder;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveScout;
 import com.projecthivemind.entity.HiveSoldier;
@@ -56,6 +57,13 @@ public final class ModEntities {
                     .passengerAttachments(0.2125F)
                     .clientTrackingRange(8)
                     .build("hive_collector"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<HiveFeeder>> HIVE_FEEDER = ENTITY_TYPES.register("hive_feeder",
+            () -> EntityType.Builder.of(HiveFeeder::new, MobCategory.MISC)
+                    .sized(0.7F, 0.6F)
+                    .eyeHeight(0.3F)
+                    .clientTrackingRange(8)
+                    .build("hive_feeder"));
 
     private ModEntities() {
     }

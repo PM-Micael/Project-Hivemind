@@ -6,7 +6,6 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
-import com.projecthivemind.HiveArea;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -19,7 +18,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 
@@ -61,7 +59,7 @@ public class WorkerFillGoal extends Goal {
     @Nullable
     private HiveHeart allowedHeart() {
         HiveHeart heart = worker.findLocalHeart();
-        if (heart == null || !worker.behavior().flattenGround() || worker.fillItem() == null || worker.action() != null
+        if (heart == null || !(worker.behavior().flattenGround() || worker.behavior().flattenTeam()) || worker.fillItem() == null || worker.action() != null
                 || heart.isUnitSelected(worker.getId())) {
             return null;
         }
@@ -181,45 +179,45 @@ public class WorkerFillGoal extends Goal {
         target = null;
     }
 
-    /** The nearest gap the worker can get to, or null: the lowest missing block of a column, in the hive area. */
+    /** The nearest gap the worker can get to, or null: the lowest missing block of a column, in the regions it is set to flatten. */
     @Nullable
     private BlockPos findGap(HiveHeart heart) {
         ServerLevel level = (ServerLevel) worker.level();
         ignored.values().removeIf(until -> until <= worker.tickCount);
-        int floorTop = (int) Math.floor(heart.getY()) - 1;
-        AABB area = HiveArea.areaBox(level, heart);
         BlockPos origin = worker.blockPosition();
         BlockPos best = null;
         double bestDistance = Double.MAX_VALUE;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
-            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
-                // Reading a block in an unloaded chunk would make the game load it, so never touch those.
-                if (!level.hasChunkAt(pos.set(x, floorTop, z))) {
-                    continue;
-                }
-                int groundTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
-                if (groundTop >= floorTop || floorTop - groundTop > MAX_DEPTH) {
-                    continue;
-                }
-                BlockPos ground = new BlockPos(x, groundTop, z);
-                BlockState groundState = level.getBlockState(ground);
-                // Only on solid ground: not on water, not on something a block cannot stand on.
-                if (!groundState.getFluidState().isEmpty() || !groundState.isFaceSturdy(level, ground, Direction.UP)) {
-                    continue;
-                }
-                BlockPos gap = ground.above();
-                // Only inside the hive border: the column is within it sideways already. (Gaps lie below the Heart's floor, so the depth limit of the area does not apply to them.)
-                if (!HiveArea.containsXZ(heart, gap.getX() + 0.5D, gap.getZ() + 0.5D)) {
-                    continue;
-                }
-                if (ignored.containsKey(gap) || !stillGap(gap)) {
-                    continue;
-                }
-                double distance = gap.distSqr(origin);
-                if (distance < bestDistance) {
-                    bestDistance = distance;
-                    best = gap;
+        for (FlattenRegion region : FlattenRegion.of(worker, heart)) {
+            int floorTop = region.floorTop();
+            for (int x = region.minX(); x < region.maxX(); x++) {
+                for (int z = region.minZ(); z < region.maxZ(); z++) {
+                    if (!region.contains(x, z)) {
+                        continue;
+                    }
+                    // Reading a block in an unloaded chunk would make the game load it, so never touch those.
+                    if (!level.hasChunkAt(pos.set(x, floorTop, z))) {
+                        continue;
+                    }
+                    int groundTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+                    if (groundTop >= floorTop || floorTop - groundTop > MAX_DEPTH) {
+                        continue;
+                    }
+                    BlockPos ground = new BlockPos(x, groundTop, z);
+                    BlockState groundState = level.getBlockState(ground);
+                    // Only on solid ground: not on water, not on something a block cannot stand on.
+                    if (!groundState.getFluidState().isEmpty() || !groundState.isFaceSturdy(level, ground, Direction.UP)) {
+                        continue;
+                    }
+                    BlockPos gap = ground.above();
+                    if (ignored.containsKey(gap) || !stillGap(gap)) {
+                        continue;
+                    }
+                    double distance = gap.distSqr(origin);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        best = gap;
+                    }
                 }
             }
         }

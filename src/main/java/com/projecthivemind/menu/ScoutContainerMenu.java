@@ -123,12 +123,20 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
         }
         ItemStack stack = slot.getItem();
         ItemStack original = stack.copy();
-        boolean moved;
         if (index < targetSize) {
-            moved = this.moveItemStackTo(stack, targetSize, this.slots.size(), true);
-        } else {
-            moved = this.moveItemStackTo(stack, 0, targetSize, false);
+            // From the container into the hive's storage itself, not just the slots in view: the storage may have room further down.
+            if (storage == null) {
+                return ItemStack.EMPTY;
+            }
+            ItemStack left = storage.addItem(stack);
+            if (left.getCount() == stack.getCount()) {
+                return ItemStack.EMPTY;
+            }
+            slot.setByPlayer(left);
+            scroll.refresh();
+            return original;
         }
+        boolean moved = this.moveItemStackTo(stack, 0, targetSize, false);
         if (!moved) {
             return ItemStack.EMPTY;
         }

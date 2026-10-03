@@ -12,6 +12,7 @@ import javax.annotation.Nullable;
 
 import com.projecthivemind.client.ClientState;
 import com.projecthivemind.entity.HiveCollector;
+import com.projecthivemind.entity.HiveFeeder;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveTeams;
 import com.projecthivemind.entity.SlotConfigs;
@@ -188,6 +189,38 @@ public final class HivemindManager {
         }
     }
 
+    /**
+     * A team hotkey was pressed: the camera goes to the team's scout, one block above it, or to the next unit in the team's order if the
+     * team has no scout. The player's own view angle is kept.
+     */
+    public static void focusTeam(ServerPlayer player, int team) {
+        HiveHeart heart = findHeart(player);
+        if (heart == null || get(player).stage() != HivemindStage.HIVE || team < 0 || team >= HiveLevels.get(heart.hiveLevel()).teamCount()) {
+            return;
+        }
+        Mob first = null;
+        Mob scout = null;
+        for (UUID id : heart.teams().members(team)) {
+            if (findUnit(player, id) instanceof Mob mob && mob instanceof HiveUnit unit && player.getUUID().equals(unit.ownerId())) {
+                if (first == null) {
+                    first = mob;
+                }
+                if (unit.kind() == UnitKind.SCOUT) {
+                    scout = mob;
+                    break;
+                }
+            }
+        }
+        Mob target = scout != null ? scout : first;
+        if (target == null) {
+            return;
+        }
+        // The hive and the unit are held loaded before the camera leaves, or they would stop ticking.
+        holdHiveChunks(heart, true);
+        holdUnits(player, heart);
+        player.teleportTo((ServerLevel) target.level(), target.getX(), target.getY() + 1.0D, target.getZ(), player.getYRot(), player.getXRot());
+    }
+
     /** Move the camera back above the Hive Heart, keeping the player's own view angle. Hive stage only. */
     public static void returnToHeart(ServerPlayer player) {
         if (get(player).stage() != HivemindStage.HIVE) {
@@ -203,6 +236,20 @@ public final class HivemindManager {
         float yaw = player.getYRot();
         player.teleportTo(level, heart.getX() + Mth.sin(yaw * Mth.DEG_TO_RAD) * behind, heart.getY() + START_CAMERA_HEIGHT,
                 heart.getZ() - Mth.cos(yaw * Mth.DEG_TO_RAD) * behind, yaw, pitch);
+    }
+
+    /** Put the camera at this exact place, keeping the player's own view angle. */
+    public static void cameraAbove(ServerPlayer player, ServerLevel level, double x, double y, double z) {
+        player.teleportTo(level, x, y, z, player.getYRot(), player.getXRot());
+    }
+
+    /** Put the camera above and behind a block (a portal), looking down at it, keeping the player's own view angle. */
+    public static void snapCamera(ServerPlayer player, ServerLevel level, BlockPos pos) {
+        float pitch = Mth.clamp(player.getXRot(), 5.0F, 88.0F);
+        double behind = START_CAMERA_HEIGHT / Math.tan(Math.toRadians(pitch));
+        float yaw = player.getYRot();
+        player.teleportTo(level, pos.getX() + 0.5D + Mth.sin(yaw * Mth.DEG_TO_RAD) * behind, pos.getY() + START_CAMERA_HEIGHT,
+                pos.getZ() + 0.5D - Mth.cos(yaw * Mth.DEG_TO_RAD) * behind, yaw, pitch);
     }
 
     public static void choose(ServerPlayer player, boolean hivemind) {
@@ -418,13 +465,13 @@ public final class HivemindManager {
 
     /** The player chose the item one of their workers puts in composters (empty for none). */
     public static void setWorkerCompost(ServerPlayer player, int unitId, String item) {
-        if (!(HivemindManager.findById(player, unitId) instanceof HiveWorker worker) || !worker.isAlive()
-                || !player.getUUID().equals(worker.ownerId())) {
+        if (!(HivemindManager.findById(player, unitId) instanceof HiveFeeder feeder) || !feeder.isAlive()
+                || !player.getUUID().equals(feeder.ownerId())) {
             return;
         }
         ResourceLocation id = item.isEmpty() ? null : ResourceLocation.tryParse(item);
-        worker.setCompostItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
-        rememberConfig(player, worker);
+        feeder.setCompostItem(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        rememberConfig(player, feeder);
         sendUnits(player);
     }
 
@@ -450,7 +497,11 @@ public final class HivemindManager {
         }
         if (mob instanceof HiveWorker worker) {
             // A worker has one thing of the kind: the block it fills gaps with, carried where a collector's seed goes.
-            return new SyncUnitsPayload.Task(itemName(worker.fillItem()), List.of(), itemName(worker.compostItem()), List.of());
+            return new SyncUnitsPayload.Task(itemName(worker.fillItem()), List.of(), "", List.of());
+        }
+        if (mob instanceof HiveFeeder feeder) {
+            // A feeder has one thing of the kind: the item it puts in composters, carried where a collector's sapling goes.
+            return new SyncUnitsPayload.Task("", List.of(), itemName(feeder.compostItem()), List.of());
         }
         return SyncUnitsPayload.Task.NONE;
     }
@@ -502,12 +553,13 @@ public final class HivemindManager {
 
     // ---- unit settings, kept by number ----
 
-    private static SlotConfigs.Config captureConfig(HiveUnit unit) {
+    public static SlotConfigs.Config captureConfig(HiveUnit unit) {
         String fill = "";
         String compost = "";
         if (unit instanceof HiveWorker worker) {
             fill = itemName(worker.fillItem());
-            compost = itemName(worker.compostItem());
+        } else if (unit instanceof HiveFeeder feeder) {
+            compost = itemName(feeder.compostItem());
         }
         return new SlotConfigs.Config(unit.behaviorFlags(), unit.behaviorRadii(), fill, compost);
     }
@@ -516,7 +568,8 @@ public final class HivemindManager {
         unit.setBehavior(config.flags(), config.radii());
         if (unit instanceof HiveWorker worker) {
             worker.setFillItem(itemOf(config.fill()));
-            worker.setCompostItem(itemOf(config.compost()));
+        } else if (unit instanceof HiveFeeder feeder) {
+            feeder.setCompostItem(itemOf(config.compost()));
         }
     }
 
@@ -549,18 +602,19 @@ public final class HivemindManager {
         }
     }
 
-    /** The player added one of their units to the team, or took it out. */
-    public static void toggleTeam(ServerPlayer player, int unitId) {
+    /** The player moved one of their units into a team, or out of all of them (team -1). Only teams the hive's level has, and not the units that work alone. */
+    public static void setUnitTeam(ServerPlayer player, int unitId, int team) {
         HiveHeart heart = findHeart(player);
         if (heart == null || !(HivemindManager.findById(player, unitId) instanceof Mob mob) || !mob.isAlive()
-                || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId())) {
+                || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId()) || unit.kind().passive()
+                || team < -1 || team >= HiveLevels.get(heart.hiveLevel()).teamCount()) {
             return;
         }
-        if (unit.kind() == UnitKind.COLLECTOR) {
-            // Collectors stay at their own work: they cannot be in a team.
-            return;
+        if (team < 0) {
+            heart.teams().leave(mob.getUUID());
+        } else {
+            heart.teams().join(mob.getUUID(), team);
         }
-        heart.teams().toggle(mob.getUUID());
         sendUnits(player);
     }
 
@@ -579,7 +633,7 @@ public final class HivemindManager {
                     Component text = task != null ? task : job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
-                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart != null && heart.teams().isMember(mob.getUUID())) | (level != camera ? SyncUnitsPayload.Entry.AWAY : 0),
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart == null ? -1 : heart.teams().teamOf(mob.getUUID())) | (level != camera ? SyncUnitsPayload.Entry.AWAY : 0),
                             new SyncUnitsPayload.Vitals(mob.getHealth(), mob.getMaxHealth()), taskOf(mob)));
                 }
             }
@@ -588,7 +642,7 @@ public final class HivemindManager {
         HiveHeart teamHeart = findHeart(owner);
         if (teamHeart != null) {
             List<Integer> radii = new ArrayList<>();
-            for (int team = 0; team < HiveTeams.TEAM_COUNT; team++) {
+            for (int team = 0; team < HiveLevels.get(teamHeart.hiveLevel()).teamCount(); team++) {
                 radii.add(teamHeart.teams().radius(team));
             }
             PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncTeamPayload(radii));
@@ -613,6 +667,7 @@ public final class HivemindManager {
             buf.writeBoolean(heart.hiveLevel() >= HiveLevels.BREWING_LEVEL);
         });
         sendUnits(player);
+        HivePortals.sync(player, heart);
     }
 
     // ---- units ----
@@ -645,7 +700,7 @@ public final class HivemindManager {
     /** Make a unit of this kind if the hive has room for one. */
     private static void spawnOrRefresh(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
         int cap = HiveLevels.get(heart.hiveLevel()).cap(kind);
-        if (cap > 0 && get(owner).count(kind) < cap) {
+        if (cap > 0 && get(owner).count(kind) + heart.portals().queued(kind) < cap) {
             createUnit(owner, heart, kind);
         }
     }
@@ -674,7 +729,7 @@ public final class HivemindManager {
 
     /** What the next interval will do for this kind of unit, for the hive menu to show: spawning below the cap, otherwise idle. */
     public static int spawnStatus(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
-        return get(owner).count(kind) < HiveLevels.get(heart.hiveLevel()).cap(kind) ? HiveMenu.STATUS_SPAWNING : HiveMenu.STATUS_IDLE;
+        return get(owner).count(kind) + heart.portals().queued(kind) < HiveLevels.get(heart.hiveLevel()).cap(kind) ? HiveMenu.STATUS_SPAWNING : HiveMenu.STATUS_IDLE;
     }
 
     /** An entity by id in whichever dimension it is in (ids are unique across the whole server). */
@@ -701,18 +756,59 @@ public final class HivemindManager {
 
     /** Make one unit at the Heart, with no cap checks: callers have already decided it should exist. */
     private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
-        ServerLevel level = (ServerLevel) heart.level();
+        createUnitAtHeart(player, heart, kind, null);
+    }
 
+    /**
+     * The settings a unit made at the Heart starts with, for those of its kind that have them: wander inside the border, attack hostile mobs in the
+     * hive area, run from hostile mobs, clear grass, flatten the area (with dirt), fell trees, pick up items inside the border, and channel on
+     * crops and saplings. Soldiers also stay inside the border.
+     */
+    public static SlotConfigs.Config heartDefaults(UnitKind kind) {
+        switch (kind) {
+            case SCOUT -> {
+                com.projecthivemind.ScoutBehavior scout = new com.projecthivemind.ScoutBehavior(false, com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true,
+                        com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, false, true, false);
+                return new SlotConfigs.Config(scout.flags(), scout.radii(), "", "");
+            }
+            case WORKER -> {
+                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, false, false, true, true, true, false, true, true, 16);
+                return new SlotConfigs.Config(worker.flags(), worker.radii(), itemName(net.minecraft.world.item.Items.DIRT), "");
+            }
+            case SOLDIER -> {
+                com.projecthivemind.SoldierBehavior soldier = new com.projecthivemind.SoldierBehavior(false, true, true, true);
+                return new SlotConfigs.Config(soldier.flags(), soldier.radii(), "", "");
+            }
+            case COLLECTOR -> {
+                return new SlotConfigs.Config(1, new int[4], "", "");
+            }
+            default -> {
+                com.projecthivemind.FeederBehavior feeder = new com.projecthivemind.FeederBehavior(true, false, true, false);
+                return new SlotConfigs.Config(feeder.flags(), feeder.radii(), "", "");
+            }
+        }
+    }
+
+    /** Make one unit beside the Heart, each kind on its own side. */
+    public static void createUnitAtHeart(ServerPlayer player, HiveHeart heart, UnitKind kind, @Nullable SlotConfigs.Config config) {
         // Stand each kind on a different side of the heart, just outside its body (which grows with the level).
         double reach = HiveHeart.widthAt(heart.visualLevel()) / 2.0D + 1.0D;
-        double x = heart.getX() + (kind == UnitKind.WORKER ? reach : kind == UnitKind.SOLDIER ? -reach : 0.0D);
-        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? reach : kind == UnitKind.SCOUT ? -reach : 0.0D);
+        double x = heart.getX() + (kind == UnitKind.WORKER || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SOLDIER ? -reach : 0.0D);
+        double z = heart.getZ() + (kind == UnitKind.COLLECTOR || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SCOUT ? -reach : 0.0D);
+        // Made at the Heart (new, a replacement, or summoned there) a unit starts with the hive's default settings, unless it was given its own.
+        createUnitAt(player, heart, kind, (ServerLevel) heart.level(), x, heart.getY(), z, config != null ? config : heartDefaults(kind), 0);
+    }
+
+    /** Make one unit at this place (in any dimension), with no cap checks: callers have already decided it should exist. */
+    public static void createUnitAt(ServerPlayer player, HiveHeart heart, UnitKind kind, ServerLevel level, double x, double y, double z,
+            @Nullable SlotConfigs.Config config, int team) {
 
         Mob unit = switch (kind) {
             case SCOUT -> ModEntities.HIVE_SCOUT.get().create(level);
             case WORKER -> ModEntities.HIVE_WORKER.get().create(level);
             case SOLDIER -> ModEntities.HIVE_SOLDIER.get().create(level);
             case COLLECTOR -> ModEntities.HIVE_COLLECTOR.get().create(level);
+            case FEEDER -> ModEntities.HIVE_FEEDER.get().create(level);
         };
         if (unit == null) {
             return;
@@ -721,6 +817,8 @@ public final class HivemindManager {
         ((HiveUnit) unit).setGearVersion(heart.gearVersionFor(kind));
         if (unit instanceof HiveCollector collector) {
             collector.setHeartId(heart.getUUID());
+        } else if (unit instanceof HiveFeeder feeder) {
+            feeder.setHeartId(heart.getUUID());
         } else if (unit instanceof HiveSoldier soldier) {
             // Soldiers spawn wearing and wielding copies of whatever is in the hive's gear slots right now.
             soldier.setHeartId(heart.getUUID());
@@ -731,7 +829,7 @@ public final class HivemindManager {
         } else if (unit instanceof HiveScout scout) {
             scout.setHeartId(heart.getUUID());
         }
-        unit.moveTo(x, heart.getY(), z, player.getYRot(), 0.0F);
+        unit.moveTo(x, y, z, player.getYRot(), 0.0F);
         unit.setPersistenceRequired();
         level.addFreshEntity(unit);
 
@@ -740,7 +838,15 @@ public final class HivemindManager {
         set(player, get(player).withUnit(kind, unit.getUUID()));
         // The new unit takes the settings of the number it has: those the lost unit of that number had.
         int number = get(player).units().getOrDefault(kind, List.of()).size() - 1;
-        SlotConfigs.Config remembered = heart.slotConfigs().get(kind, number);
+        // A summoned unit comes back with its own settings, and its number keeps them.
+        if (config != null) {
+            heart.slotConfigs().put(kind, number, config);
+        }
+        // A unit that is not made to work alone starts in the team of the place it came from: the Heart's, or the portal's.
+        if (team >= 0 && !kind.passive()) {
+            heart.teams().join(unit.getUUID(), Math.min(team, HiveLevels.get(heart.hiveLevel()).teamCount() - 1));
+        }
+        SlotConfigs.Config remembered = config != null ? config : heart.slotConfigs().get(kind, number);
         if (remembered != null) {
             applyConfig((HiveUnit) unit, remembered);
         }
@@ -1292,6 +1398,7 @@ public final class HivemindManager {
             return;
         }
         LAST_HURT_NOTICE.remove(unit.getUUID());
+        boolean summoned = HivePortals.consumeSummoned(unit.getUUID());
         // A unit that is gone is out of its team.
         HiveHeart teamHeart = hiveUnit.findHeart();
         if (teamHeart != null) {
@@ -1304,7 +1411,7 @@ public final class HivemindManager {
         // Losing a unit hurts the hive: the Heart loses 2 hearts. Armor and invulnerability do not count, it is exactly that.
         // (When the Heart itself was destroyed it is not alive, and its units dying with it cost it nothing.)
         HiveHeart heart = hiveUnit.findHeart();
-        if (heart != null && heart.isAlive()) {
+        if (heart != null && heart.isAlive() && !summoned) {
             heart.invulnerableTime = 0;
             heart.hurt(level.damageSources().genericKill(), UNIT_DEATH_DAMAGE);
         }

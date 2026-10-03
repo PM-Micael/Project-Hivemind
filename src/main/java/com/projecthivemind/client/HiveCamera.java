@@ -81,11 +81,10 @@ public final class HiveCamera {
     @SubscribeEvent
     static void onKey(InputEvent.Key event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (controlling(minecraft) && ClientEvents.ROTATE_CAMERA.getKey().getType() == InputConstants.Type.KEYSYM
-                && event.getKey() == ClientEvents.ROTATE_CAMERA.getKey().getValue()) {
+        if (controlling(minecraft) && isRotateKey(event.getKey())) {
             if (event.getAction() == GLFW.GLFW_PRESS) {
                 startRotating(minecraft);
-            } else if (event.getAction() == GLFW.GLFW_RELEASE) {
+            } else if (event.getAction() == GLFW.GLFW_RELEASE && !isRotateHeld(minecraft)) {
                 stopRotating(minecraft);
             }
             return;
@@ -113,19 +112,46 @@ public final class HiveCamera {
         return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null;
     }
 
+    /** The two controls that rotate the view (Controls: "Rotate camera" and the second one beside it). */
+    private static final net.minecraft.client.KeyMapping[] ROTATE_CONTROLS = {ClientEvents.ROTATE_CAMERA, ClientEvents.ROTATE_CAMERA_ALT};
+
+    /** True if this keyboard key is one of the controls set to rotate the view. */
+    private static boolean isRotateKey(int key) {
+        for (net.minecraft.client.KeyMapping control : ROTATE_CONTROLS) {
+            if (!control.isUnbound() && control.getKey().getType() == InputConstants.Type.KEYSYM && control.getKey().getValue() == key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** True if this mouse button is the one the player has set to rotate the view (Controls: "Rotate camera"). */
     static boolean isRotateMouse(int button) {
-        com.mojang.blaze3d.platform.InputConstants.Key key = ClientEvents.ROTATE_CAMERA.getKey();
-        return key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE && key.getValue() == button;
+        for (net.minecraft.client.KeyMapping control : ROTATE_CONTROLS) {
+            com.mojang.blaze3d.platform.InputConstants.Key key = control.getKey();
+            if (!control.isUnbound() && key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE && key.getValue() == button) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True while the control set to rotate the view is held, whether it is a mouse button or a key. */
     private static boolean isRotateHeld(Minecraft minecraft) {
-        com.mojang.blaze3d.platform.InputConstants.Key key = ClientEvents.ROTATE_CAMERA.getKey();
         long window = minecraft.getWindow().getWindow();
-        return key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE
-                ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
-                : InputConstants.isKeyDown(window, key.getValue());
+        for (net.minecraft.client.KeyMapping control : ROTATE_CONTROLS) {
+            com.mojang.blaze3d.platform.InputConstants.Key key = control.getKey();
+            if (control.isUnbound()) {
+                continue;
+            }
+            boolean held = key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE
+                    ? GLFW.glfwGetMouseButton(window, key.getValue()) == GLFW.GLFW_PRESS
+                    : InputConstants.isKeyDown(window, key.getValue());
+            if (held) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True while the rotate control is held to turn the view; clicks are not commands then. */
@@ -134,6 +160,9 @@ public final class HiveCamera {
     }
 
     private static void startRotating(Minecraft minecraft) {
+        if (rotating) {
+            return; // already turning because the other control is held; keep the first cursor position
+        }
         cursorXBeforeRotate = minecraft.mouseHandler.xpos();
         cursorYBeforeRotate = minecraft.mouseHandler.ypos();
         rotating = true;
@@ -199,7 +228,7 @@ public final class HiveCamera {
         if (isRotateMouse(event.getButton())) {
             if (event.getAction() == GLFW.GLFW_PRESS) {
                 startRotating(minecraft);
-            } else if (event.getAction() == GLFW.GLFW_RELEASE) {
+            } else if (event.getAction() == GLFW.GLFW_RELEASE && !isRotateHeld(minecraft)) {
                 stopRotating(minecraft);
             }
         }

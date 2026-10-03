@@ -130,6 +130,7 @@ public class HiveScout extends Husk implements HiveUnit {
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
         this.goalSelector.addGoal(1, new ScoutInteractGoal(this));
         this.goalSelector.addGoal(1, new ScoutUseItemGoal(this));
+        this.goalSelector.addGoal(1, new ScoutPortalGoal(this));
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new ScoutAttackGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
