@@ -138,6 +138,14 @@ public final class CommonEvents {
         }
     }
 
+    /** A hivemind whose Heart is not loaded gets it loaded, so the hive works wherever the camera is. */
+    @SubscribeEvent
+    static void onPlayerTick(net.neoforged.neoforge.event.tick.PlayerTickEvent.Post event) {
+        if (event.getEntity() instanceof ServerPlayer player && player.tickCount % 20 == 0) {
+            HivemindManager.ensureHeartLoaded(player);
+        }
+    }
+
     @SubscribeEvent
     static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {

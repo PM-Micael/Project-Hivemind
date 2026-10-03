@@ -792,6 +792,34 @@ public class HiveHeart extends Mob {
 
     }
 
+    /**
+     * The whole hive as it is now, for the next Heart after this one is destroyed: everything the Heart saves, except what belongs to
+     * this body (its health, where units were seen, the tower being built) and its hunger, which starts afresh.
+     */
+    public CompoundTag snapshotForRebirth() {
+        CompoundTag tag = new CompoundTag();
+        this.addAdditionalSaveData(tag);
+        for (String key : new String[] {"Health", "DeathTime", "HurtTime", "HurtByTimestamp", "Attributes", "active_effects", "UnitSpots", "TowerBuild", "Pos", "Motion"}) {
+            tag.remove(key);
+        }
+        CompoundTag foodKeys = new CompoundTag();
+        food.save(foodKeys);
+        for (String key : foodKeys.getAllKeys()) {
+            tag.remove(key);
+        }
+        return tag;
+    }
+
+    /** A new Heart takes up the hive an earlier one left: its state loaded, at full health, with no member of a team that no longer exists. */
+    public void restoreFromRebirth(CompoundTag tag) {
+        this.readAdditionalSaveData(tag.copy());
+        for (java.util.UUID member : new java.util.ArrayList<>(teams.members(0))) {
+            teams.leave(member);
+        }
+        // Applies the level's health and storage size, and the size of the body.
+        this.setHiveLevel(hiveLevel);
+    }
+
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);

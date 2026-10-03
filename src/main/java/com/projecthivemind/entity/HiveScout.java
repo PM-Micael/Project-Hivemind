@@ -185,6 +185,12 @@ public class HiveScout extends Husk implements HiveUnit {
         }
         speedProbe.tick(this);
         applySneak();
+        // In water the scout swims the way a swimming player does: sprinting in water is what makes a player swim, and it is
+        // what cuts the water's drag (0.9 instead of 0.8), which is where the extra speed comes from. Not while sneaking.
+        boolean swimming = this.isInWater() && !behavior.sneak();
+        if (this.isSprinting() != swimming) {
+            this.setSprinting(swimming);
+        }
         if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
             action = null;
         }

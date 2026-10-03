@@ -264,5 +264,5 @@
   "message.projecthivemind.no_room": "No room for the Hive Heart there",
   "message.projecthivemind.heart_placed": "The Hive Heart awakens. WASD pan, hold middle mouse to rotate, scroll zoom, E hive menu",
   "message.projecthivemind.no_heart": "Your Hive Heart is not loaded",
-  "message.projecthivemind.heart_destroyed": "Your Hive Heart was destroyed. The hive has collapsed"
+  "message.projecthivemind.heart_destroyed": "Your Hive Heart was destroyed. Your units are gone, but the hive is remembered: plant a new Heart and it returns as it was"
 }

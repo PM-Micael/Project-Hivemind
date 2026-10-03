@@ -46,9 +46,6 @@ import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class HiveCamera {
-    /** Keep the tilt between almost-horizontal and almost-straight-down so the view cannot flip over. */
-    private static final float MIN_PITCH = 5.0F;
-    private static final float MAX_PITCH = 88.0F;
     private static final float ROTATE_DEGREES_PER_SECOND = 120.0F;
     /** Upward speed added per scroll notch; vanilla flight friction turns this into roughly 1.5 blocks. */
     private static final double ZOOM_IMPULSE = 0.6D;
@@ -241,14 +238,6 @@ public final class HiveCamera {
         }
         if (direction != 0.0F) {
             player.turn(direction * ROTATE_DEGREES_PER_SECOND * seconds / MOUSE_UNITS_TO_DEGREES, 0.0D);
-        }
-
-        // Mouse-look (while dragging) can tilt past the limits; pull it back. Entity#turn keeps the old rotation in
-        // step so the view does not stutter.
-        float pitch = player.getXRot();
-        float clamped = Mth.clamp(pitch, MIN_PITCH, MAX_PITCH);
-        if (clamped != pitch) {
-            player.turn(0.0D, (clamped - pitch) / MOUSE_UNITS_TO_DEGREES);
         }
     }
 

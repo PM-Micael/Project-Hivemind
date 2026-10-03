@@ -22,6 +22,7 @@ import net.minecraft.world.phys.Vec3;
  * hive's storage on the other.
  */
 public class ScoutInteractGoal extends Goal {
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     private static final double BLOCK_REACH_SQR = 3.0D * 3.0D;
     private static final double VILLAGER_REACH_SQR = 2.5D * 2.5D;
     private static final double SPEED = 1.0D;
@@ -112,17 +113,27 @@ public class ScoutInteractGoal extends Goal {
         ServerPlayer owner = scout.ownerId() == null || level.getServer() == null ? null
                 : level.getServer().getPlayerList().getPlayer(scout.ownerId());
         if (heart == null || owner == null || HivemindManager.get(owner).stage() != HivemindStage.HIVE) {
+            if (owner != null) {
+                owner.displayClientMessage(net.minecraft.network.chat.Component.literal(heart == null
+                        ? "The scout cannot find its Hive Heart (is it loaded?)" : "The scout cannot open that now"), true);
+            }
+            LOGGER.warn("[hivemind] scout could not open: heart={} owner={}", heart != null, owner != null);
             scout.setAction(null);
             return;
         }
         // The owner can only have one screen open. Wait while another is, e.g. the hive menu.
         if (owner.containerMenu != owner.inventoryMenu) {
+            if (waitedTicks % 40 == 0) {
+                owner.displayClientMessage(net.minecraft.network.chat.Component.literal("Close your open menu: the scout is waiting to open the container"), true);
+            }
             return;
         }
         if (trade) {
             HiveAccess.openTrade(owner, heart, scout, villager);
         } else {
-            HiveAccess.openContainer(owner, heart, scout, level, pos);
+            if (!HiveAccess.openContainer(owner, heart, scout, level, pos)) {
+                LOGGER.warn("[hivemind] openContainer failed at {}: {}", pos, level.getBlockState(pos));
+            }
         }
         scout.setAction(null);
     }

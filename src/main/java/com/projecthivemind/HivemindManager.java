@@ -4,6 +4,7 @@ package com.projecthivemind;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -29,6 +30,7 @@ import com.projecthivemind.network.SyncSightPayload;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.Util;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
@@ -141,6 +143,7 @@ public final class HivemindManager {
             if (player.gameMode.getGameModeForPlayer() != wanted) {
                 forceMode(player, wanted);
             }
+            setRespawnAtHeart(player);
         }
         sync(player);
     }
@@ -252,13 +255,20 @@ public final class HivemindManager {
         }
         heart.moveTo(target.getX() + 0.5D, target.getY(), target.getZ() + 0.5D, 0.0F, 0.0F);
         heart.setOwnerId(player.getUUID());
-        heart.setHiveLevel(hiveLevel.level());
+        if (data.savedHive().isPresent()) {
+            // A hive that was destroyed comes back as it was: same level, same storage, gear and everything else.
+            heart.restoreFromRebirth(data.savedHive().get());
+            heart.setOwnerId(player.getUUID());
+        } else {
+            heart.setHiveLevel(hiveLevel.level());
+        }
         heart.setPersistenceRequired();
 
         setHeartChunksForced(level, target, true);
         level.addFreshEntity(heart);
         level.playSound(null, target, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 1.0F, 0.8F);
 
+        data = data.withSavedHive(Optional.empty());
         set(player, data.withStage(HivemindStage.HIVE)
                 .withHeart(GlobalPos.of(level.dimension(), target), heart.getUUID())
                 .withPreviousMode(player.gameMode.getGameModeForPlayer()));
@@ -273,20 +283,18 @@ public final class HivemindManager {
         double cameraX = target.getX() + 0.5D + Mth.sin(yaw * Mth.DEG_TO_RAD) * behind;
         double cameraZ = target.getZ() + 0.5D - Mth.cos(yaw * Mth.DEG_TO_RAD) * behind;
         player.teleportTo(level, cameraX, target.getY() + START_CAMERA_HEIGHT, cameraZ, yaw, START_CAMERA_PITCH);
+        setRespawnAtHeart(player);
         player.displayClientMessage(Component.translatable("message.projecthivemind.heart_placed"), true);
         sync(player);
     }
 
-    /** The Heart died: the hive collapses. Its items drop, units die, and the owner is a larva again. */
+    /**
+     * The Heart died: units die and the owner dies with it and comes back as the silverfish larva, but the hive itself (storage, gear,
+     * level, quests, settings...) is kept with the player, and the next Heart they plant is that hive again.
+     */
     public static void onHeartDestroyed(ServerLevel level, HiveHeart heart) {
         BlockPos center = heart.blockPosition();
-        Containers.dropContents(level, center, heart.getStorage());
-        Containers.dropContents(level, center, heart.getArmorGear());
-        Containers.dropContents(level, center, heart.getToolGear());
-        Containers.dropContents(level, center, heart.furnace().items());
-        Containers.dropContents(level, center, heart.brewing().items());
-        Containers.dropContents(level, center, heart.scoutHand());
-        Containers.dropContents(level, center, heart.foodSlot());
+        CompoundTag saved = heart.snapshotForRebirth();
         setHeartChunksForced(level, center, false);
 
         UUID ownerId = heart.ownerId();
@@ -303,10 +311,13 @@ public final class HivemindManager {
                 }
             }
         }
-        set(owner, data.collapsed());
+        releaseUnitTickets(owner);
+        set(owner, data.withSavedHive(Optional.of(saved)).collapsed());
         forceMode(owner, data.previousMode().orElse(level.getServer().getDefaultGameType()));
         owner.displayClientMessage(Component.translatable("message.projecthivemind.heart_destroyed"), false);
         refresh(owner);
+        // The hivemind dies with its Heart and respawns as the larva, as at the very start.
+        owner.kill();
     }
 
     private static void setHeartChunksForced(ServerLevel level, BlockPos heart, boolean forced) {
@@ -775,6 +786,56 @@ public final class HivemindManager {
         }
     }
 
+    // ---- finding the hive again, and respawning at it ----
+
+    /** A short-lived ticket that loads the Heart's chunks when its owner is in the hive but the Heart is not loaded (just after joining). */
+    private static final net.minecraft.server.level.TicketType<ChunkPos> HEART_TICKET =
+            net.minecraft.server.level.TicketType.create("projecthivemind_heart", java.util.Comparator.comparingLong(ChunkPos::toLong), 200);
+
+    /**
+     * From the player's tick: a hivemind whose Heart is not loaded (the camera is far from it, for instance right after joining) gets
+     * the Heart's chunks loaded, so the hive can be controlled from anywhere. Once the Heart ticks it holds its own chunks for good.
+     */
+    public static void ensureHeartLoaded(ServerPlayer player) {
+        HivemindData data = get(player);
+        if (data.stage() != HivemindStage.HIVE || data.heart().isEmpty() || findHeart(player) != null) {
+            return;
+        }
+        GlobalPos where = data.heart().get();
+        ServerLevel level = player.server.getLevel(where.dimension());
+        if (level != null) {
+            ChunkPos chunk = new ChunkPos(where.pos());
+            level.getChunkSource().addRegionTicket(HEART_TICKET, chunk, 3, chunk);
+        }
+    }
+
+    /** The place beside the Heart where the player comes back after dying: on the ground a few blocks out, clear of the Heart's body. */
+    private static BlockPos respawnSpot(ServerLevel level, BlockPos heart) {
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            for (int dy = 3; dy >= -3; dy--) {
+                BlockPos spot = heart.relative(side, 4).above(dy);
+                if (level.hasChunkAt(spot) && level.noCollision(new net.minecraft.world.phys.AABB(spot).inflate(-0.1D).expandTowards(0.0D, 1.0D, 0.0D))
+                        && !level.getBlockState(spot.below()).isAir()) {
+                    return spot;
+                }
+            }
+        }
+        return heart.above(HiveHeart.heightAt(5));
+    }
+
+    /** While the player is the hive, dying (or /kill) brings them back beside the Heart, with no bed needed. */
+    public static void setRespawnAtHeart(ServerPlayer player) {
+        HivemindData data = get(player);
+        if (data.stage() != HivemindStage.HIVE || data.heart().isEmpty()) {
+            return;
+        }
+        GlobalPos where = data.heart().get();
+        ServerLevel level = player.server.getLevel(where.dimension());
+        if (level != null) {
+            player.setRespawnPosition(where.dimension(), respawnSpot(level, where.pos()), 0.0F, true, false);
+        }
+    }
+
     // ---- keeping the hive running while the camera is in another dimension ----
 
     /**
@@ -859,6 +920,16 @@ public final class HivemindManager {
         }
     }
 
+    /** Let go of the chunks held for the owner's units (the hive is gone). */
+    private static void releaseUnitTickets(ServerPlayer owner) {
+        java.util.Map<UUID, UnitSpot> held = HELD_UNITS.remove(owner.getUUID());
+        if (held != null) {
+            for (UnitSpot spot : held.values()) {
+                setUnitTicket(owner.server, spot, false);
+            }
+        }
+    }
+
     /** From the Heart: the hive area and every unit stay loaded, wherever the camera is, so that nothing in the hive stops working. */
     public static void tickKeepLoaded(HiveHeart heart) {
         if (heart.ownerId() == null || heart.getServer() == null) {
@@ -871,6 +942,9 @@ public final class HivemindManager {
         // The hive area is forced loaded for good (it is saved with the world, so it comes back loaded after a restart too).
         if (heart.tickCount % 100 == 0 || heart.tickCount < 10) {
             holdHiveChunks(heart, true);
+        }
+        if (heart.tickCount % 100 == 0) {
+            setRespawnAtHeart(owner);
         }
         holdUnits(owner, heart);
     }
