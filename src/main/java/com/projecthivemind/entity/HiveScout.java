@@ -97,6 +97,8 @@ public class HiveScout extends Husk implements HiveUnit {
      * second.
      */
     public static final double MOVEMENT_SPEED = 0.339D;
+    /** A walking zombie's movement speed attribute, which is the scout's speed while sneaking. */
+    public static final double SNEAK_SPEED = 0.23D;
     /** How high the scout steps up in one go, in blocks: a little over two, so a two-block rise is a step. (A mob's own is 0.6.) */
     public static final double STEP_HEIGHT = 2.1D;
 
@@ -163,6 +165,12 @@ public class HiveScout extends Husk implements HiveUnit {
         return HiveHeart.find(this.level(), heartId);
     }
 
+    /** The pathfinder does not know the Heart's body is solid, so a unit would press against it and never get past: units walk through it. */
+    @Override
+    public boolean canCollideWith(net.minecraft.world.entity.Entity other) {
+        return !(other instanceof HiveHeart) && super.canCollideWith(other);
+    }
+
     /** Short, so a unit can use a portal again soon after coming through one (an order into it works at once). */
     @Override
     public int getDimensionChangingDelay() {
@@ -176,6 +184,7 @@ public class HiveScout extends Husk implements HiveUnit {
             return;
         }
         speedProbe.tick(this);
+        applySneak();
         if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
             action = null;
         }
@@ -184,6 +193,10 @@ public class HiveScout extends Husk implements HiveUnit {
         HiveHeart heart = findHeart();
         boolean working = action != null && (action.kind() == UnitAction.Kind.DIG || action.kind() == UnitAction.Kind.ATTACK);
         if (toolOverride && (!working || heart == null)) {
+            // The last swing of the order may have worn the tool this very tick: charge it to the original before letting go.
+            if (heart != null) {
+                gearMirror.tick(this, heart);
+            }
             // The order is over: the hand slot's item comes back (the sync below puts it in the hand).
             toolOverride = false;
             gearMirror.reset();
@@ -341,6 +354,17 @@ public class HiveScout extends Husk implements HiveUnit {
     @Override
     public void setBehavior(int flags, int[] radii) {
         this.behavior = ScoutBehavior.from(flags, radii);
+        applySneak();
+    }
+
+    /** The Sneak setting: crouching makes the scout as hard to notice as a sneaking player, and it slows to a walking zombie's speed. */
+    private void applySneak() {
+        this.setShiftKeyDown(behavior.sneak());
+        var speed = this.getAttribute(Attributes.MOVEMENT_SPEED);
+        double wanted = behavior.sneak() ? SNEAK_SPEED : MOVEMENT_SPEED;
+        if (speed != null && speed.getBaseValue() != wanted) {
+            speed.setBaseValue(wanted);
+        }
     }
 
     @Nullable

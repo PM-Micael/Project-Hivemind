@@ -175,13 +175,11 @@ public final class HivemindManager {
             float yaw = player.getYRot();
             double x = mob.getX() + Mth.sin(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
             double z = mob.getZ() - Mth.cos(yaw * Mth.DEG_TO_RAD) * FOCUS_DISTANCE;
-            // The hive is held loaded before the camera leaves its dimension, or it would stop ticking.
+            // The hive and the unit are held loaded before the camera leaves, or they would stop ticking.
             HiveHeart home = findHeart(player);
-            if (home != null && mob.level() != home.level()) {
-                holdHiveChunks(home, true);
-            }
             if (home != null) {
-                holdAwayUnits(player, home);
+                holdHiveChunks(home, true);
+                holdUnits(player, home);
             }
             player.teleportTo((ServerLevel) mob.level(), x, mob.getEyeY(), z, yaw, 5.0F);
         }
@@ -686,9 +684,10 @@ public final class HivemindManager {
     private static void createUnit(ServerPlayer player, HiveHeart heart, UnitKind kind) {
         ServerLevel level = (ServerLevel) heart.level();
 
-        // Stand each kind on a different side of the heart.
-        double x = heart.getX() + (kind == UnitKind.WORKER ? 1.5D : kind == UnitKind.SOLDIER ? -1.5D : 0.0D);
-        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? 1.5D : kind == UnitKind.SCOUT ? -1.5D : 0.0D);
+        // Stand each kind on a different side of the heart, just outside its body (which grows with the level).
+        double reach = HiveHeart.widthAt(heart.visualLevel()) / 2.0D + 1.0D;
+        double x = heart.getX() + (kind == UnitKind.WORKER ? reach : kind == UnitKind.SOLDIER ? -reach : 0.0D);
+        double z = heart.getZ() + (kind == UnitKind.COLLECTOR ? reach : kind == UnitKind.SCOUT ? -reach : 0.0D);
 
         Mob unit = switch (kind) {
             case SCOUT -> ModEntities.HIVE_SCOUT.get().create(level);
@@ -794,44 +793,73 @@ public final class HivemindManager {
         }
     }
 
-    private record HeldChunk(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension, int x, int z) {
+    /** A unit's place, as far as keeping it loaded goes: its dimension and its chunk. */
+    public record UnitSpot(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension, ChunkPos chunk) {
     }
 
-    private static final java.util.Map<UUID, Set<HeldChunk>> HELD_UNIT_CHUNKS = new java.util.HashMap<>();
+    /** The ticket that keeps the chunks around a unit loaded and running. Not saved: the Heart remembers where the units were and asks again. */
+    private static final net.minecraft.server.level.TicketType<ChunkPos> UNIT_TICKET =
+            net.minecraft.server.level.TicketType.create("projecthivemind_unit", java.util.Comparator.comparingLong(ChunkPos::toLong));
+    /** How far the ticket reaches: 3 keeps the unit's chunk and the ones round it running (entity ticking reaches one chunk out). */
+    private static final int UNIT_TICKET_REACH = 3;
+    private static final java.util.Map<UUID, java.util.Map<UUID, UnitSpot>> HELD_UNITS = new java.util.HashMap<>();
+    private static net.minecraft.server.MinecraftServer heldFor;
+
+    private static void setUnitTicket(net.minecraft.server.MinecraftServer server, UnitSpot spot, boolean hold) {
+        ServerLevel level = server.getLevel(spot.dimension());
+        if (level == null) {
+            return;
+        }
+        if (hold) {
+            level.getChunkSource().addRegionTicket(UNIT_TICKET, spot.chunk(), UNIT_TICKET_REACH, spot.chunk());
+        } else {
+            level.getChunkSource().removeRegionTicket(UNIT_TICKET, spot.chunk(), UNIT_TICKET_REACH, spot.chunk());
+        }
+    }
 
     /**
-     * Keep the chunks around the owner's units that are outside the Heart's dimension loaded. Otherwise a unit left in the Nether
-     * unloads with its chunks as soon as the camera leaves, and drops out of the unit list. Chunks no unit is near are let go.
+     * Keep every unit running wherever it is: the chunks around each of the owner's units stay loaded (in any dimension, however far
+     * from the camera), and move with the unit. A unit that is not loaded right now (after a restart) gets the place the Heart last
+     * saw it at, so it loads and can be found again. Tickets of units that are gone are let go.
      */
-    public static void holdAwayUnits(ServerPlayer owner, HiveHeart heart) {
-        Set<HeldChunk> wanted = new HashSet<>();
-        for (UUID id : get(owner).allUnits()) {
-            if (findUnit(owner, id) instanceof Mob unit && unit.level() != heart.level()) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dz = -1; dz <= 1; dz++) {
-                        wanted.add(new HeldChunk(unit.level().dimension(), (unit.getBlockX() >> 4) + dx, (unit.getBlockZ() >> 4) + dz));
+    public static void holdUnits(ServerPlayer owner, HiveHeart heart) {
+        // A new server (another world opened in the same game) starts with no tickets, whatever was held before.
+        if (heldFor != owner.server) {
+            HELD_UNITS.clear();
+            heldFor = owner.server;
+        }
+        java.util.Map<UUID, UnitSpot> held = HELD_UNITS.computeIfAbsent(owner.getUUID(), key -> new java.util.HashMap<>());
+        Set<UUID> units = new HashSet<>(get(owner).allUnits());
+        for (UUID id : units) {
+            UnitSpot previous = held.get(id);
+            if (findUnit(owner, id) instanceof Mob unit) {
+                UnitSpot now = new UnitSpot(unit.level().dimension(), unit.chunkPosition());
+                if (!now.equals(previous)) {
+                    if (previous != null) {
+                        setUnitTicket(owner.server, previous, false);
                     }
+                    setUnitTicket(owner.server, now, true);
+                    held.put(id, now);
+                    heart.setUnitSpot(id, now);
                 }
+            } else if (previous == null && heart.unitSpot(id) != null) {
+                // Not loaded: put its chunks back where it was last seen.
+                UnitSpot saved = heart.unitSpot(id);
+                setUnitTicket(owner.server, saved, true);
+                held.put(id, saved);
             }
         }
-        Set<HeldChunk> held = HELD_UNIT_CHUNKS.computeIfAbsent(owner.getUUID(), key -> new HashSet<>());
-        for (HeldChunk chunk : wanted) {
-            if (held.add(chunk) && owner.server.getLevel(chunk.dimension()) != null) {
-                owner.server.getLevel(chunk.dimension()).setChunkForced(chunk.x(), chunk.z(), true);
-            }
-        }
-        for (java.util.Iterator<HeldChunk> it = held.iterator(); it.hasNext();) {
-            HeldChunk chunk = it.next();
-            if (!wanted.contains(chunk)) {
+        for (java.util.Iterator<java.util.Map.Entry<UUID, UnitSpot>> it = held.entrySet().iterator(); it.hasNext();) {
+            java.util.Map.Entry<UUID, UnitSpot> entry = it.next();
+            if (!units.contains(entry.getKey())) {
+                setUnitTicket(owner.server, entry.getValue(), false);
+                heart.forgetUnitSpot(entry.getKey());
                 it.remove();
-                if (owner.server.getLevel(chunk.dimension()) != null) {
-                    owner.server.getLevel(chunk.dimension()).setChunkForced(chunk.x(), chunk.z(), false);
-                }
             }
         }
     }
 
-    /** From the Heart: hold the hive loaded while its owner's camera is elsewhere, and let go once it is home. */
+    /** From the Heart: the hive area and every unit stay loaded, wherever the camera is, so that nothing in the hive stops working. */
     public static void tickKeepLoaded(HiveHeart heart) {
         if (heart.ownerId() == null || heart.getServer() == null) {
             return;
@@ -840,12 +868,11 @@ public final class HivemindManager {
         if (owner == null || get(owner).stage() != HivemindStage.HIVE) {
             return;
         }
-        holdAwayUnits(owner, heart);
-        if (owner.serverLevel() != heart.level()) {
+        // The hive area is forced loaded for good (it is saved with the world, so it comes back loaded after a restart too).
+        if (heart.tickCount % 100 == 0 || heart.tickCount < 10) {
             holdHiveChunks(heart, true);
-        } else if (heart.tickCount % 100 == 0) {
-            holdHiveChunks(heart, false);
         }
+        holdUnits(owner, heart);
     }
 
     // ---- natural spawning around the camera ----

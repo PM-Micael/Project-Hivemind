@@ -157,6 +157,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox fleeHostiles;
     private Checkbox scoutStay;
     private Checkbox scoutWander;
+    private Checkbox scoutSneak;
     private Checkbox workerWander;
     private Checkbox flattenGround;
     private Checkbox channelCrops;
@@ -399,7 +400,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         return switch (unitPage) {
             case SOLDIER -> BEHAVIOR_TOP + 4 * BEHAVIOR_ROW;
             case WORKER -> BEHAVIOR_TOP + (WOODWORK_ROW + 5) * BEHAVIOR_ROW;
-            case SCOUT -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
+            case SCOUT -> BEHAVIOR_TOP + 6 * BEHAVIOR_ROW;
             default -> 0;
         };
     }
@@ -556,7 +557,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Nullable
     private static LivingEntity unitEntity(int id, UnitKind kind) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level != null && minecraft.level.getEntity(id) instanceof LivingEntity living) {
+        // A crouching (sneaking) scout is drawn with its head pushed down out of the button, so it gets the stand-in instead.
+        if (minecraft.level != null && minecraft.level.getEntity(id) instanceof LivingEntity living && !living.isCrouching()) {
             return living;
         }
         return HeadIcons.standIn(kind);
@@ -826,6 +828,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         scoutRadii[1] = radiusBox(scoutWidgets, 1, 1, this::sendScoutBehavior);
         scoutStay = behaviorBox(scoutWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendScoutBehavior);
         scoutWander = behaviorBox(scoutWidgets, 3, "screen.projecthivemind.behavior.wander", this::sendScoutBehavior);
+        scoutSneak = behaviorBox(scoutWidgets, 4, "screen.projecthivemind.behavior.scout_sneak", this::sendScoutBehavior);
 
         setBehaviorEnabled(false);
         filling = false;
@@ -921,6 +924,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(fleeHostiles, scout.fleeHostiles());
                 setChecked(scoutStay, scout.stayInside());
                 setChecked(scoutWander, scout.wander());
+                setChecked(scoutSneak, scout.sneak());
                 int[] values = scout.radii();
                 for (int i = 0; i < scoutRadii.length; i++) {
                     scoutRadii[i].setValue(String.valueOf(values[i]));
@@ -962,7 +966,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void sendScoutBehavior() {
         if (canSend()) {
-            ScoutBehavior behavior = new ScoutBehavior(pickUpItems.selected(), number(scoutRadii[0]), fleeHostiles.selected(), number(scoutRadii[1]), scoutStay.selected(), scoutWander.selected());
+            ScoutBehavior behavior = new ScoutBehavior(pickUpItems.selected(), number(scoutRadii[0]), fleeHostiles.selected(), number(scoutRadii[1]), scoutStay.selected(), scoutWander.selected(), scoutSneak.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -1142,7 +1146,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         switch (unitPage) {
             case COLLECTOR -> renderCollectorTask(graphics);
             case SCOUT -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 4 * BEHAVIOR_ROW + 4, 0x909090, false);
+                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 5 * BEHAVIOR_ROW + 4, 0x909090, false);
             case WORKER -> renderWorkerNote(graphics);
             default -> {
             }

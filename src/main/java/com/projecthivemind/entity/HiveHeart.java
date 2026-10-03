@@ -97,6 +97,8 @@ public class HiveHeart extends Mob {
     private final HiveFurnace furnace = new HiveFurnace();
     /** The brewing stand built into the Heart from level 5. */
     private final HiveBrewing brewing = new HiveBrewing();
+    /** Where each of the hive's units was last seen (dimension and chunk), so they can be loaded again after a restart. */
+    private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
     private final SimpleContainer scoutHand = new SimpleContainer(1);
     /** The food the hive eats from: put in the hive menu, under the armor slots. Only food goes in. */
@@ -332,6 +334,61 @@ public class HiveHeart extends Mob {
 
     private int spawnTimer;
 
+    private static final net.minecraft.network.syncher.EntityDataAccessor<Integer> DATA_LEVEL =
+            net.minecraft.network.syncher.SynchedEntityData.defineId(HiveHeart.class, net.minecraft.network.syncher.EntityDataSerializers.INT);
+
+    @Override
+    protected void defineSynchedData(net.minecraft.network.syncher.SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(DATA_LEVEL, 1);
+    }
+
+    @Override
+    public void onSyncedDataUpdated(net.minecraft.network.syncher.EntityDataAccessor<?> key) {
+        super.onSyncedDataUpdated(key);
+        if (DATA_LEVEL.equals(key)) {
+            this.setPos(this.position());
+        }
+    }
+
+    /** How wide the Heart is at a level, in blocks: 1, then 3 from level 3, then 5 from level 5. */
+    public static int widthAt(int level) {
+        return level >= 5 ? 5 : level >= 3 ? 3 : 1;
+    }
+
+    /** How tall the Heart is at a level, in blocks: 1, 2 from level 2, 3 from level 4. */
+    public static int heightAt(int level) {
+        return level >= 4 ? 3 : level >= 2 ? 2 : 1;
+    }
+
+    /** The level the Heart looks like (kept in step on the client by the synced data). */
+    public int visualLevel() {
+        return this.entityData.get(DATA_LEVEL);
+    }
+
+    /** The body is solid: players and mobs cannot walk through it. */
+    @Override
+    public boolean canBeCollidedWith() {
+        return true;
+    }
+
+    /** The body is as big as the level says (the entity type itself is a block: its size cannot change with a level). */
+    @Override
+    protected net.minecraft.world.phys.AABB makeBoundingBox() {
+        if (this.entityData == null) {
+            return super.makeBoundingBox();
+        }
+        double half = widthAt(visualLevel()) / 2.0D;
+        net.minecraft.world.phys.Vec3 at = this.position();
+        return new net.minecraft.world.phys.AABB(at.x - half, at.y, at.z - half, at.x + half, at.y + heightAt(visualLevel()), at.z + half);
+    }
+
+    /** Standing inside its own bigger body is not suffocating. */
+    @Override
+    public boolean isInWall() {
+        return false;
+    }
+
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
         super(type, level);
         // The armor it wears is the hive's: it is dropped with the rest of the hive's things (see HivemindManager), not here too.
@@ -344,6 +401,10 @@ public class HiveHeart extends Mob {
     public void tick() {
         super.tick();
         if (this.level().isClientSide) {
+            // Until it is as big as it gets, small particles mark the space the full-size Heart will take.
+            if (visualLevel() < 5 && this.tickCount % 3 == 0) {
+                spawnGrowthMarkers();
+            }
             return;
         }
         // The Heart makes its own units: every interval it tops up what is below the cap and refreshes out-of-date gear.
@@ -556,12 +617,36 @@ public class HiveHeart extends Mob {
         return brewing;
     }
 
+    @Nullable
+    public com.projecthivemind.HivemindManager.UnitSpot unitSpot(UUID unit) {
+        return unitSpots.get(unit);
+    }
+
+    public void setUnitSpot(UUID unit, com.projecthivemind.HivemindManager.UnitSpot spot) {
+        unitSpots.put(unit, spot);
+    }
+
+    public void forgetUnitSpot(UUID unit) {
+        unitSpots.remove(unit);
+    }
+
     public Set<Long> exploredChunks() {
         return exploredChunks;
     }
 
     public int exploredChunkCount() {
         return exploredChunks.size();
+    }
+
+    /** Client side: a few spores drifting in the cube the Heart will fill at level 5 (5 wide, 3 tall). */
+    private void spawnGrowthMarkers() {
+        double half = widthAt(5) / 2.0D;
+        for (int i = 0; i < 2; i++) {
+            this.level().addParticle(net.minecraft.core.particles.ParticleTypes.CRIMSON_SPORE,
+                    this.getX() + (this.random.nextDouble() * 2.0D - 1.0D) * half,
+                    this.getY() + this.random.nextDouble() * heightAt(5),
+                    this.getZ() + (this.random.nextDouble() * 2.0D - 1.0D) * half, 0.0D, 0.01D, 0.0D);
+        }
     }
 
     public int hiveLevel() {
@@ -613,6 +698,9 @@ public class HiveHeart extends Mob {
     public void setHiveLevel(int newLevel) {
         HiveLevel definition = HiveLevels.get(newLevel);
         this.hiveLevel = definition.level();
+        net.minecraft.world.phys.Vec3 spot = this.position();
+        this.entityData.set(DATA_LEVEL, hiveLevel);
+        this.setPos(spot);
         this.getAttribute(Attributes.MAX_HEALTH).setBaseValue(definition.maxHealth());
         this.setHealth(this.getMaxHealth());
         if (storage.getContainerSize() != definition.storageSlots()) {
@@ -680,6 +768,15 @@ public class HiveHeart extends Mob {
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
         tag.put("HiveBrewing", brewing.save(registryAccess()));
+        net.minecraft.nbt.ListTag spots = new net.minecraft.nbt.ListTag();
+        for (java.util.Map.Entry<UUID, com.projecthivemind.HivemindManager.UnitSpot> entry : unitSpots.entrySet()) {
+            CompoundTag spot = new CompoundTag();
+            spot.putUUID("Unit", entry.getKey());
+            spot.putString("Dimension", entry.getValue().dimension().location().toString());
+            spot.putLong("Chunk", entry.getValue().chunk().toLong());
+            spots.add(spot);
+        }
+        tag.put("UnitSpots", spots);
         food.save(tag);
         if (activeBuild != null) {
             tag.put("TowerBuild", activeBuild.save());
@@ -703,6 +800,8 @@ public class HiveHeart extends Mob {
         }
         if (tag.contains(LEVEL_TAG)) {
             hiveLevel = HiveLevels.get(tag.getInt(LEVEL_TAG)).level();
+            this.entityData.set(DATA_LEVEL, hiveLevel);
+            this.setPos(this.position());
         }
         logsProgress = tag.getInt(LOGS_TAG);
         coalProgress = tag.getInt("QuestCoal");
@@ -723,6 +822,15 @@ public class HiveHeart extends Mob {
         scoutHand.clearContent();
         if (tag.contains(SCOUT_HAND_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(SCOUT_HAND_TAG), scoutHand.getItems(), registryAccess());
+        }
+        unitSpots.clear();
+        for (net.minecraft.nbt.Tag raw : tag.getList("UnitSpots", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            CompoundTag spot = (CompoundTag) raw;
+            net.minecraft.resources.ResourceLocation dimension = net.minecraft.resources.ResourceLocation.tryParse(spot.getString("Dimension"));
+            if (spot.hasUUID("Unit") && dimension != null) {
+                unitSpots.put(spot.getUUID("Unit"), new com.projecthivemind.HivemindManager.UnitSpot(
+                        net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, dimension), new net.minecraft.world.level.ChunkPos(spot.getLong("Chunk"))));
+            }
         }
         if (tag.contains("HiveBrewing")) {
             brewing.load(tag.getCompound("HiveBrewing"), registryAccess());

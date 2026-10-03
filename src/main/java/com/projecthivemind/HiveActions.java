@@ -239,7 +239,7 @@ public final class HiveActions {
     }
 
     /**
-     * Workers and scouts dig the block. If none of the hive's tools can harvest it, the player is asked first (once); digging
+     * Workers and scouts dig the block (scouts use the hive's tools too). If none of the hive's tools can harvest it, the player is asked first (once); digging
      * anyway still breaks the block, it just drops nothing.
      */
     private static void dig(ServerPlayer player, ServerLevel level, HiveHeart heart, List<Integer> ids, BlockPos pos, boolean confirmed) {
@@ -256,7 +256,7 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_dig"), true);
             return;
         }
-        if (!confirmed && !workers.isEmpty() && !toolsCanHarvest(heart, state)) {
+        if (!confirmed && !toolsCanHarvest(heart, state)) {
             PacketDistributor.sendToPlayer(player, new WeakToolPayload(ids, pos));
             return;
         }
@@ -315,6 +315,12 @@ public final class HiveActions {
         List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
         if (workers.isEmpty()) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        // A staircase goes through whatever is there, mostly stone: warn once if no tool of the hive can collect it.
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (!request.confirmed() && heart != null && !toolsCanHarvest(heart, net.minecraft.world.level.block.Blocks.STONE.defaultBlockState())) {
+            PacketDistributor.sendToPlayer(player, new com.projecthivemind.network.WeakStairsPayload(request));
             return;
         }
         int stopY = Math.max(level.getMinBuildHeight() + 1, Math.min(request.stopY(), start.getY()));

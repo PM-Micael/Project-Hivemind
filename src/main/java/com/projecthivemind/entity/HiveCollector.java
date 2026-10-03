@@ -151,6 +151,12 @@ public class HiveCollector extends Silverfish implements HiveUnit {
     public void setAction(@Nullable UnitAction action) {
     }
 
+    /** The pathfinder does not know the Heart's body is solid, so a unit would press against it and never get past: units walk through it. */
+    @Override
+    public boolean canCollideWith(net.minecraft.world.entity.Entity other) {
+        return !(other instanceof HiveHeart) && super.canCollideWith(other);
+    }
+
     /** Short, so a unit can use a portal again soon after coming through one. */
     @Override
     public int getDimensionChangingDelay() {

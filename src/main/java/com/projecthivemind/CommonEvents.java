@@ -18,6 +18,7 @@ import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHeartHealthPayload;
 import com.projecthivemind.network.SyncSightPayload;
 import com.projecthivemind.network.SyncActionsPayload;
+import com.projecthivemind.network.WeakStairsPayload;
 import com.projecthivemind.network.WeakToolPayload;
 import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.ToggleTeamPayload;
@@ -112,6 +113,7 @@ public final class CommonEvents {
         registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);
         registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);
         registrar.playToClient(WeakToolPayload.TYPE, WeakToolPayload.STREAM_CODEC, ClientPayloads::onWeakTool);
+        registrar.playToClient(WeakStairsPayload.TYPE, WeakStairsPayload.STREAM_CODEC, ClientPayloads::onWeakStairs);
         registrar.playToClient(SyncActionsPayload.TYPE, SyncActionsPayload.STREAM_CODEC, ClientPayloads::onSyncActions);
         registrar.playToServer(ToggleInventoryModePayload.TYPE, ToggleInventoryModePayload.STREAM_CODEC, ServerPayloads::onToggleInventoryMode);
         registrar.playToServer(ReturnToHeartPayload.TYPE, ReturnToHeartPayload.STREAM_CODEC, ServerPayloads::onReturnToHeart);

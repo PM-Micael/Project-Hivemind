@@ -80,6 +80,23 @@ public final class ClientPayloads {
         ClientActions.update(payload.positions(), payload.attacked());
     }
 
+    /** The hive's tools cannot harvest what the staircase digs through: let the player choose whether to dig it anyway. */
+    public static void onWeakStairs(WeakStairsPayload payload, IPayloadContext context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        DigStaircasePayload order = payload.order();
+        minecraft.setScreen(new ConfirmScreen(
+                dig -> {
+                    minecraft.setScreen(null);
+                    if (dig) {
+                        PacketDistributor.sendToServer(new DigStaircasePayload(order.unitIds(), order.pos(), order.direction(), order.stopY(), order.torches(), true));
+                    }
+                },
+                Component.translatable("screen.projecthivemind.weak_tool.title"),
+                Component.translatable("screen.projecthivemind.weak_tool.message"),
+                Component.translatable("screen.projecthivemind.weak_tool.continue"),
+                Component.translatable("screen.projecthivemind.weak_tool.cancel")));
+    }
+
     /** The hive's tools cannot harvest the block: let the player choose whether to dig it anyway. */
     public static void onWeakTool(WeakToolPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();

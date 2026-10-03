@@ -39,6 +39,7 @@
   "screen.projecthivemind.behavior.page_scouts": "Scouts",
   "screen.projecthivemind.behavior.scout_pickup": "Pick up dropped items into the hive",
   "screen.projecthivemind.behavior.scout_flee": "Run away from hostile mobs",
+  "screen.projecthivemind.behavior.scout_sneak": "Sneak (harder to notice, walks at a zombie's pace)",
   "screen.projecthivemind.behavior.scout_note": "A selected scout takes what it walks over. One that is not selected goes to items.",
   "screen.projecthivemind.behavior.scout_area.tooltip": "How far around itself a scout looks for dropped items, and how close a hostile mob has to be before it runs (up to 64).",
   "screen.projecthivemind.behavior.stay_inside": "Stay inside the hive border (when not selected)",

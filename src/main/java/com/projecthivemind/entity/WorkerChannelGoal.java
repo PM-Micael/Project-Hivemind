@@ -77,6 +77,10 @@ public class WorkerChannelGoal extends Goal {
         }
         nextScan = worker.tickCount + SCAN_INTERVAL;
         ignored.values().removeIf(until -> until <= worker.tickCount);
+        // A grown crop to harvest comes first, as a tree to fell does for saplings.
+        if (worker.hasHarvestReady(heart)) {
+            return false;
+        }
         target = WorkerAutoJobs.findGrowing(worker, heart, ignored.keySet(), !worker.hasTreeToFell(heart));
         return target != null;
     }
@@ -91,6 +95,11 @@ public class WorkerChannelGoal extends Goal {
         if (WorkerAutoJobs.isSapling(worker.level().getBlockState(target)) && worker.tickCount >= nextFellCheck) {
             nextFellCheck = worker.tickCount + 20;
             return !worker.hasTreeToFell(heart);
+        }
+        // A crop gives way to a grown one to harvest: the same check.
+        if (WorkerAutoJobs.isGrowing(worker.level().getBlockState(target)) && worker.tickCount >= nextFellCheck) {
+            nextFellCheck = worker.tickCount + 20;
+            return !worker.hasHarvestReady(heart);
         }
         return true;
     }

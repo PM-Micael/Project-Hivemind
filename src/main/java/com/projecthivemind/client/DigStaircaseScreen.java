@@ -61,7 +61,7 @@ public class DigStaircaseScreen extends Screen {
         torchBox = addRenderableWidget(net.minecraft.client.gui.components.Checkbox.builder(Component.translatable("screen.projecthivemind.torches"), font)
                 .pos(left + 12, top + 106).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.stairs.dig"), button -> {
-            PacketDistributor.sendToServer(new DigStaircasePayload(workers, pos, DIRECTIONS[direction].get2DDataValue(), stopY(), torchBox.selected()));
+            PacketDistributor.sendToServer(new DigStaircasePayload(workers, pos, DIRECTIONS[direction].get2DDataValue(), stopY(), torchBox.selected(), false));
             onClose();
         }).bounds(left + 12, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.cancel"), button -> onClose())

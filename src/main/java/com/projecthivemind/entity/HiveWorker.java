@@ -276,6 +276,11 @@ public class HiveWorker extends Skeleton implements HiveUnit {
      * True if this worker is set to fell trees and has one to fell: one it is in the middle of, or one it could start on. Channelling on
      * saplings gives way to that, so a worker with both ticked fells trees first.
      */
+    /** True if this worker is set to harvest crops (or clear plants) and there is one ready: channelling on crops gives way to that. */
+    public boolean hasHarvestReady(HiveHeart heart) {
+        return (behavior.harvestCrops() || behavior.clearPlants()) && WorkerAutoJobs.findHarvest(this, heart) != null;
+    }
+
     public boolean hasTreeToFell(HiveHeart heart) {
         return (behavior.fellTrees() || behavior.chopLogs()) && (!fellQueue.isEmpty() || WorkerAutoJobs.findFelling(this, heart) != null);
     }
@@ -383,6 +388,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
     }
 
+
+    /** The pathfinder does not know the Heart's body is solid, so a unit would press against it and never get past: units walk through it. */
+    @Override
+    public boolean canCollideWith(net.minecraft.world.entity.Entity other) {
+        return !(other instanceof HiveHeart) && super.canCollideWith(other);
+    }
 
     /** Short, so a unit can use a portal again soon after coming through one (an order into it works at once). */
     @Override

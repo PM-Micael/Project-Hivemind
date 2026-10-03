@@ -16,7 +16,7 @@ import net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent;
  * would otherwise treat them as monsters. What is wanted instead:
  * <ul>
  * <li>Peaceful and neutral mobs (iron golems, snow golems, wolves...) leave them alone, unless a unit hurt them first.</li>
- * <li>Hostile mobs attack them, like they attack a player.</li>
+ * <li>Hostile mobs attack them, like they attack a player. The Hive Heart is a target for them too.</li>
  * </ul>
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID)
@@ -28,17 +28,19 @@ public final class UnitRelations {
     @SubscribeEvent
     static void onChangeTarget(LivingChangeTargetEvent event) {
         LivingEntity target = event.getNewAboutToBeSetTarget();
-        if (target instanceof HiveUnit && !(event.getEntity() instanceof Enemy) && event.getEntity().getLastHurtByMob() != target) {
+        if ((target instanceof HiveUnit || target instanceof HiveHeart) && !(event.getEntity() instanceof Enemy) && event.getEntity().getLastHurtByMob() != target) {
             event.setCanceled(true);
         }
     }
 
-    /** Every hostile mob that is not one of ours gets a goal to go after hive units. */
+    /** Every hostile mob that is not one of ours gets a goal to go after hive units and the Heart. */
     @SubscribeEvent
     static void onJoin(EntityJoinLevelEvent event) {
         if (event.getLevel().isClientSide() || !(event.getEntity() instanceof Mob mob) || !(mob instanceof Enemy) || mob instanceof HiveUnit) {
             return;
         }
         mob.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(mob, LivingEntity.class, 10, true, false, other -> other instanceof HiveUnit));
+        // The Heart is noticed from further away the bigger it is.
+        mob.targetSelector.addGoal(3, new HeartTargetGoal(mob));
     }
 }
