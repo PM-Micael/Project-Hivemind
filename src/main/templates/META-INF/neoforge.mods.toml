@@ -91,3 +91,7 @@ Play as the Hivemind: start as a larva, grow a Hive Heart, and command your unit
 # stop your mod loading on the server for example.
 #[features.${mod_id}]
 #openGLVersion="[3.2,)"
+
+# Spawners wake up for hive units (see BaseSpawnerMixin).
+[[mixins]]
+config = "projecthivemind.mixins.json"

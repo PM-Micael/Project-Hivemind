@@ -180,6 +180,13 @@ public class WorkerBuildGoal extends Goal {
     private void digStep(ServerLevel level, HiveHeart heart, TowerBuild build, boolean endsJob) {
         BlockPos pos = job.placement().pos();
         BlockState state = level.getBlockState(pos);
+        if (!state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced())) {
+            // Water in the way of the hole: take it out.
+            build.place(level, heart, mob, job.placement());
+            job = null;
+            lookCooldown = 1;
+            return;
+        }
         if (state.isAir() || state.canBeReplaced()) {
             build.releaseClaim(pos);
             job = null;

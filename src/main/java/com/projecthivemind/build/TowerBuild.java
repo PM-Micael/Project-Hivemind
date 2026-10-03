@@ -65,6 +65,9 @@ public final class TowerBuild {
     private final Map<BlockPos, Claim> claims = new HashMap<>();
     /** Blocks that cannot be built because something unbreakable is there. They are left out. */
     private final Set<BlockPos> skipped = new HashSet<>();
+    /** How many times the water (or lava) at a spot of the hole was removed, and how many times before giving up on it. */
+    private final java.util.Map<BlockPos, Integer> waterClears = new java.util.HashMap<>();
+    private static final int MAX_WATER_CLEARS = 4;
     private long lastWaitNotice = Long.MIN_VALUE;
 
     public TowerBuild(TowerPlan plan, TowerSet set) {
@@ -144,7 +147,8 @@ public final class TowerBuild {
         }
         BlockState state = level.getBlockState(placement.pos());
         if (placement.dig()) {
-            return state.isAir() || state.canBeReplaced();
+            // Water in the way is not "dug": it has to be taken out.
+            return (state.isAir() || state.canBeReplaced()) && state.getFluidState().isEmpty();
         }
         if (placement.torch()) {
             // Done once there is anything in the cell: the torch, or something that took its place.
@@ -278,6 +282,16 @@ public final class TowerBuild {
         if (placement.dig()) {
             // Digging needs no material: the block is broken, and its drops go into the hive.
             BlockState existing = level.getBlockState(pos);
+            if (!existing.getFluidState().isEmpty() && (existing.isAir() || existing.canBeReplaced())) {
+                // Water (or lava) where the hole goes: the worker removes it. If it keeps flowing back, it is left after a few tries.
+                level.setBlock(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+                if (waterClears.merge(pos.immutable(), 1, Integer::sum) >= MAX_WATER_CLEARS) {
+                    skipped.add(pos);
+                }
+                worker.swing(InteractionHand.MAIN_HAND);
+                claims.remove(pos);
+                return Result.PLACED;
+            }
             if (!existing.isAir() && !existing.canBeReplaced()) {
                 if (existing.getDestroySpeed(level, pos) < 0.0F || existing.hasBlockEntity()) {
                     skipped.add(pos);

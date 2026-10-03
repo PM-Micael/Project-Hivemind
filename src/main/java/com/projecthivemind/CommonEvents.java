@@ -30,6 +30,7 @@ import com.projecthivemind.network.DigStaircasePayload;
 import com.projecthivemind.network.OpenBookPayload;
 import com.projecthivemind.network.OpenSignPayload;
 import com.projecthivemind.network.CancelJobPayload;
+import com.projecthivemind.network.KillUnitPayload;
 import com.projecthivemind.network.DropItemPayload;
 import com.projecthivemind.network.FocusUnitPayload;
 import com.projecthivemind.network.ScoutUsePayload;
@@ -92,6 +93,7 @@ public final class CommonEvents {
         registrar.playToServer(SetCollectorTaskPayload.TYPE, SetCollectorTaskPayload.STREAM_CODEC, ServerPayloads::onSetCollectorTask);
         registrar.playToServer(SetUnitBehaviorPayload.TYPE, SetUnitBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetUnitBehavior);
         registrar.playToServer(CancelJobPayload.TYPE, CancelJobPayload.STREAM_CODEC, ServerPayloads::onCancelJob);
+        registrar.playToServer(KillUnitPayload.TYPE, KillUnitPayload.STREAM_CODEC, ServerPayloads::onKillUnit);
         registrar.playToServer(SetJobResumePayload.TYPE, SetJobResumePayload.STREAM_CODEC, ServerPayloads::onSetJobResume);
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);

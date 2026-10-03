@@ -18,7 +18,6 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.level.Level;
 
@@ -310,6 +309,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     public HiveWorker(EntityType<? extends HiveWorker> type, Level level) {
         super(type, level);
+        // Water is no obstacle to plan around: workers wade through it.
+        this.setPathfindingMalus(net.minecraft.world.level.pathfinder.PathType.WATER, 0.0F);
     }
 
     @Override
@@ -321,7 +322,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Override
     protected void registerGoals() {
         // Deliberately not calling super: skeleton goals flee the sun and shoot players.
-        this.goalSelector.addGoal(0, new FloatGoal(this));
+        // No FloatGoal: a worker sinks in water and walks along the bottom, instead of bobbing on the surface.
         this.goalSelector.addGoal(1, new LeavePortalGoal(this));
 
         // Above everything else: a unit told to stay inside the hive border does.

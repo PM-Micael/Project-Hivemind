@@ -479,6 +479,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         super.broadcastChanges();
     }
 
+    /** Put the hive's storage in order right away (the Heart also does it now and then, for what comes in while no one clicks). */
+    public void sortStorageNow() {
+        if (storage != null) {
+            com.projecthivemind.entity.StorageSorter.sort(storage);
+        }
+    }
+
     @Override
     public StorageScroll storageScroll() {
         return scroll;

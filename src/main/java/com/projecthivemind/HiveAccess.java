@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.state.BlockState;
  * {@link ScoutContainerMenu} and {@link ScoutTradeMenu}; this class finds the thing and opens them for the owner.
  */
 public final class HiveAccess {
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
     private HiveAccess() {
     }
 
@@ -64,16 +65,19 @@ public final class HiveAccess {
     public static boolean openContainer(ServerPlayer owner, HiveHeart heart, HiveScout scout, ServerLevel level, BlockPos pos) {
         Container container = containerAt(level, pos);
         if (container == null || container.getContainerSize() > ScoutContainerMenu.MAX_SLOTS) {
+            LOGGER.warn("[hivemind] cannot open {}: container={} (a chest with a solid block above it has none)", pos, container);
             owner.displayClientMessage(Component.translatable("message.projecthivemind.cannot_open"), true);
             return false;
         }
         BlockEntity blockEntity = level.getBlockEntity(pos);
-        if (blockEntity instanceof BaseContainerBlockEntity locked && !locked.canOpen(owner)) {
-            return false;
-        }
-        // Opening a loot chest is what makes its loot appear.
+        // A loot chest that nobody has opened yet cannot be opened by a spectator (the hivemind is one) until its loot exists, so
+        // opening it for the owner is what makes the loot appear, and it has to happen before the check below.
         if (blockEntity instanceof RandomizableContainerBlockEntity loot) {
             loot.unpackLootTable(owner);
+        }
+        if (blockEntity instanceof BaseContainerBlockEntity locked && !locked.canOpen(owner)) {
+            LOGGER.warn("[hivemind] cannot open {}: it is locked", pos);
+            return false;
         }
 
         BlockState state = level.getBlockState(pos);

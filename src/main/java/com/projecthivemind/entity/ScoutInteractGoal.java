@@ -92,6 +92,7 @@ public class ScoutInteractGoal extends Goal {
         Vec3 goal = trade ? villager.position() : Vec3.atCenterOf(pos);
         double reach = trade ? VILLAGER_REACH_SQR : BLOCK_REACH_SQR;
         if (++waitedTicks > GIVE_UP_TICKS) {
+            LOGGER.info("[hivemind] scout interact gave up after {} ticks at {} (distance {})", waitedTicks, pos, Math.sqrt(scout.distanceToSqr(goal)));
             scout.setAction(null);
             return;
         }
@@ -109,6 +110,9 @@ public class ScoutInteractGoal extends Goal {
 
         scout.getNavigation().stop();
         scout.getLookControl().setLookAt(goal);
+        if (waitedTicks % 20 == 1) {
+            LOGGER.info("[hivemind] scout reached {} (trade={})", pos, trade);
+        }
         HiveHeart heart = scout.findHeart();
         ServerPlayer owner = scout.ownerId() == null || level.getServer() == null ? null
                 : level.getServer().getPlayerList().getPlayer(scout.ownerId());
@@ -133,6 +137,8 @@ public class ScoutInteractGoal extends Goal {
         } else {
             if (!HiveAccess.openContainer(owner, heart, scout, level, pos)) {
                 LOGGER.warn("[hivemind] openContainer failed at {}: {}", pos, level.getBlockState(pos));
+            } else {
+                LOGGER.info("[hivemind] scout opened container at {}", pos);
             }
         }
         scout.setAction(null);

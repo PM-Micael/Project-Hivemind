@@ -421,7 +421,7 @@ public class HiveHeart extends Mob {
         if (this.tickCount % 5 == 0) {
             HivemindManager.tickGearSync(this);
         }
-        if (this.tickCount % 10 == 0) {
+        if (this.tickCount % 2 == 0) {
             // The storage is kept in alphabetical order, with like stacks merged.
             StorageSorter.sort(storage);
         }

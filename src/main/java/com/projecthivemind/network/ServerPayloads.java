@@ -45,6 +45,10 @@ public final class ServerPayloads {
             return;
         }
         menu.clicked(payload.slot(), payload.button(), type, player);
+        // The hive keeps its storage in order: do it now, in the same moment as the click, not at the Heart's next sort.
+        if (menu instanceof com.projecthivemind.menu.HiveMenu hive) {
+            hive.sortStorageNow();
+        }
         menu.broadcastChanges();
     }
 
@@ -142,6 +146,12 @@ public final class ServerPayloads {
             HivemindManager.setUnitBehavior(player, payload.unitId(), payload.flags(), payload.radii());
         }
     }
+    public static void onKillUnit(KillUnitPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.killUnit(player, payload.unitId());
+        }
+    }
+
 
     public static void onCancelJob(CancelJobPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {

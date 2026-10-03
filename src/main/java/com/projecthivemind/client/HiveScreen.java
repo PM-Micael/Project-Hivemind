@@ -186,6 +186,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private boolean jobFilling;
     /** Ends the viewed unit's job, after the player has confirmed. */
     private Button cancelJobButton;
+    private Button killUnitButton;
 
     /** A unit page the player asked for before the menu was open (from the popup over a unit): its kind and unit. */
     @Nullable
@@ -276,6 +277,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         addRenderableWidget(jobResumeBox);
         cancelJobButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.job.cancel"), button -> askToCancelJob())
                 .bounds(leftPos + imageWidth - 12 - 80, topPos + JOB_TOP - 4, 80, 16).build());
+        killUnitButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.unit.kill").withStyle(net.minecraft.ChatFormatting.RED), button -> askToKillUnit())
+                .bounds(leftPos + BEHAVIOR_X, topPos + imageHeight - 26, 90, 18).build());
+        killUnitButton.visible = false;
         initBehaviorWidgets();
         // Opened from the popup over a unit: go straight to that unit's page.
         int requested = requestedUnit;
@@ -381,6 +385,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void updateBehaviorVisibility() {
         boolean units = tab == Tab.UNITS && viewedUnit >= 0;
+        killUnitButton.visible = units;
         soldierWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.SOLDIER);
         workerWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.WORKER);
         collectorWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.COLLECTOR);
@@ -392,7 +397,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     /** The bottom of the settings area, in the panel's own coordinates: a little above the panel's edge. */
     private int behaviorViewBottom() {
-        return imageHeight - 8;
+        return imageHeight - 32;
     }
 
     /** Where the unit page's settings end if nothing is scrolled: how tall the settings of this kind of unit are. */
@@ -609,6 +614,24 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             minecraft.setScreen(this);
         }, Component.translatable("screen.projecthivemind.job.cancel_title"),
                 Component.translatable("screen.projecthivemind.job.cancel_message"),
+                CommonComponents.GUI_YES, CommonComponents.GUI_NO));
+    }
+
+    /** Killing a unit cannot be undone, so the player is asked first. Whatever the answer, this screen is shown again. */
+    private void askToKillUnit() {
+        int unit = viewedUnit;
+        if (unit < 0) {
+            return;
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.KillUnitPayload(unit));
+                viewedUnit = -1;
+            }
+            minecraft.setScreen(this);
+        }, Component.translatable("screen.projecthivemind.unit.kill_title"),
+                Component.translatable("screen.projecthivemind.unit.kill_message"),
                 CommonComponents.GUI_YES, CommonComponents.GUI_NO));
     }
 

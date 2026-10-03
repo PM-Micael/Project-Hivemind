@@ -372,6 +372,14 @@ public final class HivemindManager {
         return Component.empty();
     }
 
+    /** The player confirmed Kill unit on a unit's page: the unit dies (and is replaced by the hive in its next spawning interval, if below the cap). */
+    public static void killUnit(ServerPlayer player, int unitId) {
+        if (get(player).stage() == HivemindStage.HIVE && findById(player, unitId) instanceof Mob mob && mob.isAlive()
+                && mob instanceof HiveUnit unit && player.getUUID().equals(unit.ownerId())) {
+            mob.kill();
+        }
+    }
+
     /** The player confirmed cancelling a unit's job (from its page, or its right-click menu). Only for the player's own units. */
     public static void cancelUnitJob(ServerPlayer player, int unitId) {
         if (HivemindManager.findById(player, unitId) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
