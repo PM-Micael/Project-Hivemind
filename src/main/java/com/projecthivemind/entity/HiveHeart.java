@@ -92,6 +92,32 @@ public class HiveHeart extends Mob {
     private int ageTicks;
     /** The hive's constructions: bridges, staircases, towers and shafts, and the workers on each. Saved. */
     private final com.projecthivemind.build.Constructions constructions = new com.projecthivemind.build.Constructions();
+    /** Which mob each soldier is fighting by itself (see SoldierDefaultAttackGoal), so that the soldiers split up between the mobs. Not saved. */
+    private final java.util.Map<UUID, FightAssignment> fights = new java.util.HashMap<>();
+
+    private record FightAssignment(UUID target, long until) {
+    }
+
+    /** A soldier is going after this mob: it is counted as on it for a few seconds, and renewed as long as it keeps at it. */
+    public void assignFight(UUID soldier, UUID target, long now) {
+        fights.put(soldier, new FightAssignment(target, now + 60L));
+    }
+
+    public void releaseFight(UUID soldier) {
+        fights.remove(soldier);
+    }
+
+    /** How many soldiers other than this one are on this mob. */
+    public int fightersOn(UUID target, UUID except, long now) {
+        fights.values().removeIf(assignment -> assignment.until() <= now);
+        int count = 0;
+        for (java.util.Map.Entry<UUID, FightAssignment> entry : fights.entrySet()) {
+            if (!entry.getKey().equals(except) && entry.getValue().target().equals(target)) {
+                count++;
+            }
+        }
+        return count;
+    }
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
     private int syncedArmor = -1;
@@ -100,7 +126,7 @@ public class HiveHeart extends Mob {
     private final HiveFurnace furnace = new HiveFurnace();
     /** The brewing stand built into the Heart from level 5. */
     private final HiveBrewing brewing = new HiveBrewing();
-    /** The portals standing and the summoning going on (from level 3). */
+    /** The portals standing and the summoning going on (from level 2). */
     private final PortalNetwork portals = new PortalNetwork();
     /** Where each of the hive's units was last seen (dimension and chunk), so they can be loaded again after a restart. */
     private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
@@ -174,10 +200,27 @@ public class HiveHeart extends Mob {
 
     /**
      * The scout this unit's team follows, or null: when the unit is in a team that has a scout, and is not that scout itself. Only the
-     * first scout found counts.
+     * first scout found counts. While that scout is inside the hive border the team's behaviour is off: this is null and the unit
+     * goes on with its normal AI.
      */
     @Nullable
     public Mob teamLeader(Mob member) {
+        HiveScout scout = teamScout(member);
+        return scout != null && !isInsideBorder(scout) ? scout : null;
+    }
+
+    /** True if the unit is in a team whose scout is inside the hive border: the team's behaviour is off for it. */
+    public boolean teamScoutInside(Mob member) {
+        HiveScout scout = teamScout(member);
+        return scout != null && isInsideBorder(scout);
+    }
+
+    private boolean isInsideBorder(Mob mob) {
+        return mob.level() == this.level() && com.projecthivemind.HiveArea.containsCube(this, mob.getX(), mob.getY(), mob.getZ());
+    }
+
+    @Nullable
+    private HiveScout teamScout(Mob member) {
         int team = teams.teamOf(member.getUUID());
         if (team < 0 || !(this.level() instanceof ServerLevel level)) {
             return null;
@@ -901,6 +944,7 @@ public class HiveHeart extends Mob {
         tag.put("UnitSpots", spots);
         food.save(tag);
         tag.put("Constructions", constructions.save());
+        tag.put("KeptSites", constructions.saveKept());
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.put(JUKEBOX_TAG, ContainerHelper.saveAllItems(new CompoundTag(), jukeboxSlot.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
@@ -966,6 +1010,7 @@ public class HiveHeart extends Mob {
         ageTicks = tag.getInt(AGE_TAG);
         food.load(tag);
         constructions.load(tag.getList("Constructions", Tag.TAG_COMPOUND));
+        constructions.loadKept(tag.getList("KeptSites", Tag.TAG_COMPOUND));
         foodSlot.clearContent();
         if (tag.contains(FOOD_SLOT_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());

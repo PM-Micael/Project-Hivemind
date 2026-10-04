@@ -112,6 +112,7 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
         registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
+        registrar.playToServer(com.projecthivemind.network.TogglePortalResummonPayload.TYPE, com.projecthivemind.network.TogglePortalResummonPayload.STREAM_CODEC, ServerPayloads::onTogglePortalResummon);
         registrar.playToClient(com.projecthivemind.network.SyncTeamPayload.TYPE, com.projecthivemind.network.SyncTeamPayload.STREAM_CODEC, ClientPayloads::onSyncTeam);
         registrar.playToServer(com.projecthivemind.network.SetTeamRadiusPayload.TYPE, com.projecthivemind.network.SetTeamRadiusPayload.STREAM_CODEC, ServerPayloads::onSetTeamRadius);
         registrar.playToServer(com.projecthivemind.network.PlaceTorchPayload.TYPE, com.projecthivemind.network.PlaceTorchPayload.STREAM_CODEC, ServerPayloads::onPlaceTorch);

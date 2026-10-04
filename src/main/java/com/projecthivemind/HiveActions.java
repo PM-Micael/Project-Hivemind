@@ -537,7 +537,7 @@ public final class HiveActions {
     }
 
     /**
-     * A scout places a hive portal (hive level 3 and up). With the portal limit reached, the player is asked first: placing another takes
+     * A scout places a hive portal (hive level 2 and up). With the portal limit reached, the player is asked first: placing another takes
      * the oldest down.
      */
     public static void placePortal(ServerPlayer player, com.projecthivemind.network.PlacePortalPayload request) {

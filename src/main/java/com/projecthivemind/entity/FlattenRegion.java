@@ -17,12 +17,15 @@ import net.minecraft.world.phys.AABB;
  * circle those columns must be inside. There are two kinds: the hive area (levelled to the floor the Heart stands on), and the team area round
  * the team's scout (levelled to the floor the scout stands on).
  */
-public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop, @Nullable double[] circle) {
+public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop, @Nullable double[] circle, java.util.Set<Long> excluded) {
     /** How far past the hive border the hive area's flattening reaches, in blocks. */
     public static final int EDGE_MARGIN = 1;
 
-    /** True if the column is part of the region: always for the hive area, inside the circle for the team area. */
+    /** True if the column is part of the region: always for the hive area, inside the circle for the team area, and never one of the excluded columns (constructions). */
     public boolean contains(int x, int z) {
+        if (excluded.contains(com.projecthivemind.HiveConstructions.columnKey(x, z))) {
+            return false;
+        }
         if (circle == null) {
             return true;
         }
@@ -37,12 +40,14 @@ public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop
         if (!(worker.level() instanceof ServerLevel level)) {
             return regions;
         }
+        // The ground of constructions (and of finished ones) is left as it is: a shaft would be filled in as a gap.
+        java.util.Set<Long> excluded = heart.constructions().protectedColumns(level.dimension());
         if (worker.behavior().flattenGround()) {
             AABB area = HiveArea.areaBox(level, heart);
             // One block further out than the border on every side, so that the edge of the flattened ground is not at the very edge of the area
             // (soldiers that keep to the border do not walk off a ledge there).
             regions.add(new FlattenRegion((int) area.minX - EDGE_MARGIN, (int) area.maxX + EDGE_MARGIN, (int) area.minZ - EDGE_MARGIN, (int) area.maxZ + EDGE_MARGIN,
-                    (int) Math.floor(heart.getY()) - 1, null));
+                    (int) Math.floor(heart.getY()) - 1, null, excluded));
         }
         if (worker.behavior().flattenTeam()) {
             Mob leader = heart.teamLeader(worker);
@@ -50,7 +55,7 @@ public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop
                 int radius = heart.teams().radius(heart.teams().teamOf(worker.getUUID()));
                 BlockPos at = leader.blockPosition();
                 regions.add(new FlattenRegion(at.getX() - radius, at.getX() + radius + 1, at.getZ() - radius, at.getZ() + radius + 1,
-                        (int) Math.floor(leader.getY()) - 1, new double[] {leader.getX(), leader.getZ(), radius}));
+                        (int) Math.floor(leader.getY()) - 1, new double[] {leader.getX(), leader.getZ(), radius}, excluded));
             }
         }
         return regions;

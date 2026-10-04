@@ -73,7 +73,7 @@ public class SoldierDefaultAttackGoal extends Goal {
         }
         if (soldier.tickCount >= nextRecheckTick) {
             nextRecheckTick = soldier.tickCount + RECHECK_INTERVAL;
-            return matches(heart, target);
+            return matches(heart, target) && !overcrowded(heart);
         }
         return true;
     }
@@ -82,12 +82,20 @@ public class SoldierDefaultAttackGoal extends Goal {
     public void start() {
         soldier.resetCombat();
         soldier.setAggressive(true);
+        HiveHeart heart = soldier.findLocalHeart();
+        if (heart != null && target != null) {
+            heart.assignFight(soldier.getUUID(), target.getUUID(), soldier.level().getGameTime());
+        }
         nextRecheckTick = soldier.tickCount + RECHECK_INTERVAL;
     }
 
     @Override
     public void stop() {
         soldier.setAggressive(false);
+        HiveHeart fightHeart = soldier.findLocalHeart();
+        if (fightHeart != null) {
+            fightHeart.releaseFight(soldier.getUUID());
+        }
         target = null;
         if (soldier.action() == null) {
             soldier.getNavigation().stop();
@@ -98,6 +106,13 @@ public class SoldierDefaultAttackGoal extends Goal {
     public void tick() {
         if (target != null) {
             soldier.pursue(target);
+            // Counted on this mob for as long as it keeps at it: renewed every second.
+            if (soldier.tickCount % 20 == 0) {
+                HiveHeart heart = soldier.findLocalHeart();
+                if (heart != null) {
+                    heart.assignFight(soldier.getUUID(), target.getUUID(), soldier.level().getGameTime());
+                }
+            }
         }
     }
 
@@ -107,7 +122,7 @@ public class SoldierDefaultAttackGoal extends Goal {
     private List<LivingEntity> teamMembers(HiveHeart heart) {
         List<LivingEntity> members = new ArrayList<>();
         int team = heart.teams().teamOf(soldier.getUUID());
-        if (team >= 0 && soldier.level() instanceof ServerLevel level) {
+        if (team >= 0 && !heart.teamScoutInside(soldier) && soldier.level() instanceof ServerLevel level) {
             for (UUID id : heart.teams().members(team)) {
                 if (level.getEntity(id) instanceof LivingEntity member && member.isAlive()) {
                     members.add(member);
@@ -117,9 +132,8 @@ public class SoldierDefaultAttackGoal extends Goal {
         return members;
     }
 
-    /** The nearest mob that is a target for this soldier, or null. */
-    @Nullable
-    private Mob findTarget(HiveHeart heart) {
+    /** Every mob that is a target for this soldier right now (each once). */
+    private List<Mob> candidates(HiveHeart heart) {
         ServerLevel level = (ServerLevel) soldier.level();
         List<Mob> candidates = new ArrayList<>();
 
@@ -137,7 +151,40 @@ public class SoldierDefaultAttackGoal extends Goal {
             AABB area = HiveArea.areaBox(level, heart);
             candidates.addAll(level.getEntitiesOfClass(Mob.class, area, mob -> matchesSettings(heart, mob)));
         }
-        return candidates.stream().filter(this::withinHeight).filter(mob -> withinAttackArea(heart, mob)).min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
+        return candidates.stream().distinct().filter(this::withinHeight).filter(mob -> withinAttackArea(heart, mob)).toList();
+    }
+
+    /**
+     * The mob this soldier goes after: the one the fewest other soldiers are on, and of those the nearest. So soldiers spread out over the mobs
+     * there are (two mobs and four soldiers: two soldiers on each) instead of all running at the nearest one.
+     */
+    @Nullable
+    private Mob findTarget(HiveHeart heart) {
+        long now = soldier.level().getGameTime();
+        return candidates(heart).stream()
+                .min(Comparator.<Mob>comparingInt(mob -> heart.fightersOn(mob.getUUID(), soldier.getUUID(), now)).thenComparingDouble(soldier::distanceToSqr))
+                .orElse(null);
+    }
+
+    /**
+     * True if this soldier has more company on its mob than there is on another one: at least two more than the least covered. It then
+     * lets go of its mob, so that it picks again and the soldiers even out as mobs come and go.
+     */
+    private boolean overcrowded(HiveHeart heart) {
+        if (target == null) {
+            return false;
+        }
+        long now = soldier.level().getGameTime();
+        int mine = heart.fightersOn(target.getUUID(), soldier.getUUID(), now);
+        if (mine < 2) {
+            return false;
+        }
+        for (Mob other : candidates(heart)) {
+            if (other != target && heart.fightersOn(other.getUUID(), soldier.getUUID(), now) + 2 <= mine) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A soldier only goes after what is within this many blocks of its own height: not at things far above or below it. */

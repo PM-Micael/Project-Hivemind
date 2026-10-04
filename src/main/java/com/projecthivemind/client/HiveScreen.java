@@ -124,6 +124,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private SeedButton enchantStationButton;
     private SeedButton jukeboxButton;
     private boolean jukeboxShown;
+    private SeedButton cartographyButton;
+    private boolean cartographyShown;
     private final Button[] enchantOptions = new Button[3];
     private boolean enchantShown;
     private SeedButton craftingButton;
@@ -267,6 +269,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 () -> new ItemStack(net.minecraft.world.item.Items.JUKEBOX), button -> chooseWorkstation(4)));
         jukeboxButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.jukebox")));
         jukeboxButton.visible = false;
+        cartographyButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 120, 20, 20,
+                () -> new ItemStack(net.minecraft.world.item.Items.CARTOGRAPHY_TABLE), button -> chooseWorkstation(5)));
+        cartographyButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.cartography")));
+        cartographyButton.visible = false;
         // The three enchanting options, to the right of the item and lapis slots.
         for (int i = 0; i < 3; i++) {
             int option = i;
@@ -338,7 +344,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private static final int TAB_STEP = 22;
 
-    /** Which tab buttons are there for this level, packed to the left: the Portals tab comes with level 3, the Evolve tab with level 2. */
+    /** Which tab buttons are there for this level, packed to the left: the Portals tab comes with level 2, the Evolve tab with level 2. */
     private void updateTabButtons() {
         portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
         evolveTab.visible = menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
@@ -381,8 +387,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void applyMenuGroups(Tab forTab) {
         // The workstations the hive can use: the crafting grid (2x2 to begin with, 3x3 once a crafting table has been consumed), the furnace and the brewing stand once each has been consumed on the Evolve
         // tab, and the evolve slot from level 2. The one shown is the one chosen, or else the first there is.
-        boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), menu.hasEnchanting(), menu.hasJukebox()};
-        int chosen = jukeboxShown ? 4 : enchantShown ? 3 : brewingShown ? 2 : furnaceShown ? 1 : 0;
+        boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), menu.hasEnchanting(), menu.hasJukebox(), menu.hasCartography()};
+        int chosen = cartographyShown ? 5 : jukeboxShown ? 4 : enchantShown ? 3 : brewingShown ? 2 : furnaceShown ? 1 : 0;
         if (!offered[chosen]) {
             chosen = 0;
             for (int i = 0; i < offered.length; i++) {
@@ -396,12 +402,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         brewingShown = chosen == 2;
         enchantShown = chosen == 3;
         jukeboxShown = chosen == 4;
+        cartographyShown = chosen == 5;
         menu.visibleGroups = forTab == Tab.HIVE
                 ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR
-                        | (chosen == 4 ? HiveMenu.GROUP_JUKEBOX : chosen == 3 ? HiveMenu.GROUP_ENCHANT : chosen == 2 ? HiveMenu.GROUP_BREWING : chosen == 1 ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
+                        | (chosen == 5 ? HiveMenu.GROUP_CARTOGRAPHY : chosen == 4 ? HiveMenu.GROUP_JUKEBOX : chosen == 3 ? HiveMenu.GROUP_ENCHANT : chosen == 2 ? HiveMenu.GROUP_BREWING : chosen == 1 ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
         if (craftingButton != null) {
             // The buttons for the workstations on offer, one under the other. With only one there is nothing to choose.
-            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, enchantStationButton, jukeboxButton};
+            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, enchantStationButton, jukeboxButton, cartographyButton};
             int count = 0;
             for (boolean has : offered) {
                 count += has ? 1 : 0;
@@ -425,7 +432,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private int stationKey() {
-        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (menu.hasCrafting() ? 8 : 0) | (menu.hasEnchanting() ? 16 : 0) | (menu.hasJukebox() ? 32 : 0);
+        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (menu.hasCrafting() ? 8 : 0) | (menu.hasEnchanting() ? 16 : 0) | (menu.hasJukebox() ? 32 : 0) | (menu.hasCartography() ? 64 : 0);
     }
 
     /**
@@ -477,6 +484,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         brewingShown = station == 2;
         enchantShown = station == 3;
         jukeboxShown = station == 4;
+        cartographyShown = station == 5;
         applyMenuGroups(tab);
         PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
     }
@@ -720,7 +728,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     protected void containerTick() {
         super.containerTick();
         updateJobBox();
-        // The portal network comes with level 3; the tab is there once the hive has it.
+        // The portal network comes with level 2; the tab is there once the hive has it.
         updateTabButtons();
         // The workstation buttons depend on the level, which only reaches the client a moment after the menu opens (and changes when the hive levels up).
         if (stationKey != stationKey()) {
@@ -2005,7 +2013,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
         // The workstation on the right is named for the open tab.
         // (With no workstation unlocked yet there is nothing to name.)
-        String workstation = jukeboxShown && menu.hasJukebox() ? "screen.projecthivemind.hive.jukebox"
+        String workstation = cartographyShown && menu.hasCartography() ? "screen.projecthivemind.hive.cartography"
+                : jukeboxShown && menu.hasJukebox() ? "screen.projecthivemind.hive.jukebox"
                 : enchantShown && menu.hasEnchanting() ? "screen.projecthivemind.hive.enchanting"
                 : brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
                 : furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace"

@@ -33,6 +33,9 @@ public final class HiveHud {
     }
 
     public static void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
+        HiveHudLayers.endFrame();
+        boolean heartsByLayer = HiveHudLayers.takeHeartsByLayer();
+        boolean armorByLayer = HiveHudLayers.takeArmorByLayer();
         Minecraft minecraft = Minecraft.getInstance();
         if (!ClientState.hiveMode() || minecraft.options.hideGui || minecraft.player == null) {
             return;
@@ -51,7 +54,7 @@ public final class HiveHud {
 
         int left = graphics.guiWidth() / 2 - 91;
         int bottom = graphics.guiHeight() - 39;
-        for (int i = 0; i < hearts; i++) {
+        for (int i = 0; i < (heartsByLayer ? 0 : hearts); i++) {
             int x = left + (i % HEARTS_PER_ROW) * 8;
             int y = bottom - (i / HEARTS_PER_ROW) * rowHeight;
             graphics.blitSprite(CONTAINER, x, y, 9, 9);
@@ -77,8 +80,9 @@ public final class HiveHud {
 
         // The armor, in a row above the hearts, only when there is any (as in vanilla).
         int armor = ClientState.heartArmor();
-        if (armor > 0) {
-            int armorY = bottom - (rows - 1) * rowHeight - 10;
+        if (armor > 0 && !armorByLayer) {
+            // (When the game drew the hearts it has made them as tall as it, or a mod, wants: the armor goes above one row of them.)
+            int armorY = bottom - (heartsByLayer ? 0 : (rows - 1) * rowHeight) - 10;
             for (int i = 0; i < 10; i++) {
                 int x = left + i * 8;
                 int point = i * 2 + 1;

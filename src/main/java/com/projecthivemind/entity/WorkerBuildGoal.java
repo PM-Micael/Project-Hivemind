@@ -261,7 +261,7 @@ public class WorkerBuildGoal extends Goal {
         }
         ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
         if (owner != null) {
-            owner.displayClientMessage(Component.translatable("message.projecthivemind.tower_needs_tool", state.getBlock().getName()), true);
+            owner.displayClientMessage(Component.translatable("message.projecthivemind.tower_needs_tool", state.getBlock().getName()), false);
         }
     }
 
@@ -289,7 +289,7 @@ public class WorkerBuildGoal extends Goal {
             // Name what ran out: the walls if there are none of those, otherwise the stairs.
             boolean wallsOut = build.set().availableWall(heart.getStorage()) == null;
             owner.displayClientMessage(Component.translatable("message.projecthivemind.tower_waiting",
-                    (wallsOut ? build.set().walls().get(0) : build.set().stairs().get(0)).getDescription()), true);
+                    (wallsOut ? build.set().walls().get(0) : build.set().stairs().get(0)).getDescription()), false);
         }
     }
 }

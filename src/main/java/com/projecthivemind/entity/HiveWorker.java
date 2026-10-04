@@ -147,6 +147,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         wallIdleScans = 0;
         if (heart.getStorage().countItem(wallItem) <= 0) {
             // Out of the block: wait for the hive to get some.
+            notifyMissingBlock(heart, wallItem);
             nextWallScan = this.tickCount + 40;
             return;
         }
@@ -157,6 +158,27 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
         } else {
             this.getNavigation().moveTo(place.getX() + 0.5D, place.getY(), place.getZ() + 0.5D, 1.0D);
+        }
+    }
+
+    /** When the owner was last told in chat that this block was missing, by hive and block: so a crew of workers does not repeat it. */
+    private static final java.util.Map<String, Long> MISSING_NOTICES = new java.util.HashMap<>();
+
+    /** Tell the owner, in chat, that a construction cannot go on because the hive has none of this block (at most every 15 seconds for each). */
+    private void notifyMissingBlock(HiveHeart heart, net.minecraft.world.item.Item item) {
+        if (heart.getServer() == null || heart.ownerId() == null) {
+            return;
+        }
+        String key = heart.getUUID() + "/" + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(item);
+        long now = this.level().getGameTime();
+        Long last = MISSING_NOTICES.get(key);
+        if (last != null && now - last < 300L) {
+            return;
+        }
+        MISSING_NOTICES.put(key, now);
+        net.minecraft.server.level.ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner != null) {
+            owner.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.projecthivemind.construction_missing", item.getDescription()), false);
         }
     }
 
@@ -230,6 +252,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
         if (heart.getStorage().countItem(item) <= 0) {
             // Out of what this block is made of: wait for the hive to get some.
+            notifyMissingBlock(heart, item);
             nextBridgeScan = this.tickCount + 40;
             return;
         }

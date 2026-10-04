@@ -68,6 +68,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int enchantEnd;
     private final int jukeboxStart;
     private final int jukeboxEnd;
+    private final int cartographyStart;
+    private final int cartographyEnd;
     private final Slot trashSlot;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
@@ -85,6 +87,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_ENCHANT = 32;
     /** The jukebox slot (once a jukebox has been consumed). */
     public static final int GROUP_JUKEBOX = 64;
+    /** The cartography table (once one has been consumed): the map, the material and the result. */
+    public static final int GROUP_CARTOGRAPHY = 128;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -195,7 +199,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_EVOLVE_READY = DATA_EVOLVE + 1;
     /** Whether the Ender Dragon has been defeated, for the quest. */
     private static final int DATA_QUEST_DRAGON = DATA_EVOLVE_READY + 1;
-    public static final int DATA_COUNT = DATA_QUEST_DRAGON + 1;
+    /** The top half of the two masks above: a menu value is sent as 16 bits, and there are more tasks than that. */
+    private static final int DATA_EVOLVE_HIGH = DATA_QUEST_DRAGON + 1;
+    private static final int DATA_EVOLVE_READY_HIGH = DATA_EVOLVE_HIGH + 1;
+    public static final int DATA_COUNT = DATA_EVOLVE_READY_HIGH + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -228,6 +235,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             HiveMenu.this.slotsChanged(this);
         }
     };
+    /** The cartography table's inputs (map, material) and its result. What is left in the inputs goes back to the hive when the menu closes. */
+    private final SimpleContainer cartographySlots = new SimpleContainer(2) {
+        @Override
+        public void setChanged() {
+            super.setChanged();
+            HiveMenu.this.slotsChanged(this);
+        }
+    };
+    private final SimpleContainer cartographyResult = new SimpleContainer(1);
     private final net.minecraft.util.RandomSource enchantRandom = net.minecraft.util.RandomSource.create();
     private final DataSlot enchantSeed = DataSlot.standalone();
     /** The enchanting options, as in the vanilla menu: the level each costs (0 for none) and the hint shown for it. */
@@ -270,6 +286,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.enchantEnd = enchantStart + 2;
         this.jukeboxStart = enchantEnd;
         this.jukeboxEnd = jukeboxStart + 1;
+        this.cartographyStart = jukeboxEnd;
+        this.cartographyEnd = cartographyStart + 3;
         this.storage = storage;
         this.data = data;
         this.view = view;
@@ -317,6 +335,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new EnchantLapisSlot(enchantSlots, 1, ENCHANT_ITEM_X, ENCHANT_ITEM_Y + 24));
         // The jukebox: the music disc that is playing.
         this.addSlot(new JukeboxSlot(jukeboxSlot, 0, JUKEBOX_X, JUKEBOX_Y));
+        // The cartography table: the map, what is done to it (paper, glass pane or an empty map), and the result.
+        this.addSlot(new CartographyInputSlot(cartographySlots, 0, FURNACE_INPUT_X, FURNACE_INPUT_Y, true));
+        this.addSlot(new CartographyInputSlot(cartographySlots, 1, FURNACE_FUEL_X, FURNACE_FUEL_Y, false));
+        this.addSlot(new CartographyResultSlot(cartographyResult, 0, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
         // The trash: anything put here is deleted. Bottom left of the panel, on the Hive tab.
         this.trashSlot = new TrashSlot(new SimpleContainer(1), 0, TRASH_X, trashY(scroll.visibleRows()));
         this.addSlot(trashSlot);
@@ -395,10 +417,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                     return heart.dragonDefeated() ? 1 : 0;
                 }
                 if (index == DATA_EVOLVE_READY) {
-                    return heart.evolveReadyMask();
+                    return heart.evolveReadyMask() & 0xFFFF;
+                }
+                if (index == DATA_EVOLVE_READY_HIGH) {
+                    return heart.evolveReadyMask() >>> 16;
                 }
                 if (index == DATA_EVOLVE) {
-                    return heart.evolveMask();
+                    return heart.evolveMask() & 0xFFFF;
+                }
+                if (index == DATA_EVOLVE_HIGH) {
+                    return heart.evolveMask() >>> 16;
                 }
                 if (index == DATA_BREW_TIME) {
                     return heart.brewing().brewTime();
@@ -534,12 +562,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** The evolution tasks done, as a mask of EvolveTask bits. */
     public int evolveMask() {
-        return data.get(DATA_EVOLVE);
+        return (data.get(DATA_EVOLVE) & 0xFFFF) | (data.get(DATA_EVOLVE_HIGH) << 16);
     }
 
     /** The tasks the hive can do right now, as a mask of EvolveTask bits: those still to do whose item is in its storage. */
     public int evolveReady() {
-        return data.get(DATA_EVOLVE_READY);
+        return (data.get(DATA_EVOLVE_READY) & 0xFFFF) | (data.get(DATA_EVOLVE_READY_HIGH) << 16);
     }
 
     /**
@@ -584,6 +612,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             case GROUP_BREWING -> hasBrewing();
             case GROUP_ENCHANT -> hasEnchanting();
             case GROUP_JUKEBOX -> hasJukebox();
+            case GROUP_CARTOGRAPHY -> hasCartography();
             default -> true;
         };
     }
@@ -655,6 +684,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The trash slot, so the screen can draw it. */
     public Slot trashSlot() {
         return trashSlot;
+    }
+
+    /** True once the hive has consumed a cartography table: it can copy, zoom and lock maps. */
+    public boolean hasCartography() {
+        return com.projecthivemind.EvolveTask.CARTOGRAPHY_TABLE.doneIn(evolveMask());
     }
 
     /** True once the hive has consumed a jukebox: it can play music discs. */
@@ -796,7 +830,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     @Override
     public void slotsChanged(Container container) {
-        if (container == enchantSlots) {
+        if (container == cartographySlots) {
+            updateCartography();
+        } else if (container == enchantSlots) {
             updateEnchanting();
         } else {
             updateResult(player.level());
@@ -826,6 +862,36 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), resultIndex, result));
     }
 
+    /**
+     * The cartography table, as in the game: a map with paper makes a bigger-scale copy of it (up to the largest scale), with a glass pane it is
+     * locked, and with an empty map it is copied (two come out). The inputs are used up when the result is taken.
+     */
+    private void updateCartography() {
+        if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level) || !(player instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+        ItemStack map = cartographySlots.getItem(0);
+        ItemStack material = cartographySlots.getItem(1);
+        ItemStack result = ItemStack.EMPTY;
+        net.minecraft.world.level.saveddata.maps.MapItemSavedData data = map.is(net.minecraft.world.item.Items.FILLED_MAP)
+                ? net.minecraft.world.item.MapItem.getSavedData(map, level) : null;
+        if (data != null) {
+            if (material.is(net.minecraft.world.item.Items.PAPER) && !data.locked && data.scale < 4) {
+                result = map.copyWithCount(1);
+                result.set(net.minecraft.core.component.DataComponents.MAP_POST_PROCESSING, net.minecraft.world.item.component.MapPostProcessing.SCALE);
+            } else if (material.is(net.minecraft.world.item.Items.GLASS_PANE) && !data.locked) {
+                result = map.copyWithCount(1);
+                result.set(net.minecraft.core.component.DataComponents.MAP_POST_PROCESSING, net.minecraft.world.item.component.MapPostProcessing.LOCK);
+            } else if (material.is(net.minecraft.world.item.Items.MAP)) {
+                result = map.copyWithCount(2);
+            }
+        }
+        cartographyResult.setItem(0, result);
+        int index = cartographyStart + 2;
+        setRemoteSlot(index, result);
+        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), index, result));
+    }
+
     // ---- moving items ----
 
     @Override
@@ -837,6 +903,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         ItemStack stack = slot.getItem();
         ItemStack original = stack.copy();
 
+        if (index == cartographyStart + 2) {
+            // A map made at the cartography table is finished as it comes out, whichever way it is taken.
+            stack.getItem().onCraftedBy(stack, player.level(), player);
+        }
         if (index == resultIndex) {
             stack.getItem().onCraftedBy(stack, player.level(), player);
             if (!this.moveItemStackTo(stack, STORAGE_START, resultIndex, true)) {
@@ -854,6 +924,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 && !(shown(brewingStart, brewingEnd) && this.moveItemStackTo(stack, brewingStart, brewingEnd, false))
                 && !(shown(enchantStart, enchantEnd) && this.moveItemStackTo(stack, enchantStart, enchantEnd, false))
                 && !(shown(jukeboxStart, jukeboxEnd) && this.moveItemStackTo(stack, jukeboxStart, jukeboxEnd, false))
+                && !(shown(cartographyStart, cartographyStart + 2) && this.moveItemStackTo(stack, cartographyStart, cartographyStart + 2, false))
                 && !(shown(foodIndex, foodIndex + 1) && this.moveItemStackTo(stack, foodIndex, foodIndex + 1, false))) {
             // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace,
             // but only those the open tab is showing.
@@ -902,6 +973,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             for (int i = 0; i < enchantSlots.getContainerSize(); i++) {
                 giveToHive(enchantSlots.removeItemNoUpdate(i));
             }
+            for (int i = 0; i < cartographySlots.getContainerSize(); i++) {
+                giveToHive(cartographySlots.removeItemNoUpdate(i));
+            }
+            cartographyResult.clearContent();
             resultSlots.clearContent();
         }
         super.removed(player);
@@ -1008,6 +1083,44 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public int getMaxStackSize(ItemStack stack) {
             return Integer.MAX_VALUE;
+        }
+    }
+
+    /** A cartography table input: the map (a filled map), or the material (paper, a glass pane or an empty map). */
+    private class CartographyInputSlot extends HiveSlot {
+        private final boolean mapSlot;
+
+        CartographyInputSlot(Container container, int index, int x, int y, boolean mapSlot) {
+            super(container, index, x, y, GROUP_CARTOGRAPHY);
+            this.mapSlot = mapSlot;
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return mapSlot ? stack.is(net.minecraft.world.item.Items.FILLED_MAP)
+                    : stack.is(net.minecraft.world.item.Items.PAPER) || stack.is(net.minecraft.world.item.Items.GLASS_PANE) || stack.is(net.minecraft.world.item.Items.MAP);
+        }
+    }
+
+    /** The cartography table's result: nothing can be put in it; taking it uses up one of each input and finishes the map. */
+    private class CartographyResultSlot extends HiveSlot {
+        CartographyResultSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_CARTOGRAPHY);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public void onTake(Player taker, ItemStack stack) {
+            stack.getItem().onCraftedBy(stack, taker.level(), taker);
+            cartographySlots.removeItem(0, 1);
+            cartographySlots.removeItem(1, 1);
+            taker.level().playSound(null, taker.blockPosition(), net.minecraft.sounds.SoundEvents.UI_CARTOGRAPHY_TABLE_TAKE_RESULT,
+                    net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+            super.onTake(taker, stack);
         }
     }
 

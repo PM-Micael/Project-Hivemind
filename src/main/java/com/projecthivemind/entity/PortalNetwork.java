@@ -28,6 +28,8 @@ public final class PortalNetwork {
     public static final int SUMMON_INTERVAL_TICKS = 200;
 
     private final List<GlobalPos> portals = new ArrayList<>();
+    /** Portals set to bring back the units of their own team when they die (see HivePortals#resummonDeath). */
+    private final java.util.Set<GlobalPos> resummon = new java.util.HashSet<>();
     private boolean summoning;
     /** Where the units come through: a portal, or null for the Hive Heart itself. */
     @Nullable
@@ -41,6 +43,15 @@ public final class PortalNetwork {
 
     public List<GlobalPos> portals() {
         return portals;
+    }
+
+    public java.util.Set<GlobalPos> resummon() {
+        return resummon;
+    }
+
+    /** Add a unit to the summoning that is going on at this portal. */
+    public void addToSummoning(Pending unit) {
+        queue.add(unit);
     }
 
     public boolean summoning() {
@@ -97,6 +108,11 @@ public final class PortalNetwork {
             list.add(writePos(portal));
         }
         tag.put("Portals", list);
+        ListTag resummonList = new ListTag();
+        for (GlobalPos portal : resummon) {
+            resummonList.add(writePos(portal));
+        }
+        tag.put("Resummon", resummonList);
         tag.putBoolean("Summoning", summoning);
         if (target != null) {
             tag.put("Target", writePos(target));
@@ -124,6 +140,13 @@ public final class PortalNetwork {
             GlobalPos pos = readPos((CompoundTag) raw);
             if (pos != null) {
                 portals.add(pos);
+            }
+        }
+        resummon.clear();
+        for (Tag raw : tag.getList("Resummon", Tag.TAG_COMPOUND)) {
+            GlobalPos pos = readPos((CompoundTag) raw);
+            if (pos != null) {
+                resummon.add(pos);
             }
         }
         summoning = tag.getBoolean("Summoning");

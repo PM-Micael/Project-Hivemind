@@ -160,6 +160,8 @@ public final class HiveConstructions {
         if (level != null && level.isLoaded(construction.anchor()) && level.getBlockState(construction.anchor()).is(ModBlocks.CONSTRUCTION.get())) {
             level.setBlock(construction.anchor(), net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         }
+        // Its ground stays protected from flattening, so a shaft that is done is not filled in.
+        heart.constructions().keep(construction);
         heart.constructions().remove(construction);
     }
 

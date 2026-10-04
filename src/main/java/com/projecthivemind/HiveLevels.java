@@ -14,13 +14,13 @@ public final class HiveLevels {
                     UnitKind.COLLECTOR, 1,
                     UnitKind.FEEDER, 1),
                     new HiveLevel.Quest(10, 5, 0, 0, null, 0, 0, false, 0, false)),
-            // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, 3 soldiers, 2 workers.
+            // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, 3 soldiers, 2 workers, 3 feeders.
             new HiveLevel(2, 40.0F, 54, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
                     UnitKind.WORKER, 2,
                     UnitKind.SOLDIER, 3,
                     UnitKind.COLLECTOR, 1,
-                    UnitKind.FEEDER, 2),
+                    UnitKind.FEEDER, 3),
                     new HiveLevel.Quest(0, 0, 10, 24000, null, 0, 0, false, 0, false)),
             // Level 3: 30 hearts, 81 storage slots (scrolled), a 29x29 hive area, 3 workers, 5 soldiers and 2 collectors.
             new HiveLevel(3, 60.0F, 81, 3, 14, 32, Map.of(
@@ -63,7 +63,7 @@ public final class HiveLevels {
     public static final int BREWING_LEVEL = 5;
 
     /** The level at which scouts can place hive portals. */
-    public static final int PORTAL_LEVEL = 3;
+    public static final int PORTAL_LEVEL = 2;
 
     /** The level at which the Evolve tab of the hive menu is there. */
     public static final int EVOLVE_LEVEL = 1;

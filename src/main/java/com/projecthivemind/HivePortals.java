@@ -27,7 +27,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * The hive portal network (from hive level 3): scouts place portals, the Hive Heart keeps the list ({@link PortalNetwork}), and units
+ * The hive portal network (from hive level 2): scouts place portals, the Hive Heart keeps the list ({@link PortalNetwork}), and units
  * are summoned through a portal or the Heart: they die where they are and come back one at a time, scouts first, then soldiers, then workers.
  */
 public final class HivePortals {
@@ -47,7 +47,7 @@ public final class HivePortals {
     }
 
     public static int max(HiveHeart heart) {
-        // The level gives the first portal (from level 3); the ender pearl task gives one more, but only once portals exist at all.
+        // The level gives the first portal (from level 2); the ender pearl task gives one more, but only once portals exist at all.
         int fromLevel = HiveLevels.get(heart.hiveLevel()).maxPortals();
         return fromLevel > 0 && com.projecthivemind.EvolveTask.ENDER_PEARL.doneIn(heart.evolveMask()) ? fromLevel + 1 : fromLevel;
     }
@@ -86,6 +86,47 @@ public final class HivePortals {
         }
         remove(player.server, network.portals().remove(index));
         sync(player, heart);
+    }
+
+    /** The player switched "resummon team units" on or off for the portal at this index of the list. */
+    public static void toggleResummon(ServerPlayer player, int index) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        PortalNetwork network = heart.portals();
+        if (index < 0 || index >= network.portals().size()) {
+            return;
+        }
+        GlobalPos portal = network.portals().get(index);
+        if (!network.resummon().remove(portal)) {
+            network.resummon().add(portal);
+        }
+        sync(player, heart);
+    }
+
+    /**
+     * A unit of this team died. If the team's portal is set to resummon, the unit is queued to come back through that portal, with the
+     * countdown ticking, instead of the Heart making a replacement. Returns false when it does not apply (no such portal, not set, or the
+     * network is busy summoning somewhere else), and the Heart replaces the unit as usual.
+     */
+    public static boolean resummonDeath(ServerPlayer owner, HiveHeart heart, UnitKind kind, int team) {
+        PortalNetwork network = heart.portals();
+        if (team < 0 || team >= network.portals().size() || !java.util.Arrays.asList(PortalNetwork.SUMMON_ORDER).contains(kind)) {
+            return false;
+        }
+        GlobalPos portal = network.portals().get(team);
+        if (!network.resummon().contains(portal) || (network.summoning() && !portal.equals(network.target()))) {
+            return false;
+        }
+        PortalNetwork.Pending pending = new PortalNetwork.Pending(kind, summonConfig(kind, false));
+        if (network.summoning()) {
+            network.addToSummoning(pending);
+        } else {
+            network.startSummoning(portal, List.of(pending));
+        }
+        sync(owner, heart);
+        return true;
     }
 
     /** Take a portal's block down, if it is still there to be taken. */
@@ -202,6 +243,7 @@ public final class HivePortals {
                     changed = true;
                 }
             }
+            network.resummon().retainAll(network.portals());
         }
         if (network.summoning()) {
             GlobalPos spot = portalSpot(heart.getServer(), network);
@@ -214,7 +256,7 @@ public final class HivePortals {
                 PortalNetwork.Pending next = network.queue().remove(0);
                 if (spot != null && heart.getServer().getLevel(spot.dimension()).isLoaded(spot.pos())) {
                     ServerLevel level = heart.getServer().getLevel(spot.dimension());
-                    HivemindManager.createUnitAt(owner, heart, next.kind(), level, spot.pos().getX() + 0.5D, spot.pos().getY() + 1.0D, spot.pos().getZ() + 0.5D, next.config(), network.portals().indexOf(spot) + 1);
+                    HivemindManager.createUnitAt(owner, heart, next.kind(), level, spot.pos().getX() + 0.5D, spot.pos().getY() + 1.0D, spot.pos().getZ() + 0.5D, next.config(), network.portals().indexOf(spot));
                 } else {
                     // At the Heart, or the portal has been taken down: they come through the Heart.
                     HivemindManager.createUnitAtHeart(owner, heart, next.kind(), next.config());
@@ -237,7 +279,7 @@ public final class HivePortals {
         List<SyncPortalsPayload.Portal> portals = new ArrayList<>();
         for (GlobalPos portal : network.portals()) {
             if (portals.size() < SyncPortalsPayload.MAX_ENTRIES) {
-                portals.add(new SyncPortalsPayload.Portal(portal.dimension().location().toString(), portal.pos()));
+                portals.add(new SyncPortalsPayload.Portal(portal.dimension().location().toString(), portal.pos(), network.resummon().contains(portal)));
             }
         }
         int target = SyncPortalsPayload.NONE;

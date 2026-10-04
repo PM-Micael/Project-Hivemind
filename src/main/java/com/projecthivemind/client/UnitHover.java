@@ -45,7 +45,11 @@ public final class UnitHover {
             return;
         }
         HiveUnit unit = HiveSelection.unitUnderCursor(minecraft);
-        if (unit == null || !(unit instanceof LivingEntity living)) {
+        if (unit == null) {
+            drawPortalName(graphics, minecraft);
+            return;
+        }
+        if (!(unit instanceof LivingEntity living)) {
             return;
         }
         int id = ((Entity) unit).getId();
@@ -62,8 +66,13 @@ public final class UnitHover {
             job = Component.translatable("screen.projecthivemind.job.title", what);
         }
 
-        int width = Math.max(Math.max(minecraft.font.width(name), HeartsBar.width(maxHealth)), job == null ? 0 : minecraft.font.width(job)) + PADDING * 2;
-        int height = PADDING * 2 + 9 + 3 + HeartsBar.height(maxHealth) + (job == null ? 0 : 3 + 9);
+        // Its defence, as armor icons: what it has now, from gear and from the hive's evolutions. No row when it has none.
+        int armor = living.getArmorValue();
+        int armorHeight = ArmorBar.height(armor);
+
+        int width = Math.max(Math.max(Math.max(minecraft.font.width(name), ArmorBar.width(armor)), HeartsBar.width(maxHealth)),
+                job == null ? 0 : minecraft.font.width(job)) + PADDING * 2;
+        int height = PADDING * 2 + 9 + 3 + HeartsBar.height(maxHealth) + (armorHeight == 0 ? 0 : 3 + armorHeight) + (job == null ? 0 : 3 + 9);
 
         // By the cursor, like a tooltip, but kept on the screen.
         int[] cursor = ContextMenu.cursor(minecraft);
@@ -74,9 +83,30 @@ public final class UnitHover {
         HiveStyle.panel(graphics, x, y, width, height);
         graphics.drawString(minecraft.font, name, x + PADDING, y + PADDING, 0xFFFFFF, false);
         HeartsBar.draw(graphics, x + PADDING, y + PADDING + 9 + 3, living.getHealth(), maxHealth);
+        int armorY = y + PADDING + 9 + 3 + HeartsBar.height(maxHealth) + 3;
+        ArmorBar.draw(graphics, x + PADDING, armorY, armor);
         if (job != null) {
-            graphics.drawString(minecraft.font, job, x + PADDING, y + PADDING + 9 + 3 + HeartsBar.height(maxHealth) + 3, 0xA0A0A0, false);
+            graphics.drawString(minecraft.font, job, x + PADDING, armorY + (armorHeight == 0 ? 0 : armorHeight + 3), 0xA0A0A0, false);
         }
+        graphics.pose().popPose();
+    }
+
+    /** The name of the hive portal under the cursor ("Portal 1"), in a small box by the cursor. */
+    private static void drawPortalName(GuiGraphics graphics, Minecraft minecraft) {
+        int portal = HiveSelection.portalUnderCursor(minecraft);
+        if (portal < 0) {
+            return;
+        }
+        Component name = Component.translatable("screen.projecthivemind.portals.portal", portal + 1);
+        int width = minecraft.font.width(name) + PADDING * 2;
+        int height = PADDING * 2 + 9;
+        int[] cursor = ContextMenu.cursor(minecraft);
+        int x = Math.min(cursor[0] + 12, graphics.guiWidth() - width - 2);
+        int y = Math.max(2, Math.min(cursor[1] - 12, graphics.guiHeight() - height - 2));
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 400.0F);
+        HiveStyle.panel(graphics, x, y, width, height);
+        graphics.drawString(minecraft.font, name, x + PADDING, y + PADDING, 0xFFFFFF, false);
         graphics.pose().popPose();
     }
 

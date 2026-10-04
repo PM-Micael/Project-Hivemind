@@ -400,6 +400,17 @@ public final class HiveSelection {
         if (!blockHit) {
             return;
         }
+        // A hive portal has its own menu: whether it brings back the units of its team when they die.
+        int portalIndex = portalIndexAt(minecraft, hit.getBlockPos());
+        if (portalIndex >= 0) {
+            boolean on = ClientPortals.portals().get(portalIndex).resummon();
+            List<ContextMenu.Option> portalOptions = List.of(new ContextMenu.Option(
+                    Component.translatable(on ? "action.projecthivemind.portal_resummon.on" : "action.projecthivemind.portal_resummon.off"),
+                    () -> PacketDistributor.sendToServer(new com.projecthivemind.network.TogglePortalResummonPayload(portalIndex))));
+            int[] portalCursor = ContextMenu.cursor(minecraft);
+            ContextMenu.open(minecraft, portalCursor[0], portalCursor[1], portalOptions, hit.getBlockPos(), -1);
+            return;
+        }
         // A construction block has its own menu: Work, Options and, once it is done, Finish.
         com.projecthivemind.network.SyncConstructionsPayload.Info construction = ClientConstructions.at(hit.getBlockPos());
         if (construction != null) {
@@ -471,6 +482,18 @@ public final class HiveSelection {
         }
         int[] cursor = ContextMenu.cursor(minecraft);
         ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);
+    }
+
+    /** The index in the hive's portal list of the portal at this block, or -1 if it is not one. */
+    private static int portalIndexAt(Minecraft minecraft, BlockPos pos) {
+        String dimension = minecraft.level.dimension().location().toString();
+        List<com.projecthivemind.network.SyncPortalsPayload.Portal> portals = ClientPortals.portals();
+        for (int i = 0; i < portals.size(); i++) {
+            if (portals.get(i).pos().equals(pos) && portals.get(i).dimension().equals(dimension)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -675,6 +698,17 @@ public final class HiveSelection {
             }
         }
         return closest;
+    }
+
+    /** The index in the hive's portal list of the portal under the cursor (none of the player's units in front of it), or -1. */
+    public static int portalUnderCursor(Minecraft minecraft) {
+        Optional<Ray> ray = cursorRay(minecraft);
+        if (ray.isEmpty() || ClientPortals.portals().isEmpty()) {
+            return -1;
+        }
+        BlockHitResult hit = minecraft.level.clip(new ClipContext(ray.get().from(), ray.get().to(),
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
+        return hit.getType() == HitResult.Type.MISS ? -1 : portalIndexAt(minecraft, hit.getBlockPos());
     }
 
     private static Optional<Ray> cursorRay(Minecraft minecraft) {

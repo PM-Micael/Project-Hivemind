@@ -4,6 +4,7 @@ import com.projecthivemind.network.ChooseModePayload;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -28,8 +29,20 @@ public class ChooseModeScreen extends Screen {
     }
 
     private void choose(boolean hivemind) {
-        PacketDistributor.sendToServer(new ChooseModePayload(hivemind));
-        onClose();
+        Component choice = Component.translatable(hivemind
+                ? "screen.projecthivemind.choose_mode.hivemind"
+                : "screen.projecthivemind.choose_mode.steve");
+        this.minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new ChooseModePayload(hivemind));
+                onClose();
+            } else {
+                this.minecraft.setScreen(this);
+            }
+        }, Component.translatable("screen.projecthivemind.choose_mode.confirm.title"),
+                Component.translatable("screen.projecthivemind.choose_mode.confirm.message", choice),
+                Component.translatable("screen.projecthivemind.choose_mode.confirm.yes"),
+                Component.translatable("screen.projecthivemind.choose_mode.confirm.no")));
     }
 
     @Override

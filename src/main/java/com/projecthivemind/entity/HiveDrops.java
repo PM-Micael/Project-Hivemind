@@ -27,5 +27,25 @@ public final class HiveDrops {
                 Block.popResource(level, pos, leftover);
             }
         }
+        storeExperience(level, heart, pos, state, tool);
+    }
+    /**
+     * The experience a block gives when it is mined (ores, spawners...) goes to the hivemind's experience bar. The block is asked to spawn it as it would for a
+     * player (silk touch gives none), and the orbs that come out are taken at once.
+     */
+    private static void storeExperience(ServerLevel level, HiveHeart heart, BlockPos pos, BlockState state, ItemStack tool) {
+        if (heart.ownerId() == null || level.getServer() == null) {
+            return;
+        }
+        net.minecraft.server.level.ServerPlayer owner = level.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null) {
+            return;
+        }
+        state.spawnAfterBreak(level, pos, tool, true);
+        net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(pos).inflate(1.0D);
+        for (net.minecraft.world.entity.ExperienceOrb orb : level.getEntitiesOfClass(net.minecraft.world.entity.ExperienceOrb.class, box, net.minecraft.world.entity.Entity::isAlive)) {
+            com.projecthivemind.HivemindManager.giveHiveExperience(owner, heart, orb.getValue());
+            orb.discard();
+        }
     }
 }

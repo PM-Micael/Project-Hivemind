@@ -72,6 +72,55 @@ public final class Constructions {
         this.synced = synced;
     }
 
+    // ---- ground that flattening leaves alone ----
+
+    /**
+     * The sites of constructions that were finished (or whose block was broken): their footprints stay protected from flattening, so that a
+     * shaft that is done is not filled in afterwards. Per dimension, as column keys. Saved.
+     */
+    private final java.util.Map<ResourceKey<Level>, java.util.Set<Long>> kept = new java.util.HashMap<>();
+
+    /** Keep this construction's footprint protected from now on, whatever becomes of the construction. */
+    public void keep(Construction construction) {
+        kept.computeIfAbsent(construction.dimension(), dimension -> new java.util.HashSet<>()).addAll(construction.footprint());
+    }
+
+    /** Every ground column in this dimension that flattening must leave alone: those of constructions under way, and of the sites kept. */
+    public java.util.Set<Long> protectedColumns(ResourceKey<Level> dimension) {
+        java.util.Set<Long> columns = new java.util.HashSet<>(kept.getOrDefault(dimension, java.util.Set.of()));
+        for (Construction construction : list) {
+            if (construction.dimension().equals(dimension)) {
+                columns.addAll(construction.footprint());
+            }
+        }
+        return columns;
+    }
+
+    public ListTag saveKept() {
+        ListTag tag = new ListTag();
+        for (java.util.Map.Entry<ResourceKey<Level>, java.util.Set<Long>> entry : kept.entrySet()) {
+            CompoundTag site = new CompoundTag();
+            site.putString("Dimension", entry.getKey().location().toString());
+            site.putLongArray("Columns", entry.getValue().stream().mapToLong(Long::longValue).toArray());
+            tag.add(site);
+        }
+        return tag;
+    }
+
+    public void loadKept(ListTag tag) {
+        kept.clear();
+        for (Tag entry : tag) {
+            CompoundTag site = (CompoundTag) entry;
+            net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(site.getString("Dimension"));
+            if (id != null) {
+                java.util.Set<Long> columns = kept.computeIfAbsent(ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, id), dimension -> new java.util.HashSet<>());
+                for (long column : site.getLongArray("Columns")) {
+                    columns.add(column);
+                }
+            }
+        }
+    }
+
     public ListTag save() {
         ListTag tag = new ListTag();
         for (Construction construction : list) {

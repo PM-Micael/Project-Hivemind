@@ -37,11 +37,17 @@ public enum EvolveTask {
     WITHER_SKULL(Items.WITHER_SKELETON_SKULL, 14, Reward.WITHER),
     JUKEBOX(Items.JUKEBOX, 15, Reward.MUSIC),
     CARVED_PUMPKIN(Items.CARVED_PUMPKIN, 16, Reward.ENDER_PEACE),
-    TURTLE_SHELL(Items.TURTLE_HELMET, 11, Reward.DEFENCE);
+    TURTLE_SHELL(Items.TURTLE_HELMET, 11, Reward.DEFENCE),
+    LEATHER_HORSE_ARMOR(Items.LEATHER_HORSE_ARMOR, 20, Reward.DEFENCE),
+    IRON_HORSE_ARMOR(Items.IRON_HORSE_ARMOR, 21, Reward.DEFENCE),
+    GOLDEN_HORSE_ARMOR(Items.GOLDEN_HORSE_ARMOR, 22, Reward.DEFENCE),
+    DIAMOND_HORSE_ARMOR(Items.DIAMOND_HORSE_ARMOR, 23, Reward.DEFENCE),
+    WOLF_ARMOR(Items.WOLF_ARMOR, 24, Reward.DEFENCE),
+    CARTOGRAPHY_TABLE(Items.CARTOGRAPHY_TABLE, 25, Reward.CARTOGRAPHY);
 
     /** What a task gives. */
     public enum Reward {
-        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, PORTAL
+        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, PORTAL, CARTOGRAPHY
     }
 
     private final Item item;
@@ -89,6 +95,17 @@ public enum EvolveTask {
             }
         }
         return null;
+    }
+
+    /** The base defence the hive and its units get with these tasks done: 2 for each task that gives defence. */
+    public static double defenceBonus(int doneMask) {
+        double bonus = 0.0D;
+        for (EvolveTask task : values()) {
+            if (task.reward == Reward.DEFENCE && task.doneIn(doneMask)) {
+                bonus += 2.0D;
+            }
+        }
+        return bonus;
     }
 
     /** How many full stacks a storage slot holds, with these tasks done: 1 to begin with, and one more for each task that gives stack size. */

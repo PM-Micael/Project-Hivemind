@@ -718,7 +718,7 @@ public final class HivemindManager {
      * the Heart; a unit made after that gets it within the second.
      */
     public static void tickDefence(HiveHeart heart) {
-        boolean on = com.projecthivemind.EvolveTask.TURTLE_SHELL.doneIn(heart.evolveMask());
+        double on = com.projecthivemind.EvolveTask.defenceBonus(heart.evolveMask());
         applyDefence(heart, on);
         if (heart.ownerId() == null || heart.getServer() == null) {
             return;
@@ -734,15 +734,18 @@ public final class HivemindManager {
         }
     }
 
-    private static void applyDefence(Mob mob, boolean on) {
+    private static void applyDefence(Mob mob, double bonus) {
         AttributeInstance armor = mob.getAttribute(Attributes.ARMOR);
         if (armor == null) {
             return;
         }
-        if (!on) {
+        net.minecraft.world.entity.ai.attributes.AttributeModifier current = armor.getModifier(TURTLE_SHELL_DEFENCE);
+        if (current != null && current.amount() != bonus) {
             armor.removeModifier(TURTLE_SHELL_DEFENCE);
-        } else if (armor.getModifier(TURTLE_SHELL_DEFENCE) == null) {
-            armor.addPermanentModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(TURTLE_SHELL_DEFENCE, 2.0D,
+            current = null;
+        }
+        if (bonus > 0.0D && current == null) {
+            armor.addPermanentModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(TURTLE_SHELL_DEFENCE, bonus,
                     net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE));
         }
     }
@@ -839,7 +842,7 @@ public final class HivemindManager {
         double x = heart.getX() + (kind == UnitKind.WORKER || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SOLDIER ? -reach : 0.0D);
         double z = heart.getZ() + (kind == UnitKind.COLLECTOR || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SCOUT ? -reach : 0.0D);
         // Made at the Heart (new, a replacement, or summoned there) a unit starts with the hive's default settings, unless it was given its own.
-        createUnitAt(player, heart, kind, (ServerLevel) heart.level(), x, heart.getY(), z, config != null ? config : heartDefaults(kind), 0);
+        createUnitAt(player, heart, kind, (ServerLevel) heart.level(), x, heart.getY(), z, config != null ? config : heartDefaults(kind), -1);
     }
 
     /** Make one unit at this place (in any dimension), with no cap checks: callers have already decided it should exist. */
@@ -1242,6 +1245,42 @@ public final class HivemindManager {
     // ---- the level-up quest ----
 
     /**
+     * Experience coming into the hive (from kills, mined blocks and the orbs scouts pick up). As with a player, it first repairs gear with Mending:
+     * here the damaged Mending items in the hive's armor and tool slots, one chosen at random each time, as the game does; whatever is left goes on the
+     * hivemind's experience bar.
+     */
+    public static void giveHiveExperience(ServerPlayer owner, @Nullable HiveHeart heart, int xp) {
+        int left = xp;
+        if (heart != null) {
+            List<ItemStack> mending = new ArrayList<>();
+            for (net.minecraft.world.SimpleContainer container : List.of(heart.getArmorGear(), heart.getToolGear())) {
+                for (int i = 0; i < container.getContainerSize(); i++) {
+                    ItemStack stack = container.getItem(i);
+                    if (stack.isDamaged() && net.minecraft.world.item.enchantment.EnchantmentHelper.has(stack,
+                            net.minecraft.world.item.enchantment.EnchantmentEffectComponents.REPAIR_WITH_XP)) {
+                        mending.add(stack);
+                    }
+                }
+            }
+            while (left > 0 && !mending.isEmpty()) {
+                ItemStack stack = mending.get(owner.getRandom().nextInt(mending.size()));
+                int perXp = net.minecraft.world.item.enchantment.EnchantmentHelper.modifyDurabilityToRepairFromXp(owner.serverLevel(), stack, left);
+                int repaired = Math.min(perXp, stack.getDamageValue());
+                stack.setDamageValue(stack.getDamageValue() - repaired);
+                if (perXp > 0 && repaired > 0) {
+                    left -= repaired * left / perXp;
+                }
+                if (!stack.isDamaged() || repaired <= 0) {
+                    mending.remove(stack);
+                }
+            }
+        }
+        if (left > 0) {
+            owner.giveExperiencePoints(left);
+        }
+    }
+
+    /**
      * A living thing died. If a hive unit killed it, and it was not one of the hive's own, the unit's hive gets the
      * kill for its quest.
      */
@@ -1251,6 +1290,16 @@ public final class HivemindManager {
             HiveHeart heart = unit.findHeart();
             if (heart != null) {
                 heart.addKill();
+            }
+            // The experience the mob would have dropped for a player goes to the hivemind's experience bar (the units are not players, so it would drop nothing).
+            if (victim.level() instanceof ServerLevel victimLevel && unit.ownerId() != null) {
+                ServerPlayer owner = victimLevel.getServer().getPlayerList().getPlayer(unit.ownerId());
+                if (owner != null && get(owner).stage() == HivemindStage.HIVE) {
+                    int xp = ((Mob) victim).getExperienceReward(victimLevel, killer);
+                    if (xp > 0) {
+                        giveHiveExperience(owner, heart, xp);
+                    }
+                }
             }
         }
     }
@@ -1465,6 +1514,7 @@ public final class HivemindManager {
         boolean summoned = HivePortals.consumeSummoned(unit.getUUID());
         // A unit that is gone is out of its team.
         HiveHeart teamHeart = hiveUnit.findHeart();
+        int deadTeam = teamHeart == null ? -1 : teamHeart.teams().teamOf(unit.getUUID());
         if (teamHeart != null) {
             teamHeart.teams().leave(unit.getUUID());
         }
@@ -1492,6 +1542,10 @@ public final class HivemindManager {
             }
         }
         set(owner, get(owner).withoutUnit(hiveUnit.kind(), unit.getUUID()));
+        // A portal set to resummon brings its own team's dead back through it, ahead of the Heart making replacements.
+        if (heart != null && heart.isAlive() && !summoned && deadTeam >= 0) {
+            HivePortals.resummonDeath(owner, heart, hiveUnit.kind(), deadTeam);
+        }
         if (heart != null) {
             reapplyConfigs(owner, heart, hiveUnit.kind());
         }

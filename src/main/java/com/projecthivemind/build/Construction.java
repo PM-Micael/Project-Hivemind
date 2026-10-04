@@ -58,6 +58,9 @@ public final class Construction {
     private int towerMaterials;
     private final Set<UUID> workers = new LinkedHashSet<>();
     private boolean done;
+    /** The ground columns this construction uses, with a margin round them (see {@link #footprint}); worked out when first asked for. */
+    @Nullable
+    private Set<Long> footprint;
 
     private Construction(ResourceKey<Level> dimension, BlockPos anchor, Kind kind) {
         this.dimension = dimension;
@@ -149,6 +152,50 @@ public final class Construction {
         return done ? State.DONE : aliveWorkers >= minWorkers() ? State.WORKING : State.IDLE;
     }
 
+    // ---- the ground it uses ----
+
+    /**
+     * The columns of ground this construction uses, each with the columns round it (one block of margin), as keys (see HiveConstructions#columnKey).
+     * Workers that flatten the ground leave these alone: a shaft would be filled in as a gap, and the ground under a bridge or round a tower
+     * should stay as it is.
+     */
+    public Set<Long> footprint() {
+        if (footprint == null) {
+            Set<Long> columns = new java.util.HashSet<>();
+            switch (kind) {
+                case TOWER -> {
+                    for (TowerPlan.Placement placement : tower.plan().placements()) {
+                        addWithMargin(columns, placement.pos().getX(), placement.pos().getZ());
+                    }
+                }
+                case BRIDGE -> {
+                    for (BridgeJob.Placement placement : bridge.placements()) {
+                        addWithMargin(columns, placement.pos().getX(), placement.pos().getZ());
+                    }
+                }
+                case STAIRCASE -> {
+                    // The corridor: one column further on for every step down (and a sensible most).
+                    int steps = Math.min(128, Math.max(0, stairs.start().getY() - stairs.stopY()));
+                    for (int step = 0; step <= steps; step++) {
+                        BlockPos column = stairs.start().relative(stairs.direction(), step);
+                        addWithMargin(columns, column.getX(), column.getZ());
+                    }
+                }
+            }
+            addWithMargin(columns, anchor.getX(), anchor.getZ());
+            footprint = columns;
+        }
+        return footprint;
+    }
+
+    private static void addWithMargin(Set<Long> columns, int x, int z) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                columns.add(com.projecthivemind.HiveConstructions.columnKey(x + dx, z + dz));
+            }
+        }
+    }
+
     // ---- the settings, as the order screens edit them ----
 
     /**
@@ -231,6 +278,7 @@ public final class Construction {
             }
         }
         done = false;
+        footprint = null;
         return Optional.empty();
     }
 

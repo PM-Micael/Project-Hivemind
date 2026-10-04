@@ -13,7 +13,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 public final class ModBlocks {
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(ProjectHivemind.MODID);
 
-    /** The hive portal a scout places (from hive level 3): units are summoned through it. It has no item and drops nothing. */
+    /** The hive portal a scout places (from hive level 2): units are summoned through it. It has no item and drops nothing. */
     public static final DeferredBlock<Block> HIVE_PORTAL = BLOCKS.register("hive_portal",
             () -> new HivePortalBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.CRIMSON_NYLIUM)

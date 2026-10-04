@@ -20,10 +20,11 @@ public record SyncPortalsPayload(List<Portal> portals, int max, int summonTarget
     public static final int MAX_ENTRIES = 64;
 
     /** One portal: the name of its dimension and its block. */
-    public record Portal(String dimension, BlockPos pos) {
+    public record Portal(String dimension, BlockPos pos, boolean resummon) {
         public static final StreamCodec<RegistryFriendlyByteBuf, Portal> STREAM_CODEC = StreamCodec.composite(
                 ByteBufCodecs.STRING_UTF8, Portal::dimension,
                 BlockPos.STREAM_CODEC, Portal::pos,
+                ByteBufCodecs.BOOL, Portal::resummon,
                 Portal::new);
     }
 

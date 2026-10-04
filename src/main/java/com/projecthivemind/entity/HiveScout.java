@@ -257,7 +257,7 @@ public class HiveScout extends Husk implements HiveUnit {
             return;
         }
         for (ExperienceOrb orb : this.level().getEntitiesOfClass(ExperienceOrb.class, this.getBoundingBox().inflate(1.0D, 0.5D, 1.0D), ExperienceOrb::isAlive)) {
-            owner.giveExperiencePoints(orb.getValue());
+            com.projecthivemind.HivemindManager.giveHiveExperience(owner, this.findHeart(), orb.getValue());
             this.take(orb, 1);
             this.level().playSound(null, this.blockPosition(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.NEUTRAL,
                     0.1F, 0.5F * ((this.random.nextFloat() - this.random.nextFloat()) * 0.7F + 1.8F));
