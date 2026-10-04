@@ -92,6 +92,20 @@ public final class BorderWall {
         return best;
     }
 
+    /** True if some columns of the wall's ring or of the outer rings are in chunks that are not loaded: work in them cannot be seen, so the wall is not known to be whole. */
+    public static boolean hasUnloadedColumns(ServerLevel level, HiveHeart heart) {
+        int topY = floorTop(heart) + HEIGHT;
+        BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos();
+        for (int distance = radius(heart) - 2; distance <= radius(heart); distance++) {
+            for (int[] column : ring(heart, distance)) {
+                if (!level.hasChunkAt(probe.set(column[0], topY, column[1]))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** The nearest block of the wall still to be placed: the lowest missing one of a column on the ring. */
     @Nullable
     public static BlockPos nextPlace(ServerLevel level, HiveHeart heart, Vec3 from, BlockState wallState) {

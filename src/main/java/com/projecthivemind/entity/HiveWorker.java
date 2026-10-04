@@ -97,11 +97,15 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Nullable
     private net.minecraft.world.item.Item wallItem;
     private int nextWallScan;
+    /** How many scans in a row found nothing to do for the wall, and how many it takes (about 12 seconds) before the wall is taken to be done. */
+    private int wallIdleScans;
+    private static final int WALL_IDLE_SCANS_TO_FINISH = 6;
 
     /** Start building the wall round the hive out of this block (null stops it). Anything that is not a plain full block stops it too. */
     public void setWallItem(@Nullable net.minecraft.world.item.Item item) {
         this.wallItem = item != null && fillBlock(item) != null ? item : null;
         this.nextWallScan = 0;
+        this.wallIdleScans = 0;
     }
 
     @Nullable
@@ -130,9 +134,17 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         net.minecraft.world.level.block.state.BlockState state = block.defaultBlockState();
         net.minecraft.core.BlockPos place = BorderWall.nextPlace(level, heart, this.position(), state);
         if (place == null) {
+            // Nothing found is not yet the same as nothing left: the last gap may be filled by someone standing in it, and part of the wall may
+            // be in chunks that are not loaded. The job only ends once the wall has looked whole for a good while, with all of it loaded.
+            if (BorderWall.hasUnloadedColumns(level, heart) || ++wallIdleScans < WALL_IDLE_SCANS_TO_FINISH) {
+                nextWallScan = this.tickCount + 40;
+                return;
+            }
             wallItem = null;
+            wallIdleScans = 0;
             return;
         }
+        wallIdleScans = 0;
         if (heart.getStorage().countItem(wallItem) <= 0) {
             // Out of the block: wait for the hive to get some.
             nextWallScan = this.tickCount + 40;
@@ -205,7 +217,10 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
         if (next == null) {
             bridge = null;
-            if (heart.getServer() != null && heart.ownerId() != null) {
+            if (heart.constructions().of(this.getUUID()) != null) {
+                com.projecthivemind.HiveConstructions.markDone(heart, this.getUUID());
+            } else if (heart.getServer() != null && heart.ownerId() != null) {
+                // A bridge from before there were construction blocks: told as it was.
                 net.minecraft.server.level.ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
                 if (owner != null) {
                     owner.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.projecthivemind.bridge_finished"), false);
@@ -275,6 +290,83 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.nextStairScan = 0;
     }
 
+    /** The staircase this worker is digging, if any (a construction puts it there; see putOnConstruction). */
+    @Nullable
+    public com.projecthivemind.build.StairDig staircase() {
+        return staircase;
+    }
+
+    /** The bridge this worker is building, if any. */
+    @Nullable
+    public com.projecthivemind.build.BridgeJob bridge() {
+        return bridge;
+    }
+
+    /** True while this worker has work on a construction: a bridge, a staircase, or a tower or shaft. That outranks staying inside the border. */
+    public boolean onConstruction() {
+        return bridge != null || staircase != null || hasConstructionTower();
+    }
+
+    /** True if this worker is on a tower or shaft: the tower is built through its orders. */
+    public boolean hasConstructionTower() {
+        return action != null && action.kind() == UnitAction.Kind.BUILD;
+    }
+
+    /**
+     * Put this worker on its construction's job, and take it off anything else of the kind: the bridge or staircase is set (once; the same recipe
+     * is left alone), and for a tower the worker is given the build order when it is free and not selected. A construction without the workers it
+     * needs (`active` false) is not worked on.
+     */
+    public void putOnConstruction(com.projecthivemind.build.Construction construction, boolean active, boolean selected) {
+        UnitAction mine = new UnitAction(UnitAction.Kind.BUILD, construction.anchor());
+        switch (construction.kind()) {
+            case BRIDGE -> {
+                staircase = null;
+                dropBuildOrder(mine);
+                if (bridge != construction.bridge()) {
+                    setBridge(construction.bridge());
+                }
+            }
+            case STAIRCASE -> {
+                bridge = null;
+                dropBuildOrder(mine);
+                if (staircase != construction.stairs()) {
+                    setStaircase(construction.stairs());
+                }
+            }
+            case TOWER -> {
+                bridge = null;
+                staircase = null;
+                // The build order is given even to a tower that has too few workers to be worked on: the worker then waits on it (see
+                // WorkerBuildGoal), and it shows as its job, which can be cancelled.
+                if (!selected && (action == null || (action.kind() == UnitAction.Kind.BUILD && !action.equals(mine)))) {
+                    setAction(mine);
+                }
+            }
+        }
+    }
+
+    /** Drop a build order that is not `keep` (or any, with null): the worker is on another construction, or this one has none to work on. */
+    private void dropBuildOrder(@Nullable UnitAction keep) {
+        if (action != null && action.kind() == UnitAction.Kind.BUILD && !action.equals(keep)) {
+            setAction(null);
+            this.getNavigation().stop();
+        }
+    }
+
+    /** End whatever this worker was doing for a construction: the bridge, the staircase, the tower or shaft order. */
+    public void clearConstructionWork() {
+        staircase = null;
+        bridge = null;
+        if (job != null && job.kind() == UnitAction.Kind.BUILD) {
+            job = null;
+        }
+        if (action != null && action.kind() == UnitAction.Kind.BUILD) {
+            action = null;
+            this.getNavigation().stop();
+        }
+    }
+
     /** This unit's own settings, edited from the hive menu's page for its kind. */
     private WorkerBehavior behavior = WorkerBehavior.DEFAULT;
     private int gearVersion;
@@ -299,7 +391,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         this.goalSelector.addGoal(1, new LeavePortalGoal(this));
 
         // Above everything else: a unit told to stay inside the hive border does.
-        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
+        // (Not while the worker is on a construction: that comes first, even if it is outside the border.)
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam() && !onConstruction()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         // A team member stays inside the team's area around its scout: before everything but floating.
@@ -415,6 +508,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 UnitAction next = staircase.nextDig((net.minecraft.server.level.ServerLevel) this.level());
                 if (next == null) {
                     staircase = null;
+                    com.projecthivemind.HiveConstructions.markDone(heart, this.getUUID());
                 } else {
                     setAction(next);
                 }
@@ -617,6 +711,11 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     @Override
     public void cancelJob() {
+        // Cancelling takes the worker off its construction too (the construction itself stays, for others to work on).
+        HiveHeart constructionHeart = findHeart();
+        if (constructionHeart != null) {
+            com.projecthivemind.HiveConstructions.leave(constructionHeart, this.getUUID());
+        }
         staircase = null;
         wallItem = null;
         fellQueue.clear();

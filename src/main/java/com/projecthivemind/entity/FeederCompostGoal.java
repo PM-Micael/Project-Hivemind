@@ -34,7 +34,11 @@ public class FeederCompostGoal extends Goal {
     private static final int HEIGHT = 8;
     /** How high above the composter the feeder hovers, and how close, squared, to that spot it has to be to work. */
     private static final double HOVER_HEIGHT = 1.4D;
-    private static final double WORK_DISTANCE_SQR = 1.5D * 1.5D;
+    /** How far sideways of the composter's middle it may be and still work on it, squared. */
+    private static final double REACH_SQR = 1.3D * 1.3D;
+    /** Every this many ticks of not getting there it is carried the last of the way (3 seconds); and a composter it cannot get to is left alone for 30 seconds. */
+    private static final int CARRY_TICKS = 60;
+    private static final int IGNORE_TICKS = 600;
 
     private final HiveFeeder feeder;
     @Nullable
@@ -42,6 +46,8 @@ public class FeederCompostGoal extends Goal {
     private int nextScan;
     private int repathCooldown;
     private int stuckTicks;
+    /** Composters this feeder gave up on, and the tick each is looked at again. */
+    private final java.util.Map<BlockPos, Integer> ignored = new java.util.HashMap<>();
     private int feedCooldown;
 
     public FeederCompostGoal(HiveFeeder feeder) {
@@ -79,6 +85,7 @@ public class FeederCompostGoal extends Goal {
             return false;
         }
         nextScan = feeder.tickCount + SCAN_INTERVAL;
+        ignored.values().removeIf(until -> until <= feeder.tickCount);
         target = findComposter(heart);
         return target != null;
     }
@@ -126,7 +133,7 @@ public class FeederCompostGoal extends Goal {
                 for (int y = origin.getY() - HEIGHT; y <= origin.getY() + HEIGHT; y++) {
                     pos.set(x, y, z);
                     BlockState state = level.getBlockState(pos);
-                    if (!state.is(Blocks.COMPOSTER)) {
+                    if (!state.is(Blocks.COMPOSTER) || ignored.containsKey(pos)) {
                         continue;
                     }
                     double distance = pos.distSqr(origin);
@@ -152,9 +159,20 @@ public class FeederCompostGoal extends Goal {
         ServerLevel level = (ServerLevel) feeder.level();
         Vec3 center = Vec3.atCenterOf(target);
         Vec3 hover = new Vec3(center.x, target.getY() + HOVER_HEIGHT, center.z);
-        if (feeder.position().distanceToSqr(hover) > WORK_DISTANCE_SQR) {
+        // In reach: over the composter (not far to the side) and above its top, wherever exactly the flight path ended.
+        double dx = feeder.getX() - center.x;
+        double dz = feeder.getZ() - center.z;
+        double above = feeder.getY() - (target.getY() + 1.0D);
+        boolean inReach = dx * dx + dz * dz <= REACH_SQR && above >= -0.3D && above <= 2.5D;
+        if (!inReach) {
             if (++stuckTicks > GIVE_UP_TICKS) {
+                // It cannot get there: leave this composter alone for a while, and try another.
+                ignored.put(target, feeder.tickCount + IGNORE_TICKS);
                 target = null;
+            } else if (stuckTicks % CARRY_TICKS == 0) {
+                // The flight is not getting there (a path round something it cannot manage): it is carried the last of the way.
+                feeder.getNavigation().stop();
+                feeder.moveTo(hover.x, hover.y, hover.z, feeder.getYRot(), feeder.getXRot());
             } else if (--repathCooldown <= 0) {
                 feeder.getNavigation().moveTo(hover.x, hover.y, hover.z, SPEED);
                 repathCooldown = REPATH_INTERVAL;

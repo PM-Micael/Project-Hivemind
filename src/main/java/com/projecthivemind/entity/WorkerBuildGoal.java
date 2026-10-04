@@ -40,6 +40,9 @@ public class WorkerBuildGoal extends Goal {
     private final HiveUnit unit;
     @Nullable
     private TowerBuild.Job job;
+    /** The tower this worker last worked on, so its claim on a block can be let go of when the worker stops. */
+    @Nullable
+    private TowerBuild buildInUse;
     private int repathCooldown;
     private int placeCooldown;
     private int lookCooldown;
@@ -76,9 +79,9 @@ public class WorkerBuildGoal extends Goal {
 
     @Override
     public void stop() {
-        HiveHeart heart = unit.findHeart();
-        if (heart != null && heart.activeBuild() != null) {
-            heart.activeBuild().release(mob.getUUID());
+        if (buildInUse != null) {
+            buildInUse.release(mob.getUUID());
+            buildInUse = null;
         }
         job = null;
         // Only halt the worker if it has nothing else to do; a new order has already set its own path.
@@ -90,10 +93,19 @@ public class WorkerBuildGoal extends Goal {
     @Override
     public void tick() {
         HiveHeart heart = unit.findHeart();
-        TowerBuild build = heart == null ? null : heart.activeBuild();
+        UnitAction action = unit.action();
+        com.projecthivemind.build.Construction construction = heart == null || action == null || action.pos() == null ? null
+                : heart.constructions().at(mob.level().dimension(), action.pos());
+        TowerBuild build = construction == null || construction.done() ? null : construction.tower();
         if (build == null || !(mob.level() instanceof ServerLevel level)) {
-            // The build was cancelled, or finished by the others.
-            unit.setAction(null);
+            // The construction was cancelled, finished, or is not a tower: this worker is off it.
+            endWork();
+            return;
+        }
+        buildInUse = build;
+        // A tower with fewer workers than it needs is not worked on: the worker waits (and can still be cancelled from its page).
+        if (construction.workers().size() < construction.minWorkers()) {
+            mob.getNavigation().stop();
             return;
         }
 
@@ -103,7 +115,7 @@ public class WorkerBuildGoal extends Goal {
             }
             lookCooldown = LOOK_INTERVAL;
             if (build.isComplete(level)) {
-                finish(heart, build);
+                finish(heart, construction);
                 return;
             }
             job = build.claimNext(level, mob);
@@ -253,18 +265,19 @@ public class WorkerBuildGoal extends Goal {
         }
     }
 
-    /** Every worker on the tower stops once it is whole; the first to notice tells the player. */
-    private void finish(HiveHeart heart, TowerBuild build) {
-        if (heart.activeBuild() == build) {
-            heart.setActiveBuild(null);
-            if (heart.getServer() != null && heart.ownerId() != null) {
-                ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
-                if (owner != null) {
-                    owner.displayClientMessage(Component.translatable("message.projecthivemind.tower_finished"), false);
-                }
-            }
+    /** The tower is whole: its construction is done (the first worker to notice tells the player), and this worker stops. */
+    private void finish(HiveHeart heart, com.projecthivemind.build.Construction construction) {
+        com.projecthivemind.HiveConstructions.complete(heart, construction);
+        endWork();
+    }
+
+    /** This worker is not on a tower any more: its build order, and the job it would resume, end. */
+    private void endWork() {
+        if (mob instanceof HiveWorker worker) {
+            worker.clearConstructionWork();
+        } else {
+            unit.setAction(null);
         }
-        unit.setAction(null);
     }
 
     private void notifyWaiting(ServerLevel level, HiveHeart heart, TowerBuild build) {

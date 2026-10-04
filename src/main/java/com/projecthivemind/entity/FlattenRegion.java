@@ -18,6 +18,9 @@ import net.minecraft.world.phys.AABB;
  * the team's scout (levelled to the floor the scout stands on).
  */
 public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop, @Nullable double[] circle) {
+    /** How far past the hive border the hive area's flattening reaches, in blocks. */
+    public static final int EDGE_MARGIN = 1;
+
     /** True if the column is part of the region: always for the hive area, inside the circle for the team area. */
     public boolean contains(int x, int z) {
         if (circle == null) {
@@ -36,7 +39,10 @@ public record FlattenRegion(int minX, int maxX, int minZ, int maxZ, int floorTop
         }
         if (worker.behavior().flattenGround()) {
             AABB area = HiveArea.areaBox(level, heart);
-            regions.add(new FlattenRegion((int) area.minX, (int) area.maxX, (int) area.minZ, (int) area.maxZ, (int) Math.floor(heart.getY()) - 1, null));
+            // One block further out than the border on every side, so that the edge of the flattened ground is not at the very edge of the area
+            // (soldiers that keep to the border do not walk off a ledge there).
+            regions.add(new FlattenRegion((int) area.minX - EDGE_MARGIN, (int) area.maxX + EDGE_MARGIN, (int) area.minZ - EDGE_MARGIN, (int) area.maxZ + EDGE_MARGIN,
+                    (int) Math.floor(heart.getY()) - 1, null));
         }
         if (worker.behavior().flattenTeam()) {
             Mob leader = heart.teamLeader(worker);

@@ -1,5 +1,6 @@
 package com.projecthivemind;
 
+import com.projecthivemind.block.ConstructionBlock;
 import com.projecthivemind.block.HivePortalBlock;
 
 import net.minecraft.world.level.block.Block;
@@ -19,6 +20,14 @@ public final class ModBlocks {
                     .strength(3.0F)
                     .sound(SoundType.SCULK_CATALYST)
                     .lightLevel(state -> 10)));
+
+    /** The block that marks a construction (see ConstructionBlock). Placed by the hive, no item, drops nothing. */
+    public static final DeferredBlock<Block> CONSTRUCTION = BLOCKS.register("construction",
+            () -> new ConstructionBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_ORANGE)
+                    .strength(2.0F)
+                    .sound(SoundType.SCAFFOLDING)
+                    .noOcclusion()));
 
     private ModBlocks() {
     }

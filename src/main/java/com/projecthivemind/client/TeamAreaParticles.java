@@ -6,7 +6,9 @@ import com.projecthivemind.network.SyncUnitsPayload;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
+import org.joml.Vector3f;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -47,6 +49,15 @@ public final class TeamAreaParticles {
                 double angle = level.random.nextDouble() * Math.PI * 2.0D;
                 level.addParticle(ParticleTypes.SOUL_FIRE_FLAME, scout.getX() + Math.cos(angle) * radius, scout.getY() + 0.15D,
                         scout.getZ() + Math.sin(angle) * radius, 0.0D, 0.01D, 0.0D);
+            }
+            // The yellow ring: how far the team's soldiers go after hostile mobs.
+            int attackRadius = ClientTeams.attackRadius(entry.teamIndex());
+            DustParticleOptions yellow = new DustParticleOptions(new Vector3f(1.0F, 0.85F, 0.1F), 1.0F);
+            int attackCount = Math.max(8, (int) (Math.PI * attackRadius));
+            for (int i = 0; i < attackCount; i++) {
+                double angle = level.random.nextDouble() * Math.PI * 2.0D;
+                level.addParticle(yellow, scout.getX() + Math.cos(angle) * attackRadius, scout.getY() + 0.15D,
+                        scout.getZ() + Math.sin(angle) * attackRadius, 0.0D, 0.0D, 0.0D);
             }
         }
     }

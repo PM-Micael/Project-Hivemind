@@ -47,7 +47,9 @@ public final class HivePortals {
     }
 
     public static int max(HiveHeart heart) {
-        return HiveLevels.get(heart.hiveLevel()).maxPortals();
+        // The level gives the first portal (from level 3); the ender pearl task gives one more, but only once portals exist at all.
+        int fromLevel = HiveLevels.get(heart.hiveLevel()).maxPortals();
+        return fromLevel > 0 && com.projecthivemind.EvolveTask.ENDER_PEARL.doneIn(heart.evolveMask()) ? fromLevel + 1 : fromLevel;
     }
 
     // ---- placing ----

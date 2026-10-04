@@ -68,6 +68,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int enchantEnd;
     private final int jukeboxStart;
     private final int jukeboxEnd;
+    private final Slot trashSlot;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -141,6 +142,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The jukebox slot sits in the middle of where the crafting grid is. */
     public static final int JUKEBOX_X = 264;
     public static final int JUKEBOX_Y = 100;
+    /** The trash slot, bottom left of the panel. */
+    public static final int TRASH_X = 8;
+
+    public static int trashY(int storageRows) {
+        return Math.max(panelHeight(storageRows), 262) - 28;
+    }
+
     public static final int GRID_X = 246;
     public static final int GRID_Y = 82;
     public static final int RESULT_X = 265;
@@ -172,7 +180,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_FURNACE_COOK_TOTAL = 18;
     private static final int DATA_UNITS = 19;
     private static final int VALUES_PER_UNIT = 3;
-    /** After the units: quest progress for coal, raw iron, and the lowest height reached (sent plus 1000, as it can be negative). */
+    /** After the units: quest progress for coal, iron ingots, and the lowest height reached (sent plus 1000, as it can be negative). */
     private static final int DATA_QUEST_COAL = DATA_UNITS + UnitKind.values().length * VALUES_PER_UNIT;
     private static final int DATA_QUEST_IRON = DATA_QUEST_COAL + 1;
     private static final int DATA_QUEST_DEPTH = DATA_QUEST_COAL + 2;
@@ -185,7 +193,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_EVOLVE = DATA_BREW_FUEL + 1;
     /** The tasks the hive can do now (their item is in its storage), as a mask. */
     private static final int DATA_EVOLVE_READY = DATA_EVOLVE + 1;
-    public static final int DATA_COUNT = DATA_EVOLVE_READY + 1;
+    /** Whether the Ender Dragon has been defeated, for the quest. */
+    private static final int DATA_QUEST_DRAGON = DATA_EVOLVE_READY + 1;
+    public static final int DATA_COUNT = DATA_QUEST_DRAGON + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -307,6 +317,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new EnchantLapisSlot(enchantSlots, 1, ENCHANT_ITEM_X, ENCHANT_ITEM_Y + 24));
         // The jukebox: the music disc that is playing.
         this.addSlot(new JukeboxSlot(jukeboxSlot, 0, JUKEBOX_X, JUKEBOX_Y));
+        // The trash: anything put here is deleted. Bottom left of the panel, on the Hive tab.
+        this.trashSlot = new TrashSlot(new SimpleContainer(1), 0, TRASH_X, trashY(scroll.visibleRows()));
+        this.addSlot(trashSlot);
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
         this.addDataSlot(scroll.matchCount());
@@ -377,6 +390,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 }
                 if (index == DATA_QUEST_IRON) {
                     return heart.ironProgress();
+                }
+                if (index == DATA_QUEST_DRAGON) {
+                    return heart.dragonDefeated() ? 1 : 0;
                 }
                 if (index == DATA_EVOLVE_READY) {
                     return heart.evolveReadyMask();
@@ -605,6 +621,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return data.get(DATA_QUEST_BLAZE);
     }
 
+    public boolean questDragon() {
+        return data.get(DATA_QUEST_DRAGON) != 0;
+    }
+
     public boolean questNether() {
         return data.get(DATA_QUEST_NETHER) != 0;
     }
@@ -631,6 +651,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     // ---- enchanting ----
+
+    /** The trash slot, so the screen can draw it. */
+    public Slot trashSlot() {
+        return trashSlot;
+    }
 
     /** True once the hive has consumed a jukebox: it can play music discs. */
     public boolean hasJukebox() {
@@ -960,6 +985,29 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public boolean isActive() {
             return (visibleGroups & GROUP_CRAFT) != 0;
+        }
+    }
+
+    /** The trash slot: takes anything, whole stacks included, and keeps nothing: what is put in it is gone. */
+    private class TrashSlot extends HiveSlot {
+        TrashSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_GEAR);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return true;
+        }
+
+        /** Nothing is kept. */
+        @Override
+        public void set(ItemStack stack) {
+        }
+
+        /** Room for any amount, so that a whole stack goes in at once (a stack that has grown past the usual size too). */
+        @Override
+        public int getMaxStackSize(ItemStack stack) {
+            return Integer.MAX_VALUE;
         }
     }
 

@@ -25,13 +25,13 @@ import net.minecraft.world.item.ShearsItem;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * What the hive can equip its soldiers with. The Heart holds armor (one piece per slot) and five tool/weapon slots.
+ * What the hive can equip its soldiers with. The Heart holds armor (one piece per slot) and nine tool/weapon slots.
  * Each new soldier gets a copy of that gear, linked back to the original so wear on the copy wears the original.
  */
 public final class HiveEquipment {
     /** Order of the four armor slots in the hive menu, top to bottom. */
     public static final EquipmentSlot[] ARMOR_SLOTS = {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
-    public static final int TOOL_SLOTS = 5;
+    public static final int TOOL_SLOTS = 9;
 
     private HiveEquipment() {
     }

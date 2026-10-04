@@ -137,11 +137,26 @@ public class SoldierDefaultAttackGoal extends Goal {
             AABB area = HiveArea.areaBox(level, heart);
             candidates.addAll(level.getEntitiesOfClass(Mob.class, area, mob -> matchesSettings(heart, mob)));
         }
-        return candidates.stream().filter(this::withinHeight).min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
+        return candidates.stream().filter(this::withinHeight).filter(mob -> withinAttackArea(heart, mob)).min(Comparator.comparingDouble(soldier::distanceToSqr)).orElse(null);
     }
 
     /** A soldier only goes after what is within this many blocks of its own height: not at things far above or below it. */
     private static final double MAX_HEIGHT_DIFFERENCE = 3.0D;
+
+    /**
+     * A soldier in a team with a scout only goes after mobs within the team's attack area (the yellow ring) round the scout, and drops one that leaves it.
+     * A soldier with no scout to measure from has no such limit.
+     */
+    private boolean withinAttackArea(HiveHeart heart, Mob mob) {
+        Mob leader = heart.teamLeader(soldier);
+        if (leader == null) {
+            return true;
+        }
+        double radius = heart.teams().attackRadius(heart.teams().teamOf(soldier.getUUID()));
+        double dx = mob.getX() - leader.getX();
+        double dz = mob.getZ() - leader.getZ();
+        return dx * dx + dz * dz <= radius * radius;
+    }
 
     private boolean withinHeight(Mob mob) {
         return Math.abs(mob.getY() - soldier.getY()) <= MAX_HEIGHT_DIFFERENCE;
@@ -153,7 +168,7 @@ public class SoldierDefaultAttackGoal extends Goal {
 
     /** Whether this mob is still a valid target for this soldier. */
     private boolean matches(HiveHeart heart, Mob mob) {
-        if (!isOutsider(mob) || mob == soldier || !withinHeight(mob)) {
+        if (!isOutsider(mob) || mob == soldier || !withinHeight(mob) || !withinAttackArea(heart, mob)) {
             return false;
         }
         if (settingsApply(heart) && matchesSettings(heart, mob)) {

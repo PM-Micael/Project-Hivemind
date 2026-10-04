@@ -28,6 +28,9 @@ public class BuildBridgeScreen extends Screen {
 
     private final List<Integer> workers;
     private final BlockPos dest;
+    /** The construction block whose settings these are, when the screen is opened again from its menu (Options) rather than for a new bridge. */
+    @Nullable
+    private BlockPos editing;
     @Nullable
     private Item deck;
     private Item fence = Items.OAK_FENCE;
@@ -45,6 +48,26 @@ public class BuildBridgeScreen extends Screen {
         super(Component.translatable("screen.projecthivemind.bridge.title"));
         this.workers = List.copyOf(workers);
         this.dest = dest.immutable();
+    }
+
+    /** The settings of a bridge under construction, to change: what is shown is what it was ordered with. */
+    public BuildBridgeScreen(BlockPos construction, net.minecraft.nbt.CompoundTag config) {
+        super(Component.translatable("screen.projecthivemind.bridge.title"));
+        this.workers = List.of();
+        this.dest = construction.immutable();
+        this.editing = construction.immutable();
+        this.deck = itemNamed(config.getString("Deck"));
+        this.fences = config.contains("Fence");
+        Item chosenFence = fences ? itemNamed(config.getString("Fence")) : null;
+        this.fence = chosenFence != null ? chosenFence : Items.OAK_FENCE;
+        this.torches = config.getBoolean("Torches");
+        this.width = Math.max(BridgeJob.MIN_WIDTH, Math.min(BridgeJob.MAX_WIDTH, config.getInt("Width")));
+    }
+
+    @Nullable
+    private static Item itemNamed(String name) {
+        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(name);
+        return id == null ? null : BuiltInRegistries.ITEM.getOptional(id).orElse(null);
     }
 
     @Override
@@ -74,10 +97,21 @@ public class BuildBridgeScreen extends Screen {
                 refresh();
             }).bounds(left + 12 + i * (cell + 4), top + 134, cell, 20).build());
         }
-        buildButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.bridge.build"), button -> {
+        buildButton = addRenderableWidget(Button.builder(Component.translatable(editing != null ? "screen.projecthivemind.construction.save" : "screen.projecthivemind.bridge.build"), button -> {
             if (deck != null) {
-                PacketDistributor.sendToServer(new BuildBridgePayload(workers, dest, BuiltInRegistries.ITEM.getKey(deck).toString(),
-                        fences ? BuiltInRegistries.ITEM.getKey(fence).toString() : "", torches, width));
+                if (editing != null) {
+                    net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+                    tag.putString("Deck", BuiltInRegistries.ITEM.getKey(deck).toString());
+                    if (fences) {
+                        tag.putString("Fence", BuiltInRegistries.ITEM.getKey(fence).toString());
+                    }
+                    tag.putBoolean("Torches", torches);
+                    tag.putInt("Width", width);
+                    PacketDistributor.sendToServer(new com.projecthivemind.network.UpdateConstructionPayload(editing, tag));
+                } else {
+                    PacketDistributor.sendToServer(new BuildBridgePayload(workers, dest, BuiltInRegistries.ITEM.getKey(deck).toString(),
+                            fences ? BuiltInRegistries.ITEM.getKey(fence).toString() : "", torches, width));
+                }
                 onClose();
             }
         }).bounds(left + 12, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());

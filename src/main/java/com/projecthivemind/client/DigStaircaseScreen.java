@@ -24,6 +24,11 @@ public class DigStaircaseScreen extends Screen {
 
     private final List<Integer> workers;
     private final BlockPos pos;
+    /** The construction block whose settings these are, when the screen is opened again from its menu (Options) rather than for a new staircase. */
+    @javax.annotation.Nullable
+    private BlockPos editing;
+    private int initialStop = Integer.MIN_VALUE;
+    private boolean initialTorches;
     private int direction;
     private final Button[] directionButtons = new Button[DIRECTIONS.length];
     private EditBox stopBox;
@@ -42,6 +47,21 @@ public class DigStaircaseScreen extends Screen {
         }
     }
 
+
+    /** The settings of a staircase under construction, to change: what is shown is what it was ordered with. */
+    public DigStaircaseScreen(BlockPos construction, net.minecraft.nbt.CompoundTag config) {
+        super(Component.translatable("screen.projecthivemind.stairs.title"));
+        this.workers = List.of();
+        this.editing = construction.immutable();
+        this.pos = net.minecraft.nbt.NbtUtils.readBlockPos(config, "Start").orElse(construction).immutable();
+        for (int i = 0; i < DIRECTIONS.length; i++) {
+            if (DIRECTIONS[i].get2DDataValue() == config.getInt("Direction")) {
+                direction = i;
+            }
+        }
+        this.initialStop = config.getInt("StopY");
+        this.initialTorches = config.getBoolean("Torches");
+    }
     @Override
     protected void init() {
         int left = (width - WIDTH) / 2;
@@ -57,11 +77,19 @@ public class DigStaircaseScreen extends Screen {
         }
         stopBox = addRenderableWidget(new EditBox(font, left + 12, top + 84, 60, 18, Component.translatable("screen.projecthivemind.stairs.stop")));
         stopBox.setFilter(text -> text.matches("-?\\d{0,4}"));
-        stopBox.setValue(String.valueOf(pos.getY() - 8));
+        stopBox.setValue(String.valueOf(initialStop != Integer.MIN_VALUE ? initialStop : pos.getY() - 8));
         torchBox = addRenderableWidget(net.minecraft.client.gui.components.Checkbox.builder(Component.translatable("screen.projecthivemind.torches"), font)
-                .pos(left + 12, top + 106).build());
-        addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.stairs.dig"), button -> {
-            PacketDistributor.sendToServer(new DigStaircasePayload(workers, pos, DIRECTIONS[direction].get2DDataValue(), stopY(), torchBox.selected(), false));
+                .pos(left + 12, top + 106).selected(initialTorches).build());
+        addRenderableWidget(Button.builder(Component.translatable(editing != null ? "screen.projecthivemind.construction.save" : "screen.projecthivemind.stairs.dig"), button -> {
+            if (editing != null) {
+                net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+                tag.putInt("Direction", DIRECTIONS[direction].get2DDataValue());
+                tag.putInt("StopY", stopY());
+                tag.putBoolean("Torches", torchBox.selected());
+                PacketDistributor.sendToServer(new com.projecthivemind.network.UpdateConstructionPayload(editing, tag));
+            } else {
+                PacketDistributor.sendToServer(new DigStaircasePayload(workers, pos, DIRECTIONS[direction].get2DDataValue(), stopY(), torchBox.selected(), false));
+            }
             onClose();
         }).bounds(left + 12, top + HEIGHT - 30, (WIDTH - 28) / 2, 20).build());
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.tower.cancel"), button -> onClose())

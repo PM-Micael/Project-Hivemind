@@ -216,9 +216,10 @@ public final class WorkerAutoJobs {
     /** How far above the floor the Heart stands on a worker flattening the ground cuts the hills away: this many blocks. */
     public static final int FLATTEN_CUT_HEIGHT = 4;
 
-    /** True for what flattening digs off a rise: stone and the like, dirt and grass. */
+    /** True for what flattening digs off a rise: stone and the like, dirt and grass, sand and gravel. */
     public static boolean isFlattenCut(BlockState state) {
-        return state.is(BlockTags.DIRT) || state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraft.world.level.block.Blocks.STONE);
+        return state.is(BlockTags.DIRT) || state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraft.world.level.block.Blocks.STONE)
+                || state.is(BlockTags.SAND) || state.is(net.minecraft.world.level.block.Blocks.GRAVEL);
     }
 
     /**

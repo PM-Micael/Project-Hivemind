@@ -33,7 +33,8 @@ import net.minecraft.core.Direction;
 public final class TowerPlan {
     /** The heights (or depths) a build can have: any whole number from the least to the most, as the player types it. */
     public static final int MIN_HEIGHT = 8;
-    public static final int MAX_HEIGHT = 96;
+    /** The most a build can have is whatever the world has room for; this is no longer a limit (see the order screen and HiveActions). */
+    public static final int MAX_HEIGHT = 4096;
 
     /** What is to be done at a block: put a plain block there, put a stair there, or just clear it out (digging). */
     public enum Kind {

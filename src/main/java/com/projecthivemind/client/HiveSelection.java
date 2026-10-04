@@ -124,13 +124,11 @@ public final class HiveSelection {
         Set<Integer> alive = new HashSet<>();
         for (int id : ClientSelection.selected()) {
             Entity entity = minecraft.level.getEntity(id);
-            // A unit just picked with a team hotkey may be far off, and not loaded here until the camera has got there: wait for it a few seconds.
-            if (entity == null && PENDING.contains(id) && minecraft.player.tickCount < pendingUntil) {
-                alive.add(id);
-                continue;
-            }
+            // A unit far away is not loaded on this client (there is no entity for it), but the hive still knows it: it stays selected for as long
+            // as the hive lists it, so it can be picked and then gone to. It is only forgotten when it is dead or gone.
+            boolean exists = entity != null ? entity.isAlive() : ClientUnits.entry(id) != null;
             // Units following a team scout cannot be selected: the team does what the scout is told.
-            if (entity != null && entity.isAlive() && !isTeamFollower(id)) {
+            if (exists && !isTeamFollower(id)) {
                 alive.add(id);
             }
         }
@@ -402,6 +400,12 @@ public final class HiveSelection {
         if (!blockHit) {
             return;
         }
+        // A construction block has its own menu: Work, Options and, once it is done, Finish.
+        com.projecthivemind.network.SyncConstructionsPayload.Info construction = ClientConstructions.at(hit.getBlockPos());
+        if (construction != null) {
+            openConstructionMenu(minecraft, construction, selected);
+            return;
+        }
         // One collector selected: the only things to offer are its tasks, and only inside the hive border.
         List<Integer> collectors = unitsOfKind(minecraft, selected, UnitKind.COLLECTOR);
         if (!collectors.isEmpty()) {
@@ -444,16 +448,13 @@ public final class HiveSelection {
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_portal"),
                         () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlacePortalPayload(selected, pos, portalFace, false))));
             }
-            // Workers can build a tower on the block: one for the single staircase, two or more for the double.
+            // Workers can construct on the block: a staircase down, a tower or shaft, a bridge.
             // A scout that is selected also builds: it is the team's conduit, so the build goes to the workers following it.
             List<Integer> builders = withTeamWorkers(minecraft, selected);
             if (!builders.isEmpty()) {
-                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.dig_staircase"),
-                        () -> minecraft.setScreen(new DigStaircaseScreen(builders, pos))));
-                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_tower"),
-                        () -> minecraft.setScreen(new BuildTowerScreen(builders, pos))));
-                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.build_bridge"),
-                        () -> minecraft.setScreen(new BuildBridgeScreen(builders, pos))));
+                // One entry for every construction: it leads to the list of what can be built (staircase, tower, bridge...).
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.construct"),
+                        () -> minecraft.setScreen(new ConstructScreen(builders, pos))));
             }
             // Workers put up a torch from the hive against the face that was clicked, unless it is the underside.
             if (!builders.isEmpty() && hit.getDirection() != Direction.DOWN) {
@@ -467,6 +468,43 @@ public final class HiveSelection {
         }
         if (working) {
             options.add(option("action.projecthivemind.cancel", List.of(), pos, BlockAction.CANCEL));
+        }
+        int[] cursor = ContextMenu.cursor(minecraft);
+        ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);
+    }
+
+    /**
+     * The menu of a construction block. "Work" puts the selected workers on it (a selected team scout puts its team's workers on it), unless it is
+     * done. "Options" opens the settings it was started with, to change. With workers selected, "Finish" (at any time, done or not) asks to confirm and
+     * then takes the block away and the workers off it.
+     */
+    private static void openConstructionMenu(Minecraft minecraft, com.projecthivemind.network.SyncConstructionsPayload.Info construction, List<Integer> selected) {
+        BlockPos pos = construction.pos();
+        List<Integer> workers = withTeamWorkers(minecraft, selected);
+        List<ContextMenu.Option> options = new ArrayList<>();
+        boolean done = construction.state() == 2;
+        if (!workers.isEmpty() && !done) {
+            options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.construction_work", construction.workers(), construction.max()),
+                    () -> PacketDistributor.sendToServer(new com.projecthivemind.network.AssignConstructionPayload(workers, pos))));
+        }
+        options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.construction_options"), () -> {
+            net.minecraft.nbt.CompoundTag config = construction.config();
+            switch (construction.kind()) {
+                case 0 -> minecraft.setScreen(new BuildBridgeScreen(pos, config));
+                case 1 -> minecraft.setScreen(new DigStaircaseScreen(pos, config));
+                default -> minecraft.setScreen(new BuildTowerScreen(pos, config));
+            }
+        }));
+        // Finish can be chosen at any time: before it is done the work simply stops where it is, and what is built stays.
+        if (!workers.isEmpty()) {
+            options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.construction_finish"),
+                    () -> minecraft.setScreen(new net.minecraft.client.gui.screens.ConfirmScreen(confirmed -> {
+                        if (confirmed) {
+                            PacketDistributor.sendToServer(new com.projecthivemind.network.FinishConstructionPayload(pos));
+                        }
+                        minecraft.setScreen(null);
+                    }, Component.translatable("screen.projecthivemind.construction.finish_title"),
+                            Component.translatable(done ? "screen.projecthivemind.construction.finish_message" : "screen.projecthivemind.construction.finish_early_message")))));
         }
         int[] cursor = ContextMenu.cursor(minecraft);
         ContextMenu.open(minecraft, cursor[0], cursor[1], options, pos, -1);

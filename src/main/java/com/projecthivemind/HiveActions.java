@@ -197,12 +197,27 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_too_steep"), true);
             return;
         }
-        for (Mob worker : workers) {
-            worker.getNavigation().stop();
-            ((HiveUnit) worker).setAction(null);
-            ((HiveWorker) worker).setBridge(job);
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
         }
+        // The block that marks the bridge goes behind where it starts, off the deck.
+        java.util.Set<Long> reserved = new java.util.HashSet<>();
+        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+            reserved.add(HiveConstructions.columnKey(placement.pos().getX(), placement.pos().getZ()));
+        }
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, start.getX() - Integer.signum(dest.getX() - start.getX()) * 3,
+                start.getZ() - Integer.signum(dest.getZ() - start.getZ()) * 3, reserved);
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofBridge(level.dimension(), anchor, job);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(dest), construction.maxWorkers()));
         player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_started"), true);
+    }
+
+    /** The workers nearest to the point, no more than the limit. */
+    private static List<Mob> nearest(List<Mob> workers, Vec3 point, int limit) {
+        return workers.stream().sorted(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(point))).limit(limit).toList();
     }
 
     @Nullable
@@ -325,11 +340,16 @@ public final class HiveActions {
         }
         int stopY = Math.max(level.getMinBuildHeight() + 1, Math.min(request.stopY(), start.getY()));
         StairDig stairs = new StairDig(start.immutable(), Direction.from2DDataValue(request.direction() & 3), stopY, request.torches());
-        for (Mob worker : workers) {
-            worker.getNavigation().stop();
-            ((HiveWorker) worker).setStaircase(stairs);
-            ((HiveUnit) worker).setAction(null);
+        if (heart == null || heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
         }
+        // The block that marks the staircase goes behind where it starts.
+        Direction dir = stairs.direction();
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, start.getX() - dir.getStepX() * 2, start.getZ() - dir.getStepZ() * 2, java.util.Set.of());
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofStairs(level.dimension(), anchor, stairs);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(start), construction.maxWorkers()));
     }
 
     /**
@@ -343,13 +363,14 @@ public final class HiveActions {
         ServerLevel level = player.serverLevel();
         HiveHeart heart = HivemindManager.findHeart(player);
         int height = request.height();
-        if (heart == null || height < TowerPlan.MIN_HEIGHT || height > TowerPlan.MAX_HEIGHT) {
+        // Any height from the least a build can have up to what the world has room for (the site is checked against the world below).
+        if (heart == null || height < TowerPlan.MIN_HEIGHT || height > level.getHeight()) {
             return;
         }
         BlockPos clicked = request.pos();
         // A tower must fit under the top of the world, and a shaft above the bottom of it.
         if (!level.isInWorldBounds(clicked) || (request.direction() == TowerDirection.UP.ordinal() && clicked.getY() + height + 2 >= level.getMaxBuildHeight())
-                || (request.direction() == TowerDirection.DOWN.ordinal() && clicked.getY() - height - 2 <= level.getMinBuildHeight())) {
+                || (request.direction() == TowerDirection.DOWN.ordinal() && clicked.getY() - height < level.getMinBuildHeight())) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
             return;
         }
@@ -371,7 +392,7 @@ public final class HiveActions {
         }
         TowerDirection direction = TowerDirection.byIndex(request.direction());
         // A shaft must have room below it, above the bottom of the world.
-        if (direction == TowerDirection.DOWN && clicked.getY() - height - 2 <= level.getMinBuildHeight()) {
+        if (direction == TowerDirection.DOWN && clicked.getY() - height < level.getMinBuildHeight()) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.tower_bad_site"), true);
             return;
         }
@@ -380,7 +401,7 @@ public final class HiveActions {
         Vec3 site = Vec3.atCenterOf(clicked);
         workers = workers.stream().sorted(java.util.Comparator.comparingDouble(worker -> worker.distanceToSqr(site)))
                 .limit(shape.maxWorkers()).toList();
-        TowerPlan plan = new TowerPlan(clicked, shape, direction, height, request.walls(), request.torches());
+        TowerPlan plan = new TowerPlan(clicked, shape, direction, height, true, request.torches());
         // Only the bits of the materials that exist count; with none left there is nothing to build from.
         int materials = request.materials() & ((1 << TowerMaterial.values().length) - 1);
         Optional<TowerSet> set = materials == 0 ? Optional.empty()
@@ -390,11 +411,20 @@ public final class HiveActions {
             return;
         }
 
-        heart.setActiveBuild(new TowerBuild(plan, set.get()));
-        for (Mob worker : workers) {
-            worker.getNavigation().stop();
-            ((HiveUnit) worker).setAction(new UnitAction(UnitAction.Kind.BUILD, clicked));
+        if (heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
         }
+        // The block that marks the tower goes beside it, outside everything the workers will build or dig.
+        java.util.Set<Long> reserved = new java.util.HashSet<>();
+        for (TowerPlan.Placement placement : plan.placements()) {
+            reserved.add(HiveConstructions.columnKey(placement.pos().getX(), placement.pos().getZ()));
+        }
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, clicked.getX() + shape.radius() + 3, clicked.getZ(), reserved);
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofTower(level.dimension(), anchor,
+                new TowerBuild(plan, set.get()), materials);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, workers);
         syncActions(player, heart);
     }
 
@@ -408,9 +438,71 @@ public final class HiveActions {
             }
         }
         heart.clearDigProgress(pos);
-        if (heart.activeBuild() != null && heart.activeBuild().plan().base().equals(pos)) {
-            heart.setActiveBuild(null);
+    }
+
+    // ---- constructions ----
+
+    /** The player's construction whose block is here, in the dimension the camera is in. */
+    @Nullable
+    private static com.projecthivemind.build.Construction constructionAt(ServerPlayer player, HiveHeart heart, BlockPos pos) {
+        return heart.constructions().at(player.serverLevel().dimension(), pos);
+    }
+
+    /** "Work": put these workers on the construction whose block was clicked. Workers on another construction move to this one. */
+    public static void assignConstruction(ServerPlayer player, com.projecthivemind.network.AssignConstructionPayload request) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
         }
+        com.projecthivemind.build.Construction construction = constructionAt(player, heart, request.pos());
+        if (construction == null) {
+            return;
+        }
+        List<Mob> workers = commandable(player, player.serverLevel(), request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        if (construction.done()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_is_done"), true);
+            return;
+        }
+        HiveConstructions.assign(player, heart, construction, workers);
+        syncActions(player, heart);
+    }
+
+    /** "Options": new settings for the construction whose block was clicked, checked as the first order was. */
+    public static void updateConstruction(ServerPlayer player, com.projecthivemind.network.UpdateConstructionPayload request) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        com.projecthivemind.build.Construction construction = constructionAt(player, heart, request.pos());
+        if (construction == null) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        java.util.Optional<String> problem = construction.applyConfig(request.config(), heart.getStorage(), level.getMinBuildHeight(), level.getMaxBuildHeight());
+        if (problem.isPresent()) {
+            player.displayClientMessage(Component.translatable(problem.get()), true);
+            return;
+        }
+        player.displayClientMessage(Component.translatable("message.projecthivemind.construction_updated"), true);
+        HiveConstructions.reconcile(player, heart, construction);
+    }
+
+    /** "Finish", confirmed: the construction block goes and the workers on it are taken off. This can be done before it is done: what is built stays. */
+    public static void finishConstruction(ServerPlayer player, com.projecthivemind.network.FinishConstructionPayload request) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        com.projecthivemind.build.Construction construction = constructionAt(player, heart, request.pos());
+        if (construction == null) {
+            return;
+        }
+        HiveConstructions.finish(heart, construction);
+        syncActions(player, heart);
     }
 
     // ---- the scout's hand ----
@@ -649,7 +741,8 @@ public final class HiveActions {
                 continue;
             }
             UnitAction action = unit.action();
-            if (action.pos() != null && blocks.size() < SyncActionsPayload.MAX_ENTRIES) {
+            // A construction block has its own highlight: a build order is not a red block.
+            if (action.pos() != null && action.kind() != UnitAction.Kind.BUILD && blocks.size() < SyncActionsPayload.MAX_ENTRIES) {
                 blocks.add(action.pos().immutable());
             }
             if (action.target() != null && mobs.size() < SyncActionsPayload.MAX_ENTRIES

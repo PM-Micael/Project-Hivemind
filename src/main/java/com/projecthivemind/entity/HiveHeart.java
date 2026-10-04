@@ -20,7 +20,6 @@ import com.projecthivemind.HiveFurnace;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.HiveSight;
-import com.projecthivemind.build.TowerBuild;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ModComponents;
 import com.projecthivemind.ScoutItems;
@@ -76,22 +75,23 @@ public class HiveHeart extends Mob {
     private int hiveLevel = 1;
     /** Quest progress: the most logs the hive has held at once, up to what the quest asks. It never goes back down. */
     private int logsProgress;
-    /** Quest progress: the most coal and raw iron the hive has held at once (up to what the quest asks), and the lowest height a unit has been at. */
+    /** Quest progress: the most coal and iron ingots the hive has held at once (up to what the quest asks), and the lowest height a unit has been at. */
     private int coalProgress;
     private int ironProgress;
     private int lowestY = Integer.MAX_VALUE;
-    /** What the storage held of logs, coal and raw iron at the last quest check (-1 before the first), to see how much came in since. Not saved. */
+    /** What the storage held of logs, coal and iron ingots at the last quest check (-1 before the first), to see how much came in since. Not saved. */
     private final int[] lastHeld = {-1, -1, -1, -1};
     /** Quest progress: blaze rods collected, and whether the Nether has been entered. */
     private int blazeProgress;
     private boolean netherEntered;
+    /** Quest progress: the Ender Dragon was defeated while this hive was in the End. Saved. */
+    private boolean dragonDefeated;
     /** Quest progress: mobs the hive's units have killed. */
     private int kills;
     /** Quest progress: ticks the hive has lasted, counted only while its owner is in the world. */
     private int ageTicks;
-    /** The tower the hive's workers are building, if any. Saved, so that the workers' build jobs carry on after a restart. */
-    @Nullable
-    private TowerBuild activeBuild;
+    /** The hive's constructions: bridges, staircases, towers and shafts, and the workers on each. Saved. */
+    private final com.projecthivemind.build.Constructions constructions = new com.projecthivemind.build.Constructions();
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
     private int syncedArmor = -1;
@@ -497,6 +497,7 @@ public class HiveHeart extends Mob {
         HeartSonicBoom.tick(this);
         HeartAura.tick(this);
         HiveMusic.tick(this);
+        com.projecthivemind.HiveConstructions.tick(this);
         HivePortals.tick(this);
         if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
             HivemindManager.tickQuests(this);
@@ -533,7 +534,7 @@ public class HiveHeart extends Mob {
     /**
      * Quest progress for something collected: whatever the storage holds now beyond what it held at the last check counts as collected,
      * up to {@code limit}. What is taken out (melted, crafted, used) is never taken off, and putting it back counts again. {@code slot}
-     * 0 is logs, 1 coal, 2 raw iron, 3 blaze rods; returns the new progress.
+     * 0 is logs, 1 coal, 2 iron ingots, 3 blaze rods; returns the new progress.
      */
     public int collected(int slot, int heldNow, int progress, int limit) {
         int gained = lastHeld[slot] < 0 ? 0 : Math.max(0, heldNow - lastHeld[slot]);
@@ -547,6 +548,14 @@ public class HiveHeart extends Mob {
 
     public void setBlazeProgress(int blazeRods) {
         this.blazeProgress = blazeRods;
+    }
+
+    public boolean dragonDefeated() {
+        return dragonDefeated;
+    }
+
+    public void setDragonDefeated(boolean defeated) {
+        this.dragonDefeated = defeated;
     }
 
     public boolean netherEntered() {
@@ -614,14 +623,10 @@ public class HiveHeart extends Mob {
         this.syncedHealth = health;
     }
 
-    @Nullable
-    public TowerBuild activeBuild() {
-        return activeBuild;
+    public com.projecthivemind.build.Constructions constructions() {
+        return constructions;
     }
 
-    public void setActiveBuild(@Nullable TowerBuild build) {
-        this.activeBuild = build;
-    }
 
     public int ageTicks() {
         return ageTicks;
@@ -759,6 +764,11 @@ public class HiveHeart extends Mob {
     }
 
     /** How many full stacks a slot of the hive's storage holds: one more for each task done. */
+    /** How many teams the hive has: one for the Heart, and one for each portal it may have (see HivePortals#max). */
+    public int teamCount() {
+        return 1 + HivePortals.max(this);
+    }
+
     public int stackMultiplier() {
         return com.projecthivemind.EvolveTask.stackMultiplier(evolveMask);
     }
@@ -870,6 +880,7 @@ public class HiveHeart extends Mob {
         tag.putInt("QuestCoal", coalProgress);
         tag.putInt("QuestBlaze", blazeProgress);
         tag.putBoolean("QuestNether", netherEntered);
+        tag.putBoolean("QuestDragon", dragonDefeated);
         tag.put("Teams", teams.save());
         tag.put("SlotConfigs", slotConfigs.save());
         tag.putInt("QuestIron", ironProgress);
@@ -889,9 +900,7 @@ public class HiveHeart extends Mob {
         }
         tag.put("UnitSpots", spots);
         food.save(tag);
-        if (activeBuild != null) {
-            tag.put("TowerBuild", activeBuild.save());
-        }
+        tag.put("Constructions", constructions.save());
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.put(JUKEBOX_TAG, ContainerHelper.saveAllItems(new CompoundTag(), jukeboxSlot.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
@@ -948,6 +957,7 @@ public class HiveHeart extends Mob {
         coalProgress = tag.getInt("QuestCoal");
         blazeProgress = tag.getInt("QuestBlaze");
         netherEntered = tag.getBoolean("QuestNether");
+        dragonDefeated = tag.getBoolean("QuestDragon");
         teams.load(tag.getList("Teams", net.minecraft.nbt.Tag.TAG_COMPOUND));
         slotConfigs.load(tag.getList("SlotConfigs", net.minecraft.nbt.Tag.TAG_COMPOUND));
         ironProgress = tag.getInt("QuestIron");
@@ -955,7 +965,7 @@ public class HiveHeart extends Mob {
         kills = tag.getInt(KILLS_TAG);
         ageTicks = tag.getInt(AGE_TAG);
         food.load(tag);
-        activeBuild = tag.contains("TowerBuild") ? TowerBuild.load(tag.getCompound("TowerBuild")) : null;
+        constructions.load(tag.getList("Constructions", Tag.TAG_COMPOUND));
         foodSlot.clearContent();
         if (tag.contains(FOOD_SLOT_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());

@@ -26,11 +26,16 @@ public final class HiveTeams {
     public static final int MIN_RADIUS = 3;
     public static final int MAX_RADIUS = 24;
     public static final int DEFAULT_RADIUS = 8;
+    /** How far from its scout a soldier of the team may go after hostile mobs (the yellow area): at least as small as the team area can be, and larger at most this. */
+    public static final int MAX_ATTACK_RADIUS = 48;
+    public static final int DEFAULT_ATTACK_RADIUS = 16;
+    private final int[] attackRadius = new int[MAX_TEAMS];
 
     public HiveTeams() {
         for (int i = 0; i < MAX_TEAMS; i++) {
             teams.add(new LinkedHashSet<>());
             radius[i] = DEFAULT_RADIUS;
+            attackRadius[i] = DEFAULT_ATTACK_RADIUS;
         }
     }
 
@@ -68,6 +73,17 @@ public final class HiveTeams {
         return team >= 0 && team < radius.length ? radius[team] : DEFAULT_RADIUS;
     }
 
+    /** How far from its scout a soldier of this team goes after hostile mobs. */
+    public int attackRadius(int team) {
+        return team >= 0 && team < attackRadius.length ? attackRadius[team] : DEFAULT_ATTACK_RADIUS;
+    }
+
+    public void setAttackRadius(int team, int blocks) {
+        if (team >= 0 && team < attackRadius.length) {
+            attackRadius[team] = Math.max(MIN_RADIUS, Math.min(MAX_ATTACK_RADIUS, blocks));
+        }
+    }
+
     public void setRadius(int team, int blocks) {
         if (team >= 0 && team < radius.length) {
             radius[team] = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, blocks));
@@ -82,6 +98,7 @@ public final class HiveTeams {
             CompoundTag tag = new CompoundTag();
             tag.put("Members", saved);
             tag.putInt("Radius", radius[list.size()]);
+            tag.putInt("AttackRadius", attackRadius[list.size()]);
             list.add(tag);
         }
         return list;
@@ -92,6 +109,7 @@ public final class HiveTeams {
         for (int i = 0; i < list.size() && i < teams.size(); i++) {
             ListTag saved = list.getCompound(i).getList("Members", Tag.TAG_INT_ARRAY);
             radius[i] = list.getCompound(i).contains("Radius") ? Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, list.getCompound(i).getInt("Radius"))) : DEFAULT_RADIUS;
+            attackRadius[i] = list.getCompound(i).contains("AttackRadius") ? Math.max(MIN_RADIUS, Math.min(MAX_ATTACK_RADIUS, list.getCompound(i).getInt("AttackRadius"))) : DEFAULT_ATTACK_RADIUS;
             for (Tag member : saved) {
                 teams.get(i).add(NbtUtils.loadUUID(member));
             }

@@ -42,6 +42,12 @@ public class TeamFollowGoal extends Goal {
         return Math.max(Math.sqrt(dx * dx + dz * dz), Math.abs(mob.getY() - leader.getY()));
     }
 
+    /** A soldier that is fighting may be beyond the team area, as far as the attack area (the yellow ring) reaches: it is not called back until the fight is over. */
+    private boolean fightingInAttackArea(HiveHeart heart, Mob leader) {
+        return mob instanceof HiveSoldier soldier && soldier.isAggressive()
+                && separation(mob, leader) <= heart.teams().attackRadius(heart.teams().teamOf(mob.getUUID()));
+    }
+
     private double ringRadius(HiveHeart heart) {
         return heart.teams().radius(heart.teams().teamOf(mob.getUUID()));
     }
@@ -50,14 +56,14 @@ public class TeamFollowGoal extends Goal {
     public boolean canUse() {
         HiveHeart heart = unit.findLocalHeart();
         leader = heart == null ? null : heart.teamLeader(mob);
-        return heart != null && leader != null && separation(mob, leader) > ringRadius(heart);
+        return heart != null && leader != null && separation(mob, leader) > ringRadius(heart) && !fightingInAttackArea(heart, leader);
     }
 
     @Override
     public boolean canContinueToUse() {
         HiveHeart heart = unit.findLocalHeart();
         leader = heart == null ? null : heart.teamLeader(mob);
-        return heart != null && leader != null && separation(mob, leader) > Math.max(1.0D, ringRadius(heart) - MARGIN);
+        return heart != null && leader != null && separation(mob, leader) > Math.max(1.0D, ringRadius(heart) - MARGIN) && !fightingInAttackArea(heart, leader);
     }
 
     @Override

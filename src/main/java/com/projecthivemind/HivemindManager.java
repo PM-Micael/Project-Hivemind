@@ -195,7 +195,7 @@ public final class HivemindManager {
      */
     public static void focusTeam(ServerPlayer player, int team) {
         HiveHeart heart = findHeart(player);
-        if (heart == null || get(player).stage() != HivemindStage.HIVE || team < 0 || team >= HiveLevels.get(heart.hiveLevel()).teamCount()) {
+        if (heart == null || get(player).stage() != HivemindStage.HIVE || team < 0 || team >= heart.teamCount()) {
             return;
         }
         Mob first = null;
@@ -411,7 +411,8 @@ public final class HivemindManager {
                 }
                 break;
             case BUILD:
-                return Component.translatable(heart.activeBuild() != null && heart.activeBuild().plan().direction() == com.projecthivemind.build.TowerDirection.DOWN
+                com.projecthivemind.build.Construction building = job.pos() == null ? null : heart.constructions().at(level.dimension(), job.pos());
+                return Component.translatable(building != null && building.tower() != null && building.tower().plan().direction() == com.projecthivemind.build.TowerDirection.DOWN
                         ? "job.projecthivemind.build_shaft" : "job.projecthivemind.build_tower");
             default:
                 break;
@@ -543,10 +544,14 @@ public final class HivemindManager {
     }
 
     /** The player set how far around its scout a team keeps together. */
-    public static void setTeamRadius(ServerPlayer player, int team, int radius) {
+    public static void setTeamRadius(ServerPlayer player, int team, int radius, boolean attack) {
         HiveHeart heart = findHeart(player);
         if (heart != null) {
-            heart.teams().setRadius(team, radius);
+            if (attack) {
+                heart.teams().setAttackRadius(team, radius);
+            } else {
+                heart.teams().setRadius(team, radius);
+            }
             sendUnits(player);
         }
     }
@@ -607,7 +612,7 @@ public final class HivemindManager {
         HiveHeart heart = findHeart(player);
         if (heart == null || !(HivemindManager.findById(player, unitId) instanceof Mob mob) || !mob.isAlive()
                 || !(mob instanceof HiveUnit unit) || !player.getUUID().equals(unit.ownerId()) || unit.kind().passive()
-                || team < -1 || team >= HiveLevels.get(heart.hiveLevel()).teamCount()) {
+                || team < -1 || team >= heart.teamCount()) {
             return;
         }
         if (team < 0) {
@@ -642,10 +647,12 @@ public final class HivemindManager {
         HiveHeart teamHeart = findHeart(owner);
         if (teamHeart != null) {
             List<Integer> radii = new ArrayList<>();
-            for (int team = 0; team < HiveLevels.get(teamHeart.hiveLevel()).teamCount(); team++) {
+            List<Integer> attackRadii = new ArrayList<>();
+            for (int team = 0; team < teamHeart.teamCount(); team++) {
                 radii.add(teamHeart.teams().radius(team));
+                attackRadii.add(teamHeart.teams().attackRadius(team));
             }
-            PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncTeamPayload(radii));
+            PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncTeamPayload(radii, attackRadii));
         }
     }
 
@@ -880,7 +887,7 @@ public final class HivemindManager {
         }
         // A unit that is not made to work alone starts in the team of the place it came from: the Heart's, or the portal's.
         if (team >= 0 && !kind.passive()) {
-            heart.teams().join(unit.getUUID(), Math.min(team, HiveLevels.get(heart.hiveLevel()).teamCount() - 1));
+            heart.teams().join(unit.getUUID(), Math.min(team, heart.teamCount() - 1));
         }
         SlotConfigs.Config remembered = config != null ? config : heart.slotConfigs().get(kind, number);
         if (remembered != null) {
@@ -1250,7 +1257,7 @@ public final class HivemindManager {
 
     /**
      * Once a second, from the Heart: work out how far the hive is through its level-up quest, and level it up when
-     * every part is done. Logs, coal and raw iron: everything that comes into the hive's storage counts, and using it up never takes it off.
+     * every part is done. Logs, coal and iron ingots: everything that comes into the hive's storage counts, and using it up never takes it off.
      * Exploring: every chunk a unit of the hive has stood in counts once, except the chunks of the hive area itself.
      * Kills and survival are counted as they happen (see {@link #onUnitKill} and the age added here).
      */
@@ -1270,14 +1277,14 @@ public final class HivemindManager {
 
         int logs = 0;
         int coal = 0;
-        int rawIron = 0;
+        int ironIngots = 0;
         int blaze = 0;
         for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
             ItemStack stack = heart.getStorage().getItem(i);
             if (stack.is(net.minecraft.world.item.Items.COAL)) {
                 coal += stack.getCount();
-            } else if (stack.is(net.minecraft.world.item.Items.RAW_IRON)) {
-                rawIron += stack.getCount();
+            } else if (stack.is(net.minecraft.world.item.Items.IRON_INGOT)) {
+                ironIngots += stack.getCount();
             } else if (stack.is(net.minecraft.world.item.Items.BLAZE_ROD)) {
                 blaze += stack.getCount();
             }
@@ -1288,7 +1295,7 @@ public final class HivemindManager {
         // Collected means what came into the hive, not what is in it now: melting or using it does not take it off the count.
         heart.setLogsProgress(heart.collected(0, logs, heart.logsProgress(), quest.logs()));
         heart.setCoalProgress(heart.collected(1, coal, heart.coalProgress(), quest.coal()));
-        heart.setIronProgress(heart.collected(2, rawIron, heart.ironProgress(), quest.rawIron()));
+        heart.setIronProgress(heart.collected(2, ironIngots, heart.ironProgress(), quest.ironIngots()));
         heart.setBlazeProgress(heart.collected(3, blaze, heart.blazeProgress(), quest.blazeRods()));
         // The Nether counts once the camera or any unit of the hive has been in it.
         if (quest.nether() && !heart.netherEntered()) {
@@ -1317,10 +1324,31 @@ public final class HivemindManager {
 
         if (heart.logsProgress() >= quest.logs() && heart.exploredChunkCount() >= quest.chunks()
                 && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()
-                && heart.coalProgress() >= quest.coal() && heart.ironProgress() >= quest.rawIron()
-                && heart.blazeProgress() >= quest.blazeRods() && (!quest.nether() || heart.netherEntered())
+                && heart.coalProgress() >= quest.coal() && heart.ironProgress() >= quest.ironIngots()
+                && heart.blazeProgress() >= quest.blazeRods() && (!quest.nether() || heart.netherEntered()) && (!quest.dragon() || heart.dragonDefeated())
                 && (quest.reachY() == null || heart.lowestY() <= quest.reachY())) {
             levelUp(heart, owner);
+        }
+    }
+
+    /**
+     * The Ender Dragon died in this dimension: every hive that was there (its camera, or any of its units, in that dimension) has defeated it, for
+     * the quest to level 6.
+     */
+    public static void dragonDefeated(ServerPlayer owner, net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
+        HiveHeart heart = findHeart(owner);
+        if (heart == null || heart.dragonDefeated() || get(owner).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        boolean there = owner.serverLevel().dimension().equals(dimension);
+        for (UUID id : get(owner).allUnits()) {
+            if (!there && findUnit(owner, id) instanceof Mob unit && unit.level().dimension().equals(dimension)) {
+                there = true;
+            }
+        }
+        if (there) {
+            heart.setDragonDefeated(true);
+            owner.displayClientMessage(Component.translatable("message.projecthivemind.dragon_defeated"), false);
         }
     }
 

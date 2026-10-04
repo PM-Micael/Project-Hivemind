@@ -248,6 +248,24 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onAssignConstruction(AssignConstructionPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.assignConstruction(player, payload);
+        }
+    }
+
+    public static void onUpdateConstruction(UpdateConstructionPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.updateConstruction(player, payload);
+        }
+    }
+
+    public static void onFinishConstruction(FinishConstructionPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.finishConstruction(player, payload);
+        }
+    }
+
     public static void onEnchant(EnchantPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
                 && menu.containerId == payload.containerId()) {
@@ -270,7 +288,7 @@ public final class ServerPayloads {
 
     public static void onSetTeamRadius(com.projecthivemind.network.SetTeamRadiusPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
-            HivemindManager.setTeamRadius(player, payload.team(), payload.radius());
+            HivemindManager.setTeamRadius(player, payload.team(), payload.radius(), payload.attack());
         }
     }
 

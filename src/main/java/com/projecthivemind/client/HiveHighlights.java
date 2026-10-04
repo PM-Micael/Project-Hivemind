@@ -45,6 +45,8 @@ public final class HiveHighlights {
     private static final int GLOW_FLAG = 6;
     private static final float[] WHITE = {1.0F, 1.0F, 1.0F, 1.0F};
     private static final float[] RED = {1.0F, 0.15F, 0.15F, 1.0F};
+    private static final float[] YELLOW = {1.0F, 0.9F, 0.15F, 1.0F};
+    private static final float[] GREEN = {0.2F, 1.0F, 0.2F, 1.0F};
 
     /** Mobs this client is currently making glow, by entity id, and whether each is outlined red. */
     private static final Map<Integer, Boolean> GLOWING = new HashMap<>();
@@ -142,7 +144,7 @@ public final class HiveHighlights {
         Minecraft minecraft = Minecraft.getInstance();
         Set<BlockPos> red = ClientActions.blocks();
         BlockPos menuBlock = ContextMenu.targetBlock();
-        if (minecraft.level == null || (red.isEmpty() && menuBlock == null)) {
+        if (minecraft.level == null || (red.isEmpty() && menuBlock == null && ClientConstructions.all().isEmpty())) {
             return;
         }
 
@@ -158,6 +160,13 @@ public final class HiveHighlights {
         }
         if (menuBlock != null && !red.contains(menuBlock)) {
             drawBox(minecraft, poseStack, lines, camera, menuBlock, WHITE);
+        }
+        // The constructions: red while no one works on one, yellow while workers do, green once it is done.
+        String dimension = minecraft.level.dimension().location().toString();
+        for (com.projecthivemind.network.SyncConstructionsPayload.Info construction : ClientConstructions.all()) {
+            if (construction.dimension().equals(dimension)) {
+                drawBox(minecraft, poseStack, lines, camera, construction.pos(), construction.state() == 2 ? GREEN : construction.state() == 1 ? YELLOW : RED);
+            }
         }
         buffers.endBatch(RenderType.lines());
         RenderSystem.enableDepthTest();

@@ -67,7 +67,7 @@ public final class TowerBuild {
     private final Set<BlockPos> skipped = new HashSet<>();
     /** How many times the water (or lava) at a spot of the hole was removed, and how many times before giving up on it. */
     private final java.util.Map<BlockPos, Integer> waterClears = new java.util.HashMap<>();
-    private static final int MAX_WATER_CLEARS = 4;
+    private static final int MAX_WATER_CLEARS = 8;
     private long lastWaitNotice = Long.MIN_VALUE;
 
     public TowerBuild(TowerPlan plan, TowerSet set) {
@@ -96,6 +96,7 @@ public final class TowerBuild {
         tag.putBoolean("Torches", plan.torches());
         tag.put("WallItems", itemNames(set.walls()));
         tag.put("StairItems", itemNames(set.stairs()));
+        tag.putIntArray("WetLayers", wetLayers.stream().mapToInt(Integer::intValue).toArray());
         return tag;
     }
 
@@ -129,7 +130,14 @@ public final class TowerBuild {
                 tag.getInt("Height"), tag.getBoolean("Walls"), tag.getBoolean("Torches"));
         List<Item> walls = items(tag.getList("WallItems", Tag.TAG_STRING));
         List<Item> stairs = items(tag.getList("StairItems", Tag.TAG_STRING));
-        return walls.isEmpty() || stairs.isEmpty() ? null : new TowerBuild(plan, new TowerSet(walls, stairs));
+        if (walls.isEmpty() || stairs.isEmpty()) {
+            return null;
+        }
+        TowerBuild build = new TowerBuild(plan, new TowerSet(walls, stairs));
+        for (int layer : tag.getIntArray("WetLayers")) {
+            build.wetLayers.add(layer);
+        }
+        return build;
     }
 
     public TowerPlan plan() {
@@ -138,6 +146,94 @@ public final class TowerBuild {
 
     public TowerSet set() {
         return set;
+    }
+
+    // ---- water in a shaft ----
+
+    /**
+     * Layers of a shaft that have water in or beside them. Those layers get walls all round whatever was ordered (even if the order was for just
+     * pillars), and their water is only taken out once the walls are up, so that nothing leaks in again. Kept: once a layer has been walled it
+     * stays so, and it is saved with the build.
+     */
+    private final Set<Integer> wetLayers = new HashSet<>();
+    private long placementsAt = Long.MIN_VALUE;
+    private List<TowerPlan.Placement> effective = List.of();
+    private Set<Integer> unsealed = Set.of();
+
+    public Set<Integer> wetLayers() {
+        return wetLayers;
+    }
+
+    /** Take over the walled layers of the build this one replaces (its order was changed, not its site). */
+    public void inheritWetLayers(Set<Integer> layers) {
+        wetLayers.addAll(layers);
+        placementsAt = Long.MIN_VALUE;
+    }
+
+    private boolean isRing(BlockPos pos) {
+        return Math.max(Math.abs(pos.getX() - plan.base().getX()), Math.abs(pos.getZ() - plan.base().getZ())) == plan.shape().radius();
+    }
+
+    /** Find the layers of the shaft that have water in them (inside it, in its walls, or just outside them), and remember them. */
+    private void findWetLayers(ServerLevel level) {
+        int radius = plan.shape().radius() + 1;
+        BlockPos base = plan.base();
+        int steps = plan.direction() == TowerDirection.DOWN ? plan.height() : 0;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int layer = 0; layer < steps; layer++) {
+            if (wetLayers.contains(layer)) {
+                continue;
+            }
+            int y = base.getY() - layer;
+            search:
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    pos.set(base.getX() + dx, y, base.getZ() + dz);
+                    if (level.isLoaded(pos) && level.getFluidState(pos).is(net.minecraft.tags.FluidTags.WATER)) {
+                        wetLayers.add(layer);
+                        break search;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The blocks of the build as they are to be done right now. For a tower, the plan's. For a shaft, the plan's with the ring of every wet layer
+     * as wall blocks (where the plan would have dug it out), so the water is walled off. Worked out again at most once a second.
+     */
+    public List<TowerPlan.Placement> placements(ServerLevel level) {
+        if (plan.direction() != TowerDirection.DOWN) {
+            return plan.placements();
+        }
+        long now = level.getGameTime();
+        if (placementsAt != Long.MIN_VALUE && now - placementsAt < 20L) {
+            return effective;
+        }
+        placementsAt = now;
+        findWetLayers(level);
+        if (wetLayers.isEmpty()) {
+            effective = plan.placements();
+            unsealed = Set.of();
+            return effective;
+        }
+        List<TowerPlan.Placement> list = new ArrayList<>(plan.placements().size());
+        for (TowerPlan.Placement placement : plan.placements()) {
+            if (placement.dig() && wetLayers.contains(placement.layer()) && isRing(placement.pos())) {
+                list.add(new TowerPlan.Placement(placement.pos(), TowerPlan.Kind.BLOCK, null, placement.layer()));
+            } else {
+                list.add(placement);
+            }
+        }
+        effective = list;
+        Set<Integer> open = new HashSet<>();
+        for (TowerPlan.Placement placement : list) {
+            if (wetLayers.contains(placement.layer()) && placement.kind() == TowerPlan.Kind.BLOCK && isRing(placement.pos()) && !isDone(level, placement)) {
+                open.add(placement.layer());
+            }
+        }
+        unsealed = open;
+        return effective;
     }
 
     /** Whether a block has already been built, judged from the world. */
@@ -161,7 +257,7 @@ public final class TowerBuild {
     }
 
     public boolean isComplete(ServerLevel level) {
-        for (TowerPlan.Placement placement : plan.placements()) {
+        for (TowerPlan.Placement placement : placements(level)) {
             if (!isDone(level, placement)) {
                 return false;
             }
@@ -205,12 +301,16 @@ public final class TowerBuild {
         AABB workerBox = worker.getBoundingBox();
         double standReach = standReach();
 
-        for (TowerPlan.Placement placement : plan.placements()) {
+        for (TowerPlan.Placement placement : placements(level)) {
             if (isDone(level, placement)) {
                 continue;
             }
             Claim claim = claims.get(placement.pos());
             if (claim != null && !claim.worker().equals(worker.getUUID())) {
+                continue;
+            }
+            // On a layer with water, nothing inside is dug until its walls are up: the water would run in.
+            if (placement.dig() && unsealed.contains(placement.layer())) {
                 continue;
             }
             // A torch waits for the wall it goes on.

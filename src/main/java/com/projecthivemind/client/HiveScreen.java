@@ -1210,6 +1210,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         if (tab == Tab.HIVE) {
             renderUnitIcons(graphics, mouseX, mouseY);
+            net.minecraft.world.inventory.Slot trash = menu.trashSlot();
+            if (mouseX >= leftPos + trash.x && mouseX < leftPos + trash.x + 16 && mouseY >= topPos + trash.y && mouseY < topPos + trash.y + 16) {
+                graphics.renderTooltip(font, Component.translatable("screen.projecthivemind.hive.trash"), mouseX, mouseY);
+            }
         }
         if (tab == Tab.EVOLVE) {
             renderEvolveTooltips(graphics, mouseX, mouseY);
@@ -1227,7 +1231,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 int x = leftPos + slot.x;
                 int y = topPos + slot.y;
                 graphics.fill(x - 1, y - 1, x + 17, y + 17, SLOT_EDGE);
-                graphics.fill(x, y, x + 16, y + 16, SLOT_FILL);
+                boolean trash = slot == menu.trashSlot();
+                graphics.fill(x, y, x + 16, y + 16, trash ? 0xFF4A1818 : SLOT_FILL);
+                if (trash) {
+                    // The trash: a reddish slot with a cross, so it reads as where things are thrown away.
+                    graphics.drawString(font, "\u00D7", x + 8 - font.width("\u00D7") / 2, y + 4, 0xFFAA5555, false);
+                }
             }
         }
 
@@ -1447,13 +1456,21 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             button.setTooltip(Tooltip.create(name.copy().append(Component.translatable("screen.projecthivemind.team.drag"))));
             unitButtons.add(addRenderableWidget(button));
         }
-        // How far around its scout each team keeps together: the ring of flames round the scout shows it.
+        // How far around its scout each team keeps together (the blue ring of flames round the scout), and beside it how far its soldiers go after
+        // hostile mobs (the yellow ring).
         for (int team = 0; team < teams; team++) {
             int index = team;
-            TeamAreaSlider slider = new TeamAreaSlider(leftPos + UNIT_LIST_X + 70, topPos + TEAM_TOP + team * TEAM_BLOCK - 3, 190, 14, ClientTeams.radius(team),
-                    radius -> PacketDistributor.sendToServer(new SetTeamRadiusPayload(index, radius)));
+            int sliderY = topPos + TEAM_TOP + team * TEAM_BLOCK - 3;
+            TeamAreaSlider slider = new TeamAreaSlider(leftPos + UNIT_LIST_X + 52, sliderY, 140, 14, ClientTeams.radius(team),
+                    com.projecthivemind.entity.HiveTeams.MIN_RADIUS, com.projecthivemind.entity.HiveTeams.MAX_RADIUS, "screen.projecthivemind.team.area",
+                    radius -> PacketDistributor.sendToServer(new SetTeamRadiusPayload(index, radius, false)));
             slider.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.team.area.tooltip")));
             unitButtons.add(addRenderableWidget(slider));
+            TeamAreaSlider attackSlider = new TeamAreaSlider(leftPos + UNIT_LIST_X + 196, sliderY, 140, 14, ClientTeams.attackRadius(team),
+                    com.projecthivemind.entity.HiveTeams.MIN_RADIUS, com.projecthivemind.entity.HiveTeams.MAX_ATTACK_RADIUS, "screen.projecthivemind.team.attack_area",
+                    radius -> PacketDistributor.sendToServer(new SetTeamRadiusPayload(index, radius, true)));
+            attackSlider.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.team.attack_area.tooltip")));
+            unitButtons.add(addRenderableWidget(attackSlider));
         }
     }
 
@@ -1504,9 +1521,23 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private record EvolveIcon(com.projecthivemind.EvolveTask task, boolean done, boolean ready, int x, int y) {
     }
 
-    /** Where the Completed list starts: under the row of tasks still to do. */
-    private static int evolveDoneTop() {
-        return EVOLVE_TOP + 42;
+    /** How many tasks fit in a row under "Tasks": as many as the panel is wide. */
+    private int evolveColumns() {
+        return Math.max(1, (imageWidth - 24) / EVOLVE_STEP);
+    }
+
+    /** How many rows the tasks still to do take. */
+    private int evolveTaskRows() {
+        int todo = 0;
+        for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
+            todo += task.doneIn(menu.evolveMask()) ? 0 : 1;
+        }
+        return Math.max(1, (todo + evolveColumns() - 1) / evolveColumns());
+    }
+
+    /** Where the Completed list starts: under the rows of tasks still to do. */
+    private int evolveDoneTop() {
+        return EVOLVE_TOP + 24 + evolveTaskRows() * EVOLVE_STEP;
     }
 
     /**
@@ -1523,7 +1554,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
                 boolean ready = !task.doneIn(mask) && (readyMask & task.bit()) != 0;
                 if (!task.doneIn(mask) && ready == readyFirst) {
-                    icons.add(new EvolveIcon(task, false, ready, UNIT_LIST_X + todo++ * EVOLVE_STEP, EVOLVE_TOP));
+                    icons.add(new EvolveIcon(task, false, ready, UNIT_LIST_X + (todo % evolveColumns()) * EVOLVE_STEP, EVOLVE_TOP + (todo++ / evolveColumns()) * EVOLVE_STEP));
                 }
             }
         }
@@ -1896,11 +1927,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (quest.coal() > 0) {
             y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.coal", quest.coal()), menu.questCoal(), quest.coal(), 1, "");
         }
-        if (quest.rawIron() > 0) {
-            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.iron", quest.rawIron()), menu.questIron(), quest.rawIron(), 1, "");
+        if (quest.ironIngots() > 0) {
+            y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.iron", quest.ironIngots()), menu.questIron(), quest.ironIngots(), 1, "");
         }
         if (quest.nether()) {
             y = questLineText(graphics, y, Component.translatable("screen.projecthivemind.quest.nether"), menu.questNether(), menu.questNether() ? "1 / 1" : "0 / 1");
+        }
+        if (quest.dragon()) {
+            y = questLineText(graphics, y, Component.translatable("screen.projecthivemind.quest.dragon"), menu.questDragon(), menu.questDragon() ? "1 / 1" : "0 / 1");
         }
         if (quest.blazeRods() > 0) {
             y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.blaze", quest.blazeRods()), menu.questBlaze(), quest.blazeRods(), 1, "");
@@ -1978,7 +2012,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 : menu.hasCrafting() ? "screen.projecthivemind.hive.crafting" : "screen.projecthivemind.hive.crafting_small";
         graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
-                HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
+                HiveMenu.TOOLS_X + com.projecthivemind.HiveEquipment.TOOL_SLOTS * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }
 
     /**

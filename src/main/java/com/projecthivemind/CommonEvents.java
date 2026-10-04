@@ -84,6 +84,10 @@ public final class CommonEvents {
         registrar.playToServer(FocusTeamPayload.TYPE, FocusTeamPayload.STREAM_CODEC, ServerPayloads::onFocusTeam);
         registrar.playToServer(com.projecthivemind.network.ConsumeEvolvePayload.TYPE, com.projecthivemind.network.ConsumeEvolvePayload.STREAM_CODEC, ServerPayloads::onConsumeEvolve);
         registrar.playToServer(com.projecthivemind.network.EnchantPayload.TYPE, com.projecthivemind.network.EnchantPayload.STREAM_CODEC, ServerPayloads::onEnchant);
+        registrar.playToServer(com.projecthivemind.network.AssignConstructionPayload.TYPE, com.projecthivemind.network.AssignConstructionPayload.STREAM_CODEC, ServerPayloads::onAssignConstruction);
+        registrar.playToServer(com.projecthivemind.network.UpdateConstructionPayload.TYPE, com.projecthivemind.network.UpdateConstructionPayload.STREAM_CODEC, ServerPayloads::onUpdateConstruction);
+        registrar.playToServer(com.projecthivemind.network.FinishConstructionPayload.TYPE, com.projecthivemind.network.FinishConstructionPayload.STREAM_CODEC, ServerPayloads::onFinishConstruction);
+        registrar.playToClient(com.projecthivemind.network.SyncConstructionsPayload.TYPE, com.projecthivemind.network.SyncConstructionsPayload.STREAM_CODEC, ClientPayloads::onSyncConstructions);
         registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
         registrar.playToServer(BuildBridgePayload.TYPE, BuildBridgePayload.STREAM_CODEC, ServerPayloads::onBuildBridge);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
@@ -208,6 +212,17 @@ public final class CommonEvents {
         HiveHeart heart = player == null ? null : HivemindManager.findHeart(player);
         if (heart != null && com.projecthivemind.EvolveTask.CARVED_PUMPKIN.doneIn(heart.evolveMask())) {
             event.setCanceled(true);
+        }
+    }
+
+    /** The Ender Dragon dying counts for every hive that was in the End when it did: it is the quest for level 6. */
+    @SubscribeEvent
+    static void onDragonDied(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
+        if (event.getEntity() instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon && !dragon.level().isClientSide
+                && dragon.level().getServer() != null) {
+            for (net.minecraft.server.level.ServerPlayer player : dragon.level().getServer().getPlayerList().getPlayers()) {
+                HivemindManager.dragonDefeated(player, dragon.level().dimension());
+            }
         }
     }
 
