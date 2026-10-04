@@ -63,6 +63,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final boolean hasBrewing;
     private final int handIndex;
     private final int foodIndex;
+    private final int evolveIndex;
+    private final SimpleContainer evolveContainer;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -75,6 +77,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_FURNACE = 4;
     public static final int GROUP_GEAR = 8;
     public static final int GROUP_BREWING = 16;
+    /** The evolve slot, the fourth workstation (level 2). */
+    public static final int GROUP_EVOLVE = 32;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -126,6 +130,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int BREW_INGREDIENT_Y = 86;
     public static final int BREW_BOTTLE_Y = 136;
     public static final int BREW_BOTTLE_X = 246;
+    /** The evolve slot sits in the middle of where the crafting grid is. */
+    public static final int EVOLVE_X = 264;
+    public static final int EVOLVE_Y = 100;
     public static final int GRID_X = 246;
     public static final int GRID_Y = 82;
     public static final int RESULT_X = 265;
@@ -166,7 +173,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_QUEST_NETHER = DATA_QUEST_COAL + 4;
     private static final int DATA_BREW_TIME = DATA_QUEST_COAL + 5;
     private static final int DATA_BREW_FUEL = DATA_QUEST_COAL + 6;
-    public static final int DATA_COUNT = DATA_BREW_FUEL + 1;
+    /** The evolution tasks done, as a mask (see EvolveTask). */
+    private static final int DATA_EVOLVE = DATA_BREW_FUEL + 1;
+    public static final int DATA_COUNT = DATA_EVOLVE + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -199,12 +208,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace, boolean hasBrewing) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, hasBrewing, new SimpleContainerData(DATA_COUNT),
+                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), new SimpleContainer(1), hasFurnace, hasBrewing, new SimpleContainerData(DATA_COUNT),
                 new int[] {-1, -1}, null);
     }
 
     private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer brewing, SimpleContainer scoutHand, SimpleContainer foodSlot, boolean hasFurnace, boolean hasBrewing, ContainerData data, int[] view,
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer brewing, SimpleContainer scoutHand, SimpleContainer foodSlot, SimpleContainer evolveSlot, boolean hasFurnace, boolean hasBrewing, ContainerData data, int[] view,
                      @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
@@ -223,6 +232,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.brewingEnd = brewingStart + (hasBrewing ? 5 : 0);
         this.handIndex = brewingEnd;
         this.foodIndex = handIndex + 1;
+        this.evolveIndex = foodIndex + 1;
+        this.evolveContainer = evolveSlot;
         this.storage = storage;
         this.data = data;
         this.view = view;
@@ -265,6 +276,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new HiveSlot(scoutHand, 0, STORAGE_X, scoutHandY(scroll.visibleRows()), GROUP_GEAR));
         // The food the hive eats from, under the armor slots: only food goes in.
         this.addSlot(new FoodSlot(foodSlot, 0, ARMOR_X, ARMOR_Y + HiveEquipment.ARMOR_SLOTS.length * 18 + 2));
+        // The evolve slot, where the crafting grid is when its workstation is chosen: one item at a time, to be consumed for a task.
+        this.addSlot(new EvolveSlot(evolveSlot, 0, EVOLVE_X, EVOLVE_Y));
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
         this.addDataSlot(scroll.matchCount());
@@ -330,6 +343,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_QUEST_IRON) {
                     return heart.ironProgress();
                 }
+                if (index == DATA_EVOLVE) {
+                    return heart.evolveMask();
+                }
                 if (index == DATA_BREW_TIME) {
                     return heart.brewing().brewTime();
                 }
@@ -364,7 +380,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
         return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.brewing().items(), heart.scoutHand(), heart.foodSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL,
+                heart.furnace().items(), heart.brewing().items(), heart.scoutHand(), heart.foodSlot(), heart.evolveSlot(), heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL,
                 heart.hiveLevel() >= HiveLevels.BREWING_LEVEL, data, view, heart);
     }
 
@@ -460,6 +476,30 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** Brews left in the blaze powder that is burning. */
     public int brewFuel() {
         return data.get(DATA_BREW_FUEL);
+    }
+
+    /** The evolution tasks done, as a mask of EvolveTask bits. */
+    public int evolveMask() {
+        return data.get(DATA_EVOLVE);
+    }
+
+    /** The task the item in the evolve slot would complete, or null if there is no item or it is not for a task that is still to do. */
+    @Nullable
+    public com.projecthivemind.EvolveTask evolveTarget() {
+        ItemStack stack = evolveContainer.getItem(0);
+        return stack.isEmpty() ? null : com.projecthivemind.EvolveTask.forItem(stack, evolveMask());
+    }
+
+    /** Server side: the player pressed "Consume item". The item in the evolve slot is gone, and its task is done. */
+    public void consumeEvolveItem() {
+        com.projecthivemind.EvolveTask task = evolveTarget();
+        if (heart == null || task == null) {
+            return;
+        }
+        evolveContainer.removeItemNoUpdate(0);
+        heart.completeEvolve(task);
+        evolveContainer.setChanged();
+        broadcastChanges();
     }
 
     public boolean hasBrewing() {
@@ -629,6 +669,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             for (int i = 0; i < craftSlots.getContainerSize(); i++) {
                 giveToHive(craftSlots.removeItemNoUpdate(i));
             }
+            giveToHive(evolveContainer.removeItemNoUpdate(0));
             resultSlots.clearContent();
         }
         super.removed(player);
@@ -665,6 +706,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public boolean isActive() {
             return (visibleGroups & group) != 0;
+        }
+
+        /** In the hive's storage a stack of anything stackable holds as many full stacks as the evolution tasks give. */
+        @Override
+        public int getMaxStackSize(ItemStack stack) {
+            int base = super.getMaxStackSize(stack);
+            return group == GROUP_STORAGE && stack.getMaxStackSize() > 1 ? stack.getMaxStackSize() * com.projecthivemind.EvolveTask.stackMultiplier(evolveMask()) : base;
         }
 
         /** With a search on, the storage slots after the last match are not real slots: nothing can be put in them. */
@@ -711,6 +759,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         @Override
         public Pair<ResourceLocation, ResourceLocation> getNoItemIcon() {
             return Pair.of(InventoryMenu.BLOCK_ATLAS, ARMOR_ICONS[position]);
+        }
+    }
+
+    /** The evolve slot: any item can be put in it (it says whether it is valid), but one at a time. */
+    private class EvolveSlot extends HiveSlot {
+        EvolveSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_EVOLVE);
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return 1;
         }
     }
 

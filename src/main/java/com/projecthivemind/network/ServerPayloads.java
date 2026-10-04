@@ -58,7 +58,7 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_EVOLVE);
         }
     }
 
@@ -245,6 +245,13 @@ public final class ServerPayloads {
     public static void onSetUnitTeam(SetUnitTeamPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.setUnitTeam(player, payload.unitId(), payload.team());
+        }
+    }
+
+    public static void onConsumeEvolve(ConsumeEvolvePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.consumeEvolveItem();
         }
     }
 

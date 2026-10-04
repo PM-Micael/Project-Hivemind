@@ -28,8 +28,8 @@ public final class StorageSorter {
                 continue;
             }
             for (ItemStack existing : stacks) {
-                if (ItemStack.isSameItemSameComponents(existing, incoming) && existing.getCount() < existing.getMaxStackSize()) {
-                    int moved = Math.min(incoming.getCount(), existing.getMaxStackSize() - existing.getCount());
+                if (ItemStack.isSameItemSameComponents(existing, incoming) && existing.getCount() < storage.getMaxStackSize(existing)) {
+                    int moved = Math.min(incoming.getCount(), storage.getMaxStackSize(existing) - existing.getCount());
                     existing.grow(moved);
                     incoming.shrink(moved);
                     if (incoming.isEmpty()) {

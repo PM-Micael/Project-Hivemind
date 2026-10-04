@@ -30,6 +30,7 @@ import com.projecthivemind.network.ScrollStoragePayload;
 import com.projecthivemind.network.SetJobResumePayload;
 import com.projecthivemind.network.SetCollectorTaskPayload;
 import com.projecthivemind.network.SetUnitTeamPayload;
+import com.projecthivemind.network.ConsumeEvolvePayload;
 import com.projecthivemind.network.SetStorageSearchPayload;
 import com.projecthivemind.network.SetTeamRadiusPayload;
 import com.projecthivemind.network.SyncPortalsPayload;
@@ -44,6 +45,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
@@ -102,7 +104,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int WOODWORK_ROW = 10;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS, TEAM, PORTALS
+        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -115,12 +117,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button questsTab;
     private Button teamTab;
     private Button portalsTab;
+    private Button evolveTab;
     /** Which workstation shows on the right of the Hive tab: the crafting grid, or the furnace (from level 3). */
     private boolean furnaceShown;
     private boolean brewingShown;
     private SeedButton brewingButton;
     private SeedButton craftingButton;
     private SeedButton furnaceButton;
+    private SeedButton evolveButton;
+    private Button consumeButton;
+    private boolean evolveShown;
+    /** What was on offer the last time the workstation buttons were laid out, so a change (the hive levelling up) lays them out again. */
+    private int stationKey = -1;
     /** The search box over the hive storage: only what has this text in its name is shown. */
     private EditBox storageSearch;
     private final Map<UnitKind, Button> kindTabs = new EnumMap<>(UnitKind.class);
@@ -220,11 +228,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     protected void init() {
         super.init();
         // Top row: the text tabs. Second row: one button for each kind of unit, showing its head.
-        hiveTab = tabButton(0, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
-        questsTab = tabButton(1, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
-        teamTab = tabButton(2, "screen.projecthivemind.hive.tab_team", Tab.TEAM);
-        portalsTab = tabButton(3, "screen.projecthivemind.hive.tab_portals", Tab.PORTALS);
-        portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
+        hiveTab = tabButton(0, Items.BEE_NEST, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
+        questsTab = tabButton(1, Items.BOOK, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
+        teamTab = tabButton(2, Items.DIAMOND_SWORD, "screen.projecthivemind.hive.tab_team", Tab.TEAM);
+        portalsTab = tabButton(3, Items.ENDER_PEARL, "screen.projecthivemind.hive.tab_portals", Tab.PORTALS);
+        evolveTab = tabButton(4, Items.DRAGON_EGG, "screen.projecthivemind.hive.tab_evolve", Tab.EVOLVE);
+        updateTabButtons();
         kindTabs.clear();
         for (int i = 0; i < KINDS.length; i++) {
             UnitKind kind = KINDS[i];
@@ -249,6 +258,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         craftingButton.visible = false;
         furnaceButton.visible = false;
         brewingButton.visible = false;
+        evolveButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 72, 20, 20,
+                () -> new ItemStack(net.minecraft.world.item.Items.DRAGON_EGG), button -> chooseWorkstation(3)));
+        evolveButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.evolve")));
+        evolveButton.visible = false;
+        // Under the evolve slot: whether what is in it is valid, and the button that consumes it.
+        consumeButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.evolve.consume"), button ->
+                PacketDistributor.sendToServer(new ConsumeEvolvePayload(menu.containerId)))
+                .bounds(leftPos + HiveMenu.EVOLVE_X - 34, topPos + HiveMenu.EVOLVE_Y + 44, 84, 18).build());
+        consumeButton.visible = false;
 
         // Search the storage: what is typed here filters the storage grid to the items whose name has it in it.
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
@@ -303,9 +321,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    private Button tabButton(int index, String key, Tab target) {
-        return addRenderableWidget(Button.builder(Component.translatable(key), button -> showTab(target, unitPage))
-                .bounds(leftPos + 8 + index * 66, topPos + 28, 62, 18).build());
+    /** A square button for a tab, showing an item as its icon; the tab's name is its tooltip. */
+    private Button tabButton(int index, net.minecraft.world.item.Item icon, String key, Tab target) {
+        SeedButton button = new SeedButton(leftPos + 8 + index * TAB_STEP, topPos + 28, 20, 20, () -> new ItemStack(icon), pressed -> showTab(target, unitPage));
+        button.setTooltip(Tooltip.create(Component.translatable(key)));
+        return addRenderableWidget(button);
+    }
+
+    private static final int TAB_STEP = 22;
+
+    /** Which tab buttons are there for this level, packed to the left: the Portals tab comes with level 3, the Evolve tab with level 2. */
+    private void updateTabButtons() {
+        portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
+        evolveTab.visible = menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
+        evolveTab.setX(leftPos + 8 + (portalsTab.visible ? 4 : 3) * TAB_STEP);
     }
 
     /** A button that shows the head of a unit's mob model where a label would be. */
@@ -344,22 +373,48 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void applyMenuGroups(Tab forTab) {
         boolean furnace = furnaceShown && menu.hasFurnace();
         boolean brewing = brewingShown && menu.hasBrewing();
+        boolean evolve = evolveShown && evolveAvailable();
         menu.visibleGroups = forTab == Tab.HIVE
-                ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | (brewing ? HiveMenu.GROUP_BREWING : furnace ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
+                ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR
+                        | (evolve ? HiveMenu.GROUP_EVOLVE : brewing ? HiveMenu.GROUP_BREWING : furnace ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
         if (craftingButton != null) {
-            boolean offered = forTab == Tab.HIVE && menu.hasFurnace();
-            craftingButton.visible = offered;
-            furnaceButton.visible = offered;
-            craftingButton.active = furnace || brewing;
+            // The buttons for the workstations the hive has, one under the other: the crafting table first, then the furnace (level 3),
+            // the brewing stand (level 5) and the evolve slot (level 2). With only the crafting grid there is nothing to choose.
+            boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), evolveAvailable()};
+            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, evolveButton};
+            int count = 0;
+            for (boolean has : offered) {
+                count += has ? 1 : 0;
+            }
+            int row = 0;
+            for (int i = 0; i < buttons.length; i++) {
+                buttons[i].visible = forTab == Tab.HIVE && offered[i] && count > 1;
+                if (offered[i]) {
+                    buttons[i].setY(topPos + HiveMenu.STORAGE_Y + row * 24);
+                    row++;
+                }
+            }
+            craftingButton.active = furnace || brewing || evolve;
             furnaceButton.active = !furnace;
-            brewingButton.visible = forTab == Tab.HIVE && menu.hasBrewing();
             brewingButton.active = !brewing;
+            evolveButton.active = !evolve;
+            stationKey = stationKey();
         }
+    }
+
+    /** The evolve slot is there from level 2. */
+    private boolean evolveAvailable() {
+        return menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
+    }
+
+    private int stationKey() {
+        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (evolveAvailable() ? 4 : 0);
     }
 
     private void chooseWorkstation(int station) {
         furnaceShown = station == 1;
         brewingShown = station == 2;
+        evolveShown = station == 3;
         applyMenuGroups(tab);
         PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
     }
@@ -379,6 +434,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         teamTab.active = newTab != Tab.TEAM;
         dragUnit = -1;
         portalsTab.active = newTab != Tab.PORTALS;
+        evolveTab.active = newTab != Tab.EVOLVE;
         storageSearch.visible = newTab == Tab.HIVE;
 
         if (newTab == Tab.PORTALS) {
@@ -603,7 +659,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         super.containerTick();
         updateJobBox();
         // The portal network comes with level 3; the tab is there once the hive has it.
-        portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
+        updateTabButtons();
+        // The workstation buttons depend on the level, which only reaches the client a moment after the menu opens (and changes when the hive levels up).
+        if (stationKey != stationKey()) {
+            applyMenuGroups(tab);
+        }
+        // The evolve slot: the button that consumes what is in it is there while it holds something valid.
+        consumeButton.visible = tab == Tab.HIVE && evolveShown && evolveAvailable() && menu.evolveTarget() != null;
+        if (tab == Tab.EVOLVE && !evolveTab.visible) {
+            showTab(Tab.HIVE, unitPage);
+        }
         if (tab == Tab.PORTALS) {
             if (portalsTab.visible) {
                 refreshPortals(false);
@@ -1085,6 +1150,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (tab == Tab.HIVE) {
             renderUnitIcons(graphics, mouseX, mouseY);
         }
+        if (tab == Tab.EVOLVE) {
+            renderEvolveTooltips(graphics, mouseX, mouseY);
+        }
         this.renderTooltip(graphics, mouseX, mouseY);
     }
 
@@ -1189,6 +1257,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case UNITS -> renderUnitPage(graphics);
             case TEAM -> renderTeam(graphics);
             case PORTALS -> renderPortals(graphics);
+            case EVOLVE -> renderEvolve(graphics);
             default -> renderHiveLabels(graphics);
         }
     }
@@ -1340,6 +1409,69 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    // ---- the Evolve tab ----
+
+    private static final int EVOLVE_TOP = 98;
+    private static final int EVOLVE_ROW = 22;
+
+    /** One task's icon on the Evolve tab: whether it is done, and where it is (in the panel's own coordinates). */
+    private record EvolveIcon(com.projecthivemind.EvolveTask task, boolean done, int x, int y) {
+    }
+
+    /** Where the Completed list starts: under the row of tasks still to do. */
+    private static int evolveDoneTop() {
+        return EVOLVE_TOP + 42;
+    }
+
+    /** The icons of the tab: the tasks still to do side by side under "Tasks", those done one under the other under "Completed". */
+    private List<EvolveIcon> evolveIcons() {
+        List<EvolveIcon> icons = new ArrayList<>();
+        int mask = menu.evolveMask();
+        int todo = 0;
+        int done = 0;
+        for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
+            if (task.doneIn(mask)) {
+                icons.add(new EvolveIcon(task, true, UNIT_LIST_X, evolveDoneTop() + done++ * EVOLVE_ROW));
+            } else {
+                icons.add(new EvolveIcon(task, false, UNIT_LIST_X + todo++ * EVOLVE_ROW, EVOLVE_TOP));
+            }
+        }
+        return icons;
+    }
+
+    private void renderEvolve(GuiGraphics graphics) {
+        List<EvolveIcon> icons = evolveIcons();
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.tasks"), UNIT_LIST_X, EVOLVE_TOP - 14, 0xFFFFFF, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.completed"), UNIT_LIST_X, evolveDoneTop() - 14, 0xFFFFFF, false);
+        if (icons.stream().allMatch(EvolveIcon::done)) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.no_tasks"), UNIT_LIST_X + 4, EVOLVE_TOP + 4, 0x909090, false);
+        }
+        if (icons.stream().noneMatch(EvolveIcon::done)) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.none_done"), UNIT_LIST_X + 4, evolveDoneTop() + 4, 0x909090, false);
+        }
+        for (EvolveIcon icon : icons) {
+            graphics.fill(icon.x() - 1, icon.y() - 1, icon.x() + 17, icon.y() + 17, SLOT_EDGE);
+            graphics.fill(icon.x(), icon.y(), icon.x() + 16, icon.y() + 16, SLOT_FILL);
+            graphics.renderItem(new ItemStack(icon.task().item()), icon.x(), icon.y());
+            if (icon.done()) {
+                // What it gave, to the right of it.
+                graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.reward." + icon.task().name().toLowerCase(Locale.ROOT)),
+                        icon.x() + 24, icon.y() + 4, 0xA0E0A0, false);
+            }
+        }
+    }
+
+    /** Hovering over a task's icon names the item. Drawn after the rest of the screen, so it is in the screen's own coordinates. */
+    private void renderEvolveTooltips(GuiGraphics graphics, int mouseX, int mouseY) {
+        for (EvolveIcon icon : evolveIcons()) {
+            int x = leftPos + icon.x();
+            int y = topPos + icon.y();
+            if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+                graphics.renderTooltip(font, new ItemStack(icon.task().item()), mouseX, mouseY);
+            }
+        }
     }
 
     // ---- the portal network ----
@@ -1708,9 +1840,19 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.scout_hand"), HiveMenu.STORAGE_X + 22,
                 HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
         // The workstation on the right is named for the open tab.
-        String workstation = brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
+        String workstation = evolveShown && evolveAvailable() ? "screen.projecthivemind.hive.evolve"
+                : brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
                 : furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace" : "screen.projecthivemind.hive.crafting";
         graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
+        // Under the evolve slot: whether the item in it is valid for a task that is still to do.
+        if (evolveShown && evolveAvailable() && !menu.slots.get(menu.slots.size() - 1).getItem().isEmpty()) {
+            boolean valid = menu.evolveTarget() != null;
+            Component verdict = Component.translatable(valid ? "screen.projecthivemind.evolve.valid" : "screen.projecthivemind.evolve.invalid");
+            int verdictX = HiveMenu.EVOLVE_X + 8 - font.width(verdict) / 2;
+            // Highlighted: green behind "Valid", red behind "Invalid".
+            graphics.fill(verdictX - 3, HiveMenu.EVOLVE_Y + 26, verdictX + font.width(verdict) + 3, HiveMenu.EVOLVE_Y + 38, valid ? 0x80206020 : 0x80802020);
+            graphics.drawString(font, verdict, verdictX, HiveMenu.EVOLVE_Y + 28, valid ? 0x55FF55 : 0xFF5555, false);
+        }
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
                 HiveMenu.TOOLS_X + 5 * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }

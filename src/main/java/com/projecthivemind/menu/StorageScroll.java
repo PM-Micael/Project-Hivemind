@@ -46,7 +46,14 @@ public final class StorageScroll {
             this.view = window;
         } else {
             this.window = null;
-            this.view = new SimpleContainer(visibleSlots(total));
+            // The client's copy only shows what the server says: it must not cut a stack down to the item's usual size, or a stack the evolution
+            // tasks made bigger would show as 64 until it was picked up. (The server's storage decides how much a slot really holds.)
+            this.view = new SimpleContainer(visibleSlots(total)) {
+                @Override
+                public int getMaxStackSize(net.minecraft.world.item.ItemStack stack) {
+                    return stack.getMaxStackSize() > 1 ? 1024 : stack.getMaxStackSize();
+                }
+            };
         }
     }
 

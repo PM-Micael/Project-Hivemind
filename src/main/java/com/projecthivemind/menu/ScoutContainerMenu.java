@@ -72,7 +72,13 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
         }
         int storageY = storageY(this.targetSize);
         for (int i = 0; i < scroll.visibleSlots(scroll.total()); i++) {
-            this.addSlot(new Slot(scroll.view(), i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18));
+            this.addSlot(new Slot(scroll.view(), i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18) {
+                /** The hive's storage may hold bigger stacks than the item usually does (see the evolution tasks). */
+                @Override
+                public int getMaxStackSize(ItemStack stack) {
+                    return storage instanceof com.projecthivemind.entity.HiveStorage hiveStorage ? hiveStorage.limitFor(stack) : super.getMaxStackSize(stack);
+                }
+            });
         }
         this.addDataSlot(scroll.position());
     }

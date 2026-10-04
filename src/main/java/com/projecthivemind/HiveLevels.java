@@ -56,6 +56,9 @@ public final class HiveLevels {
     /** The level at which scouts can place hive portals. */
     public static final int PORTAL_LEVEL = 3;
 
+    /** The level at which the Evolve tab of the hive menu is there. */
+    public static final int EVOLVE_LEVEL = 2;
+
     private HiveLevels() {
     }
 

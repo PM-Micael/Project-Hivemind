@@ -64,6 +64,7 @@ public class HiveHeart extends Mob {
     private static final String SCOUT_HAND_TAG = "ScoutHand";
     private static final String FOOD_SLOT_TAG = "FoodSlot";
     private static final String STORAGE_TAG = "HiveStorage";
+    private static final String EVOLVE_TAG = "EvolveTasks";
     private static final String ARMOR_TAG = "HiveArmor";
     private static final String TOOLS_TAG = "HiveTools";
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
@@ -110,7 +111,7 @@ public class HiveHeart extends Mob {
     private final HiveFood food = new HiveFood();
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
     private final Set<Long> exploredChunks = new HashSet<>();
-    private SimpleContainer storage = new SimpleContainer(HiveLevels.get(1).storageSlots());
+    private HiveStorage storage = new HiveStorage(HiveLevels.get(1).storageSlots(), this::stackMultiplier);
     /** One piece per armor slot, in {@link HiveEquipment#ARMOR_SLOTS} order. New soldiers get copies of these. */
     private final SimpleContainer armorSlots = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
@@ -697,7 +698,30 @@ public class HiveHeart extends Mob {
         return hiveLevel;
     }
 
-    public SimpleContainer getStorage() {
+    /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
+    private int evolveMask;
+    /** The evolve slot of the hive menu: one item to be consumed. Not saved; what is in it goes back to the hive when the menu closes. */
+    private final SimpleContainer evolveSlot = new SimpleContainer(1);
+
+    public int evolveMask() {
+        return evolveMask;
+    }
+
+    public SimpleContainer evolveSlot() {
+        return evolveSlot;
+    }
+
+    /** Mark a task as done: its reward is in effect from now on. */
+    public void completeEvolve(com.projecthivemind.EvolveTask task) {
+        evolveMask |= task.bit();
+    }
+
+    /** How many full stacks a slot of the hive's storage holds: one more for each task done. */
+    public int stackMultiplier() {
+        return com.projecthivemind.EvolveTask.stackMultiplier(evolveMask);
+    }
+
+    public HiveStorage getStorage() {
         return storage;
     }
 
@@ -748,7 +772,7 @@ public class HiveHeart extends Mob {
         this.getAttribute(Attributes.MAX_HEALTH).setBaseValue(definition.maxHealth());
         this.setHealth(this.getMaxHealth());
         if (storage.getContainerSize() != definition.storageSlots()) {
-            SimpleContainer resized = new SimpleContainer(definition.storageSlots());
+            HiveStorage resized = new HiveStorage(definition.storageSlots(), this::stackMultiplier);
             for (int i = 0; i < Math.min(storage.getContainerSize(), resized.getContainerSize()); i++) {
                 resized.setItem(i, storage.getItem(i));
             }
@@ -829,7 +853,8 @@ public class HiveHeart extends Mob {
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
-        tag.put(STORAGE_TAG, ContainerHelper.saveAllItems(new CompoundTag(), storage.getItems(), registryAccess()));
+        tag.put(STORAGE_TAG, storage.save(registryAccess()));
+        tag.putInt(EVOLVE_TAG, evolveMask);
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
@@ -918,9 +943,10 @@ public class HiveHeart extends Mob {
         for (long chunk : tag.getLongArray(EXPLORED_TAG)) {
             exploredChunks.add(chunk);
         }
-        storage = new SimpleContainer(HiveLevels.get(hiveLevel).storageSlots());
+        evolveMask = tag.getInt(EVOLVE_TAG);
+        storage = new HiveStorage(HiveLevels.get(hiveLevel).storageSlots(), this::stackMultiplier);
         if (tag.contains(STORAGE_TAG)) {
-            ContainerHelper.loadAllItems(tag.getCompound(STORAGE_TAG), storage.getItems(), registryAccess());
+            storage.load(tag.getCompound(STORAGE_TAG), registryAccess());
         }
         if (tag.contains(ARMOR_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(ARMOR_TAG), armorSlots.getItems(), registryAccess());

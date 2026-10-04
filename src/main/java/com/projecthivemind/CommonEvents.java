@@ -82,6 +82,7 @@ public final class CommonEvents {
         registrar.playToServer(ReturnToBasePayload.TYPE, ReturnToBasePayload.STREAM_CODEC, ServerPayloads::onReturnToBase);
         registrar.playToServer(SetUnitTeamPayload.TYPE, SetUnitTeamPayload.STREAM_CODEC, ServerPayloads::onSetUnitTeam);
         registrar.playToServer(FocusTeamPayload.TYPE, FocusTeamPayload.STREAM_CODEC, ServerPayloads::onFocusTeam);
+        registrar.playToServer(com.projecthivemind.network.ConsumeEvolvePayload.TYPE, com.projecthivemind.network.ConsumeEvolvePayload.STREAM_CODEC, ServerPayloads::onConsumeEvolve);
         registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
         registrar.playToServer(BuildBridgePayload.TYPE, BuildBridgePayload.STREAM_CODEC, ServerPayloads::onBuildBridge);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
