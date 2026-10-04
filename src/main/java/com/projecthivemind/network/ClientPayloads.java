@@ -67,6 +67,10 @@ public final class ClientPayloads {
     public static void onSyncTeam(com.projecthivemind.network.SyncTeamPayload payload, IPayloadContext context) {
         com.projecthivemind.client.ClientTeams.update(payload.radii());
     }
+    public static void onSyncMusic(SyncMusicPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientMusic.set(payload.disc());
+    }
+
     public static void onSyncPortals(SyncPortalsPayload payload, IPayloadContext context) {
         com.projecthivemind.client.ClientPortals.update(payload);
     }

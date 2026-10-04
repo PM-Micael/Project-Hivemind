@@ -205,8 +205,10 @@ public class WorkerFillGoal extends Goal {
                     }
                     BlockPos ground = new BlockPos(x, groundTop, z);
                     BlockState groundState = level.getBlockState(ground);
-                    // Only on solid ground: not on water, not on something a block cannot stand on.
-                    if (!groundState.getFluidState().isEmpty() || !groundState.isFaceSturdy(level, ground, Direction.UP)) {
+                    // On solid ground, or on the surface of water: over water it fills from the surface up, one block at a time from the shore, so
+                    // a lake becomes a causeway of blocks at the floor's level. Not on lava, and not on something a block cannot stand on.
+                    boolean onWater = groundState.getFluidState().is(net.minecraft.tags.FluidTags.WATER);
+                    if (!onWater && (!groundState.getFluidState().isEmpty() || !groundState.isFaceSturdy(level, ground, Direction.UP))) {
                         continue;
                     }
                     BlockPos gap = ground.above();

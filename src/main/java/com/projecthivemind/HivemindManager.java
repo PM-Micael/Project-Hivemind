@@ -704,6 +704,42 @@ public final class HivemindManager {
             createUnit(owner, heart, kind);
         }
     }
+    private static final ResourceLocation TURTLE_SHELL_DEFENCE = ProjectHivemind.id("turtle_shell_defence");
+
+    /**
+     * Once the hive has consumed a turtle shell (an evolution task) the Heart and every unit have 2 more base armor. Called once a second from
+     * the Heart; a unit made after that gets it within the second.
+     */
+    public static void tickDefence(HiveHeart heart) {
+        boolean on = com.projecthivemind.EvolveTask.TURTLE_SHELL.doneIn(heart.evolveMask());
+        applyDefence(heart, on);
+        if (heart.ownerId() == null || heart.getServer() == null) {
+            return;
+        }
+        ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+        if (owner == null) {
+            return;
+        }
+        for (UUID id : get(owner).allUnits()) {
+            if (findUnit(owner, id) instanceof Mob unit) {
+                applyDefence(unit, on);
+            }
+        }
+    }
+
+    private static void applyDefence(Mob mob, boolean on) {
+        AttributeInstance armor = mob.getAttribute(Attributes.ARMOR);
+        if (armor == null) {
+            return;
+        }
+        if (!on) {
+            armor.removeModifier(TURTLE_SHELL_DEFENCE);
+        } else if (armor.getModifier(TURTLE_SHELL_DEFENCE) == null) {
+            armor.addPermanentModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(TURTLE_SHELL_DEFENCE, 2.0D,
+                    net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE));
+        }
+    }
+
 
     /**
      * When the hive's armor or tool slots change, every unit that carries something from them is brought up to date at once (see

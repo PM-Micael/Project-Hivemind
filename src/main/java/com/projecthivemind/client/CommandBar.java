@@ -25,8 +25,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
  * own hotbar keys, in order, so they follow whatever the player has bound: 1 is the first team (the Heart's), 2 the second (the first portal's)
  * and so on.
  *
- * <p>Pressing a team's key selects every unit of that team and deselects everything else, and moves the camera to the team's scout, or to the
- * next unit of the team if it has none.
+ * <p>Pressing a team's key selects that team (and deselects everything else). Pressing it again within a second moves the camera to the team's scout, or to the
+ * next unit of the team if it has none; pressing it a third time within that second deselects.
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class CommandBar {
@@ -71,30 +71,51 @@ public final class CommandBar {
         }
     }
 
-    /** The team last selected with its key, and the game tick that was on: pressing the same key again within a second deselects everything. */
-    private static int lastTeam = -1;
-    private static long lastTeamTick;
-    private static final int DESELECT_WINDOW_TICKS = 20;
-
     /**
-     * Select the team and go to it. While the team has a scout, the scout is the one unit selected: the rest follow it and act on their own.
-     * A team with no scout (it died and left the team) has all its units selected, to be controlled as normal. Pressing the same key again within
-     * a second deselects everything instead.
+     * The team last picked with its key, the game tick of its first press, and how many presses there have been in that second. One press
+     * selects the team, a second press within the second takes the camera to it, and a third within the same second deselects it.
      */
+    private static int lastTeam = -1;
+    private static long windowStart;
+    private static int presses;
+    private static final int WINDOW_TICKS = 20;
+
     private static void selectTeam(Minecraft minecraft, int team) {
         long now = minecraft.level.getGameTime();
-        if (team == lastTeam && now - lastTeamTick <= DESELECT_WINDOW_TICKS) {
+        if (team == lastTeam && now - windowStart <= WINDOW_TICKS) {
+            presses++;
+        } else {
+            lastTeam = team;
+            windowStart = now;
+            presses = 1;
+        }
+        if (presses >= 3) {
+            // The third press in the same second: let the team go, and start over.
             lastTeam = -1;
+            presses = 0;
             HiveSelection.expectUnits(Set.of(), 0);
             ClientSelection.retain(Set.of());
             return;
         }
-        lastTeam = team;
-        lastTeamTick = now;
+        if (!selectMembers(minecraft, team)) {
+            lastTeam = -1;
+            presses = 0;
+            return;
+        }
+        if (presses == 2) {
+            PacketDistributor.sendToServer(new FocusTeamPayload(team));
+        }
+    }
+
+    /**
+     * Select the team and nothing else. While the team has a scout, the scout is the one unit selected: the rest follow it and act on their own.
+     * A team with no scout (it died and left the team) has all its units selected, to be controlled as normal. False if the team has no one out.
+     */
+    private static boolean selectMembers(Minecraft minecraft, int team) {
         List<SyncUnitsPayload.Entry> members = members(team);
         if (members.isEmpty()) {
             minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.team_empty", team + 1), false);
-            return;
+            return false;
         }
         Set<Integer> ids = new HashSet<>();
         boolean hasScout = members.stream().anyMatch(entry -> entry.kind() == UnitKind.SCOUT.ordinal());
@@ -106,7 +127,7 @@ public final class CommandBar {
         HiveSelection.expectUnits(ids, minecraft.player.tickCount + 100);
         ClientSelection.retain(ids);
         ids.forEach(ClientSelection::select);
-        PacketDistributor.sendToServer(new FocusTeamPayload(team));
+        return true;
     }
 
     /** Drawn as a GUI layer along the bottom of the screen. */

@@ -62,6 +62,7 @@ public class HiveHeart extends Mob {
     private static final String AGE_TAG = "HiveAge";
     private static final String FURNACE_TAG = "HiveFurnace";
     private static final String SCOUT_HAND_TAG = "ScoutHand";
+    private static final String JUKEBOX_TAG = "JukeboxDisc";
     private static final String FOOD_SLOT_TAG = "FoodSlot";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String EVOLVE_TAG = "EvolveTasks";
@@ -105,6 +106,10 @@ public class HiveHeart extends Mob {
     private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
     private final SimpleContainer scoutHand = new SimpleContainer(1);
+    /** The hive's jukebox slot: the music disc that is playing. Saved. */
+    private final SimpleContainer jukeboxSlot = new SimpleContainer(1);
+    /** The disc the owner's client was last told about. Not saved. */
+    private String lastMusic = "";
     /** The food the hive eats from: put in the hive menu, under the armor slots. Only food goes in. */
     private final SimpleContainer foodSlot = new SimpleContainer(1);
     /** The hive's hunger: see HiveFood. */
@@ -461,6 +466,9 @@ public class HiveHeart extends Mob {
         if (this.tickCount % 5 == 0) {
             HivemindManager.tickGearSync(this);
         }
+        if (this.tickCount % 20 == 0) {
+            HivemindManager.tickDefence(this);
+        }
         if (this.tickCount % 2 == 0) {
             // The storage is kept in alphabetical order, with like stacks merged.
             StorageSorter.sort(storage);
@@ -478,12 +486,17 @@ public class HiveHeart extends Mob {
                 }
             }
         }
-        if (hiveLevel >= HiveLevels.FURNACE_LEVEL && this.level() instanceof ServerLevel serverLevel) {
+        if (com.projecthivemind.EvolveTask.FURNACE.doneIn(evolveMask) && this.level() instanceof ServerLevel serverLevel) {
             furnace.tick(serverLevel);
         }
-        if (hiveLevel >= HiveLevels.BREWING_LEVEL && this.level() instanceof ServerLevel serverLevel) {
+        if (com.projecthivemind.EvolveTask.BREWING_STAND.doneIn(evolveMask) && this.level() instanceof ServerLevel serverLevel) {
             brewing.tick(serverLevel);
         }
+        HeartTurret.tick(this);
+        HeartThorns.tick(this);
+        HeartSonicBoom.tick(this);
+        HeartAura.tick(this);
+        HiveMusic.tick(this);
         HivePortals.tick(this);
         if (this.tickCount % QUEST_INTERVAL_TICKS == 0) {
             HivemindManager.tickQuests(this);
@@ -646,6 +659,18 @@ public class HiveHeart extends Mob {
         this.doHurtEquipment(source, damage, HiveEquipment.ARMOR_SLOTS);
     }
 
+    public SimpleContainer jukeboxSlot() {
+        return jukeboxSlot;
+    }
+
+    public String lastMusic() {
+        return lastMusic;
+    }
+
+    public void setLastMusic(String disc) {
+        this.lastMusic = disc;
+    }
+
     public SimpleContainer scoutHand() {
         return scoutHand;
     }
@@ -700,15 +725,32 @@ public class HiveHeart extends Mob {
 
     /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
     private int evolveMask;
-    /** The evolve slot of the hive menu: one item to be consumed. Not saved; what is in it goes back to the hive when the menu closes. */
-    private final SimpleContainer evolveSlot = new SimpleContainer(1);
 
     public int evolveMask() {
         return evolveMask;
     }
 
-    public SimpleContainer evolveSlot() {
-        return evolveSlot;
+    /**
+     * The tasks still to do that the hive can do now: those whose item is somewhere in its storage, as a mask of bits.
+     */
+    public int evolveReadyMask() {
+        int ready = 0;
+        for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
+            if (!task.doneIn(evolveMask) && storageHasFor(task) >= 0) {
+                ready |= task.bit();
+            }
+        }
+        return ready;
+    }
+
+    /** The storage slot holding an item for this task, or -1. */
+    public int storageHasFor(com.projecthivemind.EvolveTask task) {
+        for (int i = 0; i < storage.getContainerSize(); i++) {
+            if (!storage.getItem(i).isEmpty() && task.accepts(storage.getItem(i))) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Mark a task as done: its reward is in effect from now on. */
@@ -851,6 +893,7 @@ public class HiveHeart extends Mob {
             tag.put("TowerBuild", activeBuild.save());
         }
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
+        tag.put(JUKEBOX_TAG, ContainerHelper.saveAllItems(new CompoundTag(), jukeboxSlot.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, storage.save(registryAccess()));
@@ -918,6 +961,10 @@ public class HiveHeart extends Mob {
             ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());
         }
         scoutHand.clearContent();
+        jukeboxSlot.clearContent();
+        if (tag.contains(JUKEBOX_TAG)) {
+            ContainerHelper.loadAllItems(tag.getCompound(JUKEBOX_TAG), jukeboxSlot.getItems(), registryAccess());
+        }
         if (tag.contains(SCOUT_HAND_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(SCOUT_HAND_TAG), scoutHand.getItems(), registryAccess());
         }

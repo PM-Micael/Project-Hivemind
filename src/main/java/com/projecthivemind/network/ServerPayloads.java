@@ -58,7 +58,7 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_EVOLVE);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX);
         }
     }
 
@@ -248,10 +248,17 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onEnchant(EnchantPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.enchant(payload.option());
+        }
+    }
+
     public static void onConsumeEvolve(ConsumeEvolvePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.consumeEvolveItem();
+            menu.consumeEvolveTask(payload.task());
         }
     }
 

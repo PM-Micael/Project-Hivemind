@@ -83,6 +83,7 @@ public final class CommonEvents {
         registrar.playToServer(SetUnitTeamPayload.TYPE, SetUnitTeamPayload.STREAM_CODEC, ServerPayloads::onSetUnitTeam);
         registrar.playToServer(FocusTeamPayload.TYPE, FocusTeamPayload.STREAM_CODEC, ServerPayloads::onFocusTeam);
         registrar.playToServer(com.projecthivemind.network.ConsumeEvolvePayload.TYPE, com.projecthivemind.network.ConsumeEvolvePayload.STREAM_CODEC, ServerPayloads::onConsumeEvolve);
+        registrar.playToServer(com.projecthivemind.network.EnchantPayload.TYPE, com.projecthivemind.network.EnchantPayload.STREAM_CODEC, ServerPayloads::onEnchant);
         registrar.playToServer(com.projecthivemind.network.BuildWallPayload.TYPE, com.projecthivemind.network.BuildWallPayload.STREAM_CODEC, ServerPayloads::onBuildWall);
         registrar.playToServer(BuildBridgePayload.TYPE, BuildBridgePayload.STREAM_CODEC, ServerPayloads::onBuildBridge);
         registrar.playToServer(OpenHiveMenuPayload.TYPE, OpenHiveMenuPayload.STREAM_CODEC, ServerPayloads::onOpenHiveMenu);
@@ -102,6 +103,7 @@ public final class CommonEvents {
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);
         registrar.playToClient(com.projecthivemind.network.SyncPortalsPayload.TYPE, com.projecthivemind.network.SyncPortalsPayload.STREAM_CODEC, ClientPayloads::onSyncPortals);
+        registrar.playToClient(com.projecthivemind.network.SyncMusicPayload.TYPE, com.projecthivemind.network.SyncMusicPayload.STREAM_CODEC, ClientPayloads::onSyncMusic);
         registrar.playToClient(com.projecthivemind.network.ConfirmPortalPayload.TYPE, com.projecthivemind.network.ConfirmPortalPayload.STREAM_CODEC, ClientPayloads::onConfirmPortal);
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
@@ -189,6 +191,33 @@ public final class CommonEvents {
     }
 
 
+
+    /**
+     * Once the hive has consumed a carved pumpkin (an evolution task), endermen do not take its units or its Heart as targets, as they do not take
+     * a player wearing one: not when the units look at them, and not when the units fight them.
+     */
+    @SubscribeEvent
+    static void onEndermanTarget(net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent event) {
+        if (!(event.getEntity() instanceof net.minecraft.world.entity.monster.EnderMan) || event.getNewAboutToBeSetTarget() == null
+                || !(event.getNewAboutToBeSetTarget().level() instanceof net.minecraft.server.level.ServerLevel level)) {
+            return;
+        }
+        net.minecraft.world.entity.LivingEntity target = event.getNewAboutToBeSetTarget();
+        java.util.UUID owner = target instanceof HiveUnit unit ? unit.ownerId() : target instanceof HiveHeart own ? own.ownerId() : null;
+        net.minecraft.server.level.ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
+        HiveHeart heart = player == null ? null : HivemindManager.findHeart(player);
+        if (heart != null && com.projecthivemind.EvolveTask.CARVED_PUMPKIN.doneIn(heart.evolveMask())) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** Whatever the hive attacks with never damages a hive unit or a Heart, however it gets there. */
+    @SubscribeEvent
+    static void onHiveAttack(net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent event) {
+        if (com.projecthivemind.entity.HiveAttacks.spares(event.getEntity()) && com.projecthivemind.entity.HiveAttacks.isHiveAttack(event.getSource())) {
+            event.setCanceled(true);
+        }
+    }
 
     /** A hive unit or the Heart took a hit: it costs the hive what it costs a player. */
     @SubscribeEvent
