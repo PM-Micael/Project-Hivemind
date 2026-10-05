@@ -73,6 +73,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int anvilStart;
     private final int anvilEnd;
     private final Slot trashSlot;
+    /** Where the scouts' armor slots and the window onto the storage beside them are among the slots (set as they are added). */
+    private int scoutArmorStart;
+    private int scoutStorageStart;
+    private int scoutStorageEnd;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -93,6 +97,23 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_CARTOGRAPHY = 128;
     /** The anvil (once one has been consumed): the item, what it is combined with, and the result. */
     public static final int GROUP_ANVIL = 256;
+    /** The trash (always there): a station of its own. */
+    public static final int GROUP_TRASH = 512;
+    /** The armor every scout wears (leather only): shown on the scouts' page of the Units tab. */
+    public static final int GROUP_SCOUT_ARMOR = 1024;
+    /** Where the scout armor slots are, in a column on the scouts' page. */
+    public static final int SCOUT_ARMOR_X = 64;
+    public static final int SCOUT_ARMOR_Y = 152;
+    /** A three-row window onto the hive storage beside the scout armor (group {@link #GROUP_SCOUT_STORAGE}): where it is, and how many slots. */
+    public static final int GROUP_SCOUT_STORAGE = 2048;
+    public static final int SCOUT_INV_COLUMNS = 9;
+    public static final int SCOUT_INV_SLOTS = 27;
+    public static final int SCOUT_INV_X = 140;
+    public static final int SCOUT_INV_Y = 152;
+    /** The groups of slots that are workstations, in the screen's scrolling list: their slots are moved about, and hidden when out of view. */
+    public static final int STATION_GROUPS = GROUP_CRAFT | GROUP_FURNACE | GROUP_BREWING | GROUP_ENCHANT | GROUP_JUKEBOX | GROUP_CARTOGRAPHY | GROUP_ANVIL | GROUP_TRASH;
+    /** The trash may hold a stack of anything stackable this many times as large as usual: a whole storage stack, and more. */
+    private static final int TRASH_STACK_MULTIPLIER = 1000;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -150,12 +171,6 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The jukebox slot sits in the middle of where the crafting grid is. */
     public static final int JUKEBOX_X = 264;
     public static final int JUKEBOX_Y = 100;
-    /** The trash slot, bottom left of the panel. */
-    public static final int TRASH_X = 8;
-
-    public static int trashY(int storageRows) {
-        return Math.max(panelHeight(storageRows), 262) - 28;
-    }
 
     public static final int GRID_X = 246;
     public static final int GRID_Y = 82;
@@ -221,6 +236,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** What the storage grid is built on, and scrolled through. Null storage on the client, which has no real one. */
     private final StorageScroll scroll;
+    /** The window onto the storage on the scouts' page: three rows, with a search of its own, for putting armor on the scouts. */
+    private final StorageScroll scoutScroll;
     @Nullable
     private final SimpleContainer storage;
     private final ContainerData data;
@@ -272,17 +289,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** Client constructor: the real contents arrive from the server. */
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace, boolean hasBrewing) {
-        this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots),
+        this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots), new StorageScroll(null, totalStorageSlots, SCOUT_INV_SLOTS),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), new SimpleContainer(1), true, true, new SimpleContainerData(DATA_COUNT),
+                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), new SimpleContainer(1), new com.projecthivemind.entity.HiveStorage(1, () -> TRASH_STACK_MULTIPLIER), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), true, true, new SimpleContainerData(DATA_COUNT),
                 new int[] {-1, -1}, null);
     }
 
-    private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, SimpleContainer armor,
-                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer brewing, SimpleContainer scoutHand, SimpleContainer foodSlot, SimpleContainer jukeboxSlot, boolean hasFurnace, boolean hasBrewing, ContainerData data, int[] view,
+    private HiveMenu(int containerId, Inventory inventory, @Nullable SimpleContainer storage, StorageScroll scroll, StorageScroll scoutScroll, SimpleContainer armor,
+                     SimpleContainer tools, SimpleContainer furnace, SimpleContainer brewing, SimpleContainer scoutHand, SimpleContainer foodSlot, SimpleContainer jukeboxSlot, SimpleContainer trash, SimpleContainer scoutArmor, boolean hasFurnace, boolean hasBrewing, ContainerData data, int[] view,
                      @Nullable HiveHeart heart) {
         super(ModMenus.HIVE.get(), containerId);
         this.scroll = scroll;
+        this.scoutScroll = scoutScroll;
         this.storageSlots = scroll.visibleSlots(scroll.total());
         this.resultIndex = STORAGE_START + storageSlots;
         this.gridStart = resultIndex + 1;
@@ -361,12 +379,30 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new AnvilInputSlot(anvilSlots, 0, FURNACE_INPUT_X, FURNACE_INPUT_Y));
         this.addSlot(new AnvilInputSlot(anvilSlots, 1, FURNACE_FUEL_X, FURNACE_FUEL_Y));
         this.addSlot(new AnvilResultSlot(anvilResult, 0, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
-        // The trash: anything put here is deleted. Bottom left of the panel, on the Hive tab.
-        this.trashSlot = new TrashSlot(new SimpleContainer(1), 0, TRASH_X, trashY(scroll.visibleRows()));
+        // The trash: its own station. What is put in it stays until another item is put over it (the two swap), as in Terraria.
+        this.trashSlot = new TrashSlot(trash, 0, GRID_X, GRID_Y);
         this.addSlot(trashSlot);
+        // The scouts' armor, shared by every scout: leather only, on the scouts' page.
+        this.scoutArmorStart = this.slots.size();
+        for (int i = 0; i < HiveEquipment.ARMOR_SLOTS.length; i++) {
+            this.addSlot(new ArmorSlot(scoutArmor, i, SCOUT_ARMOR_X, SCOUT_ARMOR_Y + i * 18, HiveEquipment.ARMOR_SLOTS[i], GROUP_SCOUT_ARMOR));
+        }
+        // The scouts' page also shows the hive's storage in three rows, so armor can be put on the scouts from it.
+        this.scoutStorageStart = this.slots.size();
+        for (int row = 0; row < scoutScroll.visibleRows(); row++) {
+            for (int col = 0; col < SCOUT_INV_COLUMNS; col++) {
+                int index = col + row * SCOUT_INV_COLUMNS;
+                if (index < Math.min(scoutScroll.total(), SCOUT_INV_SLOTS)) {
+                    this.addSlot(new HiveSlot(scoutScroll.view(), index, SCOUT_INV_X + col * 18, SCOUT_INV_Y + row * 18, GROUP_SCOUT_STORAGE));
+                }
+            }
+        }
+        this.scoutStorageEnd = this.slots.size();
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
         this.addDataSlot(scroll.matchCount());
+        this.addDataSlot(scoutScroll.position());
+        this.addDataSlot(scoutScroll.matchCount());
         for (int i = 0; i < 3; i++) {
             this.addDataSlot(DataSlot.shared(enchantCosts, i));
             this.addDataSlot(DataSlot.shared(enchantClue, i));
@@ -484,8 +520,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             }
         };
         StorageScroll scroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize());
-        return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, heart.getArmorGear(), heart.getToolGear(),
-                heart.furnace().items(), heart.brewing().items(), heart.scoutHand(), heart.foodSlot(), heart.jukeboxSlot(), true,
+        StorageScroll scoutScroll = new StorageScroll(heart.getStorage(), heart.getStorage().getContainerSize(), SCOUT_INV_SLOTS);
+        return new HiveMenu(containerId, inventory, heart.getStorage(), scroll, scoutScroll, heart.getArmorGear(), heart.getToolGear(),
+                heart.furnace().items(), heart.brewing().items(), heart.scoutHand(), heart.foodSlot(), heart.jukeboxSlot(), heart.trash(), heart.getScoutArmor(), true,
                 true, data, view, heart);
     }
 
@@ -646,6 +683,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public void broadcastChanges() {
         if (heart != null) {
             scroll.refresh();
+            scoutScroll.refresh();
         }
         super.broadcastChanges();
     }
@@ -655,6 +693,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         if (storage != null) {
             com.projecthivemind.entity.StorageSorter.sort(storage);
         }
+    }
+
+    public StorageScroll scoutScroll() {
+        return scoutScroll;
     }
 
     @Override
@@ -704,6 +746,31 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     // ---- enchanting ----
+
+    /** A slot of a workstation: the screen moves it up and down the scrolling list (see {@link #layoutStation}). */
+    private interface StationSlot {
+        int stationGroup();
+
+        void place(int dy, boolean clipped);
+    }
+
+    /**
+     * Client side: put a workstation's slots {@code dy} pixels from where they were made, and hide those that are not wholly between the top and the
+     * bottom (panel coordinates) of the list's window.
+     */
+    public void layoutStation(int group, int dy, int viewTop, int viewBottom) {
+        for (Slot slot : this.slots) {
+            if (slot instanceof StationSlot station && station.stationGroup() == group) {
+                station.place(dy, false);
+                station.place(dy, slot.y < viewTop || slot.y + 16 > viewBottom);
+            }
+        }
+    }
+
+    /** The food slot, so the screen can show what goes in it when it is empty. */
+    public Slot foodSlot() {
+        return this.slots.get(foodIndex);
+    }
 
     /** The trash slot, so the screen can draw it. */
     public Slot trashSlot() {
@@ -1005,6 +1072,19 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 return ItemStack.EMPTY;
             }
             slot.onQuickCraft(stack, original);
+        } else if (index >= scoutStorageStart && index < scoutStorageEnd) {
+            // From the storage window on the scouts' page: onto the scouts (the armor slots take only leather armor). Not back into the storage, which is
+            // what the window is a view of.
+            if (!this.moveItemStackTo(stack, scoutArmorStart, scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length, false)) {
+                return ItemStack.EMPTY;
+            }
+        } else if (index >= scoutArmorStart && index < scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length) {
+            // From the scouts' armor: into the hive's storage itself (wherever there is room in it, not only in the window onto it).
+            if (storage == null) {
+                return ItemStack.EMPTY;
+            }
+            ItemStack rest = storage.addItem(stack.copy());
+            stack.setCount(rest.getCount());
         } else if (index >= gridStart) {
             // Crafting grid, armor and tool slots: back to storage.
             if (!this.moveItemStackTo(stack, STORAGE_START, resultIndex, false)) {
@@ -1039,7 +1119,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** True if the slots from start to end are on show, so a shift-click may send items there. */
     private boolean shown(int start, int end) {
-        return start < end && this.slots.get(start).isActive();
+        Slot first = start < end ? this.slots.get(start) : null;
+        return first != null && (first instanceof HiveSlot hive ? hive.routed() : first.isActive());
     }
     @Override
     public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {
@@ -1095,8 +1176,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     // ---- slots ----
 
     /** Which slots show depends on the tab: see {@link #visibleGroups}. Slots that are not shown cannot be clicked. */
-    private class HiveSlot extends Slot {
+    private class HiveSlot extends Slot implements StationSlot {
         private final int group;
+        /** Where the slot sits when its station is at the top of the scrolling list, and whether the screen has scrolled it out of view. */
+        private final int baseY;
+        private boolean clipped;
 
         HiveSlot(Container container, int index, int x, int y) {
             this(container, index, x, y, GROUP_CRAFT);
@@ -1105,24 +1189,49 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         HiveSlot(Container container, int index, int x, int y, int group) {
             super(container, index, x, y);
             this.group = group;
+            this.baseY = y;
         }
 
         @Override
-        public boolean isActive() {
+        public int stationGroup() {
+            return group;
+        }
+
+        @Override
+        public void place(int dy, boolean clipped) {
+            this.y = baseY + dy;
+            this.clipped = clipped;
+        }
+
+        /** Whether shift-click may send items here: the slot's group is the one chosen for that (the server's idea of it, see {@link #visibleGroups}). */
+        boolean routed() {
             return (visibleGroups & group) != 0 && unlocked(group);
+        }
+
+        /**
+         * Shown (and clickable) on the screen: the base and gear slots with their tab; a workstation's slots while it is unlocked, the Hive tab is up, and
+         * the scrolling list has it in view.
+         */
+        @Override
+        public boolean isActive() {
+            if ((STATION_GROUPS & group) != 0) {
+                return (visibleGroups & GROUP_STORAGE) != 0 && unlocked(group) && !clipped;
+            }
+            return routed();
         }
 
         /** In the hive's storage a stack of anything stackable holds as many full stacks as the evolution tasks give. */
         @Override
         public int getMaxStackSize(ItemStack stack) {
             int base = super.getMaxStackSize(stack);
-            return group == GROUP_STORAGE && stack.getMaxStackSize() > 1 ? stack.getMaxStackSize() * com.projecthivemind.EvolveTask.stackMultiplier(evolveMask()) : base;
+            return (group == GROUP_STORAGE || group == GROUP_SCOUT_STORAGE) && stack.getMaxStackSize() > 1 ? stack.getMaxStackSize() * com.projecthivemind.EvolveTask.stackMultiplier(evolveMask()) : base;
         }
 
         /** With a search on, the storage slots after the last match are not real slots: nothing can be put in them. */
         @Override
         public boolean mayPlace(ItemStack stack) {
-            return super.mayPlace(stack) && (group != GROUP_STORAGE || scroll.isBacked(getContainerSlot()));
+            return super.mayPlace(stack) && (group != GROUP_STORAGE || scroll.isBacked(getContainerSlot()))
+                    && (group != GROUP_SCOUT_STORAGE || scoutScroll.isBacked(getContainerSlot()));
         }
     }
 
@@ -1139,8 +1248,17 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
 
         @Override
-        public boolean isActive() {
+        boolean routed() {
             return (visibleGroups & GROUP_CRAFT) != 0 && (small || hasCrafting());
+        }
+
+        @Override
+        public boolean isActive() {
+            return (visibleGroups & GROUP_STORAGE) != 0 && (small || hasCrafting()) && !isClipped();
+        }
+
+        private boolean isClipped() {
+            return ((HiveSlot) this).clipped;
         }
 
         @Override
@@ -1149,21 +1267,40 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
     }
 
-    private class HiveResultSlot extends ResultSlot {
+    private class HiveResultSlot extends ResultSlot implements StationSlot {
+        private final int baseY;
+        private boolean clipped;
+
         HiveResultSlot(Player player, CraftingContainer craftSlots, Container container, int index, int x, int y) {
             super(player, craftSlots, container, index, x, y);
+            this.baseY = y;
+        }
+
+        @Override
+        public int stationGroup() {
+            return GROUP_CRAFT;
+        }
+
+        @Override
+        public void place(int dy, boolean clipped) {
+            this.y = baseY + dy;
+            this.clipped = clipped;
         }
 
         @Override
         public boolean isActive() {
-            return (visibleGroups & GROUP_CRAFT) != 0;
+            return (visibleGroups & GROUP_STORAGE) != 0 && !clipped;
         }
     }
 
-    /** The trash slot: takes anything, whole stacks included, and keeps nothing: what is put in it is gone. */
+    /**
+     * The trash: a workstation of its own, with one slot that takes anything, whole stacks included. What is put in it stays there, as in Terraria,
+     * until another item is put over it, when the two change places (the old one is on the cursor, to be put back or thrown away by being put
+     * over the next one). It is the hive's, so it is kept when the menu is closed and the game saved.
+     */
     private class TrashSlot extends HiveSlot {
         TrashSlot(Container container, int index, int x, int y) {
-            super(container, index, x, y, GROUP_GEAR);
+            super(container, index, x, y, GROUP_TRASH);
         }
 
         @Override
@@ -1171,12 +1308,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             return true;
         }
 
-        /** Nothing is kept. */
-        @Override
-        public void set(ItemStack stack) {
-        }
-
-        /** Room for any amount, so that a whole stack goes in at once (a stack that has grown past the usual size too). */
+        /** Room for a whole stack, even one that has grown past the usual size (the container holds up to a thousand times the usual). */
         @Override
         public int getMaxStackSize(ItemStack stack) {
             return Integer.MAX_VALUE;
@@ -1309,14 +1441,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
         /** @param position index in {@link HiveEquipment#ARMOR_SLOTS}, which picks the empty-slot icon */
         ArmorSlot(Container container, int position, int x, int y, EquipmentSlot equipmentSlot) {
-            super(container, position, x, y, GROUP_GEAR);
+            this(container, position, x, y, equipmentSlot, GROUP_GEAR);
+        }
+
+        ArmorSlot(Container container, int position, int x, int y, EquipmentSlot equipmentSlot, int group) {
+            super(container, position, x, y, group);
             this.equipmentSlot = equipmentSlot;
             this.position = position;
         }
 
         @Override
         public boolean mayPlace(ItemStack stack) {
-            return HiveEquipment.isArmorFor(stack, equipmentSlot);
+            return HiveEquipment.isArmorFor(stack, equipmentSlot) && (stationGroup() != GROUP_SCOUT_ARMOR || stack.is(net.minecraft.tags.ItemTags.DYEABLE));
         }
 
         @Override

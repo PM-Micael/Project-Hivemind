@@ -208,6 +208,7 @@ public final class Construction {
             case BRIDGE -> {
                 tag.putString("Deck", BuiltInRegistries.ITEM.getKey(bridge.deck()).toString());
                 tag.putBoolean("Generator", bridge.generator());
+                tag.putBoolean("Portal", bridge.portal());
                 if (bridge.isTunnel()) {
                     tag.putInt("TunnelSize", bridge.tunnelSize());
                     tag.putInt("Length", bridge.tunnelLength());
@@ -251,7 +252,7 @@ public final class Construction {
                 if (deck == null || HiveWorker.fillBlock(deck) == null || (tag.contains("Fence") && (fence == null || HiveWorker.fenceBlock(fence) == null))) {
                     return Optional.of("message.projecthivemind.construction_bad_options");
                 }
-                if (bridge.generator()) {
+                if (bridge.generator() || bridge.portal()) {
                     return Optional.of("message.projecthivemind.construction_bad_options");
                 }
                 if (bridge.isTunnel()) {

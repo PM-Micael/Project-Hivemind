@@ -181,6 +181,12 @@ public class HiveFeeder extends Bee implements HiveUnit {
     }
 
     @Override
+    public boolean isInvulnerableTo(DamageSource source) {
+        // A feeder flies about close to the ground and the crops, and ends up in blocks: it does not suffocate.
+        return source.is(net.minecraft.world.damagesource.DamageTypes.IN_WALL) || super.isInvulnerableTo(source);
+    }
+
+    @Override
     public boolean hurt(DamageSource source, float amount) {
         // A bee that is hurt turns angry and stings; a feeder never does.
         boolean hurt = super.hurt(source, amount);

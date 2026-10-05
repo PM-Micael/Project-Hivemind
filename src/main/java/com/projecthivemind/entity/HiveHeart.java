@@ -63,9 +63,11 @@ public class HiveHeart extends Mob {
     private static final String SCOUT_HAND_TAG = "ScoutHand";
     private static final String JUKEBOX_TAG = "JukeboxDisc";
     private static final String FOOD_SLOT_TAG = "FoodSlot";
+    private static final String TRASH_TAG = "Trash";
     private static final String STORAGE_TAG = "HiveStorage";
     private static final String EVOLVE_TAG = "EvolveTasks";
     private static final String ARMOR_TAG = "HiveArmor";
+    private static final String SCOUT_ARMOR_TAG = "ScoutArmor";
     private static final String TOOLS_TAG = "HiveTools";
     private static final String ARMOR_VERSION_TAG = "ArmorVersion";
     private static final String TOOL_VERSION_TAG = "ToolVersion";
@@ -138,6 +140,8 @@ public class HiveHeart extends Mob {
     private String lastMusic = "";
     /** The food the hive eats from: put in the hive menu, under the armor slots. Only food goes in. */
     private final SimpleContainer foodSlot = new SimpleContainer(1);
+    /** The trash: what the player put there stays until another item is put over it. One slot, holding a stack as large as the storage's. Saved. */
+    private final HiveStorage trash = new HiveStorage(1, () -> 1000);
     /** The hive's hunger: see HiveFood. */
     private final HiveFood food = new HiveFood();
     /** Quest progress: the chunks (as packed ChunkPos) the hive's units have been in, outside the hive area. */
@@ -145,6 +149,8 @@ public class HiveHeart extends Mob {
     private HiveStorage storage = new HiveStorage(HiveLevels.get(1).storageSlots(), this::stackMultiplier);
     /** One piece per armor slot, in {@link HiveEquipment#ARMOR_SLOTS} order. New soldiers get copies of these. */
     private final SimpleContainer armorSlots = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
+    /** The armor every scout wears (leather only), shared by all scouts the way the soldiers' armor is by all soldiers. Saved. */
+    private final SimpleContainer scoutArmor = new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length);
     /** Tools and weapons. New soldiers wield a copy of the one with the highest attack damage. */
     private final SimpleContainer toolSlots = new SimpleContainer(HiveEquipment.TOOL_SLOTS);
 
@@ -699,6 +705,10 @@ public class HiveHeart extends Mob {
         return food;
     }
 
+    public HiveStorage trash() {
+        return trash;
+    }
+
     public SimpleContainer foodSlot() {
         return foodSlot;
     }
@@ -841,6 +851,10 @@ public class HiveHeart extends Mob {
         return storage;
     }
 
+    public SimpleContainer getScoutArmor() {
+        return scoutArmor;
+    }
+
     public SimpleContainer getArmorGear() {
         return armorSlots;
     }
@@ -874,7 +888,7 @@ public class HiveHeart extends Mob {
     /** As above; {@code reducible} false charges all of it (the copy broke, so the original is worn out to match). */
     public void damageLinked(UUID link, int amount, boolean reducible) {
         amount = reducible ? reducedWear(amount) : amount;
-        if (amount > 0 && !damageLinkedIn(armorSlots, link, amount)) {
+        if (amount > 0 && !damageLinkedIn(armorSlots, link, amount) && !damageLinkedIn(scoutArmor, link, amount)) {
             damageLinkedIn(toolSlots, link, amount);
         }
     }
@@ -989,10 +1003,12 @@ public class HiveHeart extends Mob {
         tag.put(SCOUT_HAND_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutHand.getItems(), registryAccess()));
         tag.put(JUKEBOX_TAG, ContainerHelper.saveAllItems(new CompoundTag(), jukeboxSlot.getItems(), registryAccess()));
         tag.put(FOOD_SLOT_TAG, ContainerHelper.saveAllItems(new CompoundTag(), foodSlot.getItems(), registryAccess()));
+        tag.put(TRASH_TAG, trash.save(registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, storage.save(registryAccess()));
         tag.putInt(EVOLVE_TAG, evolveMask);
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
+        tag.put(SCOUT_ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutArmor.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
         tag.putInt(ARMOR_VERSION_TAG, armorVersion);
         tag.putInt(TOOL_VERSION_TAG, toolVersion);
@@ -1052,6 +1068,10 @@ public class HiveHeart extends Mob {
         food.load(tag);
         constructions.load(tag.getList("Constructions", Tag.TAG_COMPOUND));
         constructions.loadKept(tag.getList("KeptSites", Tag.TAG_COMPOUND));
+        trash.clearContent();
+        if (tag.contains(TRASH_TAG)) {
+            trash.load(tag.getCompound(TRASH_TAG), registryAccess());
+        }
         foodSlot.clearContent();
         if (tag.contains(FOOD_SLOT_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(FOOD_SLOT_TAG), foodSlot.getItems(), registryAccess());
@@ -1090,6 +1110,10 @@ public class HiveHeart extends Mob {
         storage = new HiveStorage(HiveLevels.get(hiveLevel).storageSlots(), this::stackMultiplier);
         if (tag.contains(STORAGE_TAG)) {
             storage.load(tag.getCompound(STORAGE_TAG), registryAccess());
+        }
+        scoutArmor.clearContent();
+        if (tag.contains(SCOUT_ARMOR_TAG)) {
+            ContainerHelper.loadAllItems(tag.getCompound(SCOUT_ARMOR_TAG), scoutArmor.getItems(), registryAccess());
         }
         if (tag.contains(ARMOR_TAG)) {
             ContainerHelper.loadAllItems(tag.getCompound(ARMOR_TAG), armorSlots.getItems(), registryAccess());

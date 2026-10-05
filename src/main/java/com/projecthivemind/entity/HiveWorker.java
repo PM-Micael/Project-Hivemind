@@ -226,6 +226,55 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
     }
 
+    /** When (worker tick) the flint and steel in the hand is put away again, or 0. Not saved. */
+    private int flintUntil;
+
+    private void putAwayFlint() {
+        flintUntil = 0;
+        if (this.getMainHandItem().is(net.minecraft.world.item.Items.FLINT_AND_STEEL)) {
+            this.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, net.minecraft.world.item.ItemStack.EMPTY);
+        }
+    }
+
+    /** True if every block of the portal's frame is obsidian. */
+    private static boolean portalFrameWhole(net.minecraft.server.level.ServerLevel level, com.projecthivemind.build.BridgeJob job) {
+        for (BlockPos pos : job.portalFrame()) {
+            if (!level.isLoaded(pos) || !level.getBlockState(pos).is(net.minecraft.world.level.block.Blocks.OBSIDIAN)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Light a portal's opening: the worker takes the flint and steel from the hive's storage into its hand and uses it on the top of the bottom
+     * of the frame, as a player does, so the fire goes in the bottom of the opening and the portal forms. The flint and steel wears, and goes back
+     * to the hive (it is the stack in the storage that is worn; the worker's hand only shows one).
+     */
+    private void igniteWithFlintAndSteel(HiveHeart heart, net.minecraft.server.level.ServerLevel level, BlockPos firePos) {
+        net.minecraft.world.item.ItemStack tool = net.minecraft.world.item.ItemStack.EMPTY;
+        for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
+            net.minecraft.world.item.ItemStack stack = heart.getStorage().getItem(i);
+            if (stack.is(net.minecraft.world.item.Items.FLINT_AND_STEEL)) {
+                tool = stack;
+                break;
+            }
+        }
+        if (tool.isEmpty()) {
+            return;
+        }
+        this.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.FLINT_AND_STEEL));
+        flintUntil = this.tickCount + 20;
+        this.getLookControl().setLookAt(net.minecraft.world.phys.Vec3.atCenterOf(firePos));
+        this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        net.minecraft.world.level.block.state.BlockState fire = net.minecraft.world.level.block.BaseFireBlock.getState(level, firePos);
+        level.playSound(null, firePos, net.minecraft.sounds.SoundEvents.FLINTANDSTEEL_USE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F,
+                level.getRandom().nextFloat() * 0.4F + 0.8F);
+        level.setBlock(firePos, fire, 11);
+        tool.hurtAndBreak(1, level, this, broken -> { });
+        heart.getStorage().setChanged();
+    }
+
     /** The bridge this worker is building, if it was given one. Saved. */
     @Nullable
     private com.projecthivemind.build.BridgeJob bridge;
@@ -256,6 +305,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     private void tickBridge(HiveHeart heart) {
         net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) this.level();
         nextBridgeScan = this.tickCount + 5;
+        if (flintUntil != 0 && this.tickCount >= flintUntil) {
+            putAwayFlint();
+        }
         com.projecthivemind.build.BridgeJob job = bridge;
         com.projecthivemind.build.BridgeJob.Placement next = null;
         net.minecraft.world.level.block.state.BlockState state = null;
@@ -280,10 +332,15 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 leading = false;
                 continue;
             }
-            if (placement.kind() == com.projecthivemind.build.BridgeJob.Kind.DIG) {
+            net.minecraft.world.level.block.state.BlockState atSpot = level.getBlockState(placement.pos());
+            // A frame block of a portal with ground (or anything else) where it goes is dug out first.
+            boolean blockedFrame = placement.kind() == com.projecthivemind.build.BridgeJob.Kind.OBSIDIAN && !atSpot.is(net.minecraft.world.level.block.Blocks.OBSIDIAN)
+                    && !atSpot.canBeReplaced() && atSpot.getFluidState().isEmpty() && atSpot.getDestroySpeed(level, placement.pos()) >= 0.0F;
+            if (placement.kind() == com.projecthivemind.build.BridgeJob.Kind.DIG || blockedFrame) {
                 // A cell to be dug out: done when it is empty (or holds a fluid, or can not be dug); otherwise the worker digs it, and looks again.
                 net.minecraft.world.level.block.state.BlockState cell = level.getBlockState(placement.pos());
-                if (fluidsStarted || cell.isAir() || !cell.getFluidState().isEmpty() || cell.getDestroySpeed(level, placement.pos()) < 0.0F) {
+                if (fluidsStarted || cell.isAir() || !cell.getFluidState().isEmpty() || cell.getDestroySpeed(level, placement.pos()) < 0.0F
+                        || cell.is(net.minecraft.world.level.block.Blocks.NETHER_PORTAL) || cell.is(net.minecraft.tags.BlockTags.FIRE)) {
                     if (leading) {
                         bridgeCursor = index + 1;
                     }
@@ -312,6 +369,11 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 done = level.getFluidState(placement.pos()).is(kind == com.projecthivemind.build.BridgeJob.Kind.LAVA
                         ? net.minecraft.tags.FluidTags.LAVA : net.minecraft.tags.FluidTags.WATER)
                         || (!existing.isAir() && !existing.canBeReplaced());
+            } else if (kind == com.projecthivemind.build.BridgeJob.Kind.OBSIDIAN) {
+                done = existing.is(net.minecraft.world.level.block.Blocks.OBSIDIAN);
+            } else if (kind == com.projecthivemind.build.BridgeJob.Kind.IGNITE) {
+                // Lit: the portal is there (or the fire that did not make one, which is all a flint and steel can do).
+                done = existing.is(net.minecraft.world.level.block.Blocks.NETHER_PORTAL) || existing.is(net.minecraft.tags.BlockTags.FIRE);
             } else if (kind == com.projecthivemind.build.BridgeJob.Kind.DECK || kind == com.projecthivemind.build.BridgeJob.Kind.WALL
                     || kind == com.projecthivemind.build.BridgeJob.Kind.SLAB) {
                 done = !existing.canBeReplaced();
@@ -332,6 +394,8 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 case LAVA -> net.minecraft.world.item.Items.LAVA_BUCKET;
                 case WATER -> net.minecraft.world.item.Items.WATER_BUCKET;
                 case SLAB -> net.minecraft.world.item.Items.COBBLESTONE_SLAB;
+                case OBSIDIAN -> net.minecraft.world.item.Items.OBSIDIAN;
+                case IGNITE -> net.minecraft.world.item.Items.FLINT_AND_STEEL;
                 case DIG -> null;
             };
             net.minecraft.world.level.block.Block block = switch (kind) {
@@ -340,8 +404,14 @@ public class HiveWorker extends Skeleton implements HiveUnit {
                 case LAVA -> net.minecraft.world.level.block.Blocks.LAVA;
                 case WATER -> net.minecraft.world.level.block.Blocks.WATER;
                 case SLAB -> net.minecraft.world.level.block.Blocks.COBBLESTONE_SLAB;
+                case OBSIDIAN -> net.minecraft.world.level.block.Blocks.OBSIDIAN;
+                case IGNITE -> net.minecraft.world.level.block.Blocks.FIRE;
                 default -> fillBlock(item);
             };
+            if (kind == com.projecthivemind.build.BridgeJob.Kind.IGNITE && !portalFrameWhole(level, job)) {
+                // Not lit until the frame is whole (a block of it may be waiting for a worker to dig the way clear).
+                continue;
+            }
             if (block == null || !level.isUnobstructed(block.defaultBlockState(), placement.pos(), net.minecraft.world.phys.shapes.CollisionContext.empty())) {
                 continue;
             }
@@ -370,6 +440,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             return;
         }
         if (next == null) {
+            putAwayFlint();
             bridge = null;
             if (heart.constructions().of(this.getUUID()) != null) {
                 com.projecthivemind.HiveConstructions.markDone(heart, this.getUUID());
@@ -390,6 +461,12 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
         if (WorkerDigGoal.inDigReach(this, next.pos())) {
             this.getNavigation().stop();
+            if (next.kind() == com.projecthivemind.build.BridgeJob.Kind.IGNITE) {
+                igniteWithFlintAndSteel(heart, level, next.pos());
+                bridgeStuck = 0;
+                nextBridgeScan = this.tickCount + 2;
+                return;
+            }
             if (next.kind() == com.projecthivemind.build.BridgeJob.Kind.FENCE) {
                 state = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(state, level, next.pos());
             }

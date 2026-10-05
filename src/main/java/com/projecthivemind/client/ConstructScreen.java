@@ -33,6 +33,10 @@ public class ConstructScreen extends Screen {
                 new Choice("tower", () -> new BuildTowerScreen(builders, site)),
                 new Choice("bridge", () -> new BuildBridgeScreen(builders, site)),
                 new Choice("tunnel", () -> new BuildTunnelScreen(builders, site)),
+                new Choice("nether_portal", () -> {
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.projecthivemind.network.BuildNetherPortalPayload(builders, site));
+                    return null;
+                }),
                 new Choice("generator", () -> {
                     net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.projecthivemind.network.BuildGeneratorPayload(builders, site));
                     return null;

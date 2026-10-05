@@ -15,7 +15,6 @@ import javax.annotation.Nullable;
 import com.projecthivemind.HiveLevel;
 import com.projecthivemind.HiveLevels;
 import com.projecthivemind.FeederBehavior;
-import com.projecthivemind.ScoutBehavior;
 import com.projecthivemind.SoldierBehavior;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveCollector;
@@ -117,25 +116,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button teamTab;
     private Button portalsTab;
     private Button evolveTab;
-    /** Which workstation shows on the right of the Hive tab: the crafting grid, or the furnace (from level 3). */
-    private boolean furnaceShown;
-    private boolean brewingShown;
-    private SeedButton brewingButton;
-    private SeedButton enchantStationButton;
-    private SeedButton jukeboxButton;
-    private boolean jukeboxShown;
-    private SeedButton cartographyButton;
-    private boolean cartographyShown;
-    private SeedButton anvilButton;
-    private boolean anvilShown;
+    /** The three enchanting options, which sit with the enchanting station in the list. */
     private final Button[] enchantOptions = new Button[3];
-    private boolean enchantShown;
-    private SeedButton craftingButton;
-    private SeedButton furnaceButton;
-    /** What was on offer the last time the workstation buttons were laid out, so a change (the hive levelling up) lays them out again. */
-    private int stationKey = -1;
+    /** What the empty food slot shows an outline of. */
+    private final ItemStack foodOutline = new ItemStack(Items.COOKED_BEEF);
     /** The search box over the hive storage: only what has this text in its name is shown. */
     private EditBox storageSearch;
+    /** The search box of the storage window on the scouts' page. */
+    private EditBox scoutSearch;
     private final Map<UnitKind, Button> kindTabs = new EnumMap<>(UnitKind.class);
 
     /** The units of the open page whose heads are shown, and their buttons. */
@@ -168,14 +156,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button clearSaplingSpotsButton;
     private Button clearSpotButton;
 
-    // Scout settings: the radius and two checkboxes.
-    private final EditBox[] scoutRadii = new EditBox[2];
-    private Checkbox pickUpItems;
+    // The collector's setting.
     private Checkbox collectorPickUp;
-    private Checkbox fleeHostiles;
-    private Checkbox scoutStay;
-    private Checkbox scoutWander;
-    private Checkbox scoutSneak;
     private Checkbox workerWander;
     private Checkbox flattenGround;
     private Checkbox flattenTeam;
@@ -194,7 +176,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private final List<AbstractWidget> soldierWidgets = new ArrayList<>();
     private final List<AbstractWidget> workerWidgets = new ArrayList<>();
     private final List<AbstractWidget> collectorWidgets = new ArrayList<>();
-    private final List<AbstractWidget> scoutWidgets = new ArrayList<>();
     private final List<AbstractWidget> feederWidgets = new ArrayList<>();
 
     /** True while the widgets are being filled from the server's values, so that does not count as the player editing. */
@@ -249,36 +230,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             kindTabs.put(kind, addRenderableWidget(button));
         }
 
-        // The workstation on the right: the crafting grid, or (from level 3) the furnace. The buttons sit beside the storage's scrollbar.
-        int stationX = leftPos + HiveMenu.STORAGE_X + 9 * 18 + 10;
-        craftingButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.CRAFTING_TABLE), button -> chooseWorkstation(0)));
-        craftingButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.crafting")));
-        furnaceButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 24, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.FURNACE), button -> chooseWorkstation(1)));
-        furnaceButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.furnace")));
-        brewingButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 48, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.BREWING_STAND), button -> chooseWorkstation(2)));
-        brewingButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.brewing")));
-        craftingButton.visible = false;
-        furnaceButton.visible = false;
-        brewingButton.visible = false;
-        enchantStationButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 72, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.ENCHANTING_TABLE), button -> chooseWorkstation(3)));
-        enchantStationButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.enchanting")));
-        enchantStationButton.visible = false;
-        jukeboxButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 96, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.JUKEBOX), button -> chooseWorkstation(4)));
-        jukeboxButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.jukebox")));
-        jukeboxButton.visible = false;
-        cartographyButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 120, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.CARTOGRAPHY_TABLE), button -> chooseWorkstation(5)));
-        cartographyButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.cartography")));
-        cartographyButton.visible = false;
-        anvilButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 144, 20, 20,
-                () -> new ItemStack(net.minecraft.world.item.Items.ANVIL), button -> chooseWorkstation(6)));
-        anvilButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.anvil")));
-        anvilButton.visible = false;
         // The three enchanting options, to the right of the item and lapis slots.
         for (int i = 0; i < 3; i++) {
             int option = i;
@@ -289,12 +240,22 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
 
         // Search the storage: what is typed here filters the storage grid to the items whose name has it in it.
+        createStationButtons();
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
                 Component.translatable("screen.projecthivemind.hive.search")));
         storageSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
         storageSearch.setMaxLength(32);
         storageSearch.setBordered(true);
         storageSearch.setResponder(text -> PacketDistributor.sendToServer(new SetStorageSearchPayload(menu.containerId, text)));
+
+        // The same on the scouts' page, over the three rows of storage beside the scout armor.
+        scoutSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.SCOUT_INV_X, topPos + HiveMenu.SCOUT_INV_Y - 14, HiveMenu.SCOUT_INV_COLUMNS * 18, 12,
+                Component.translatable("screen.projecthivemind.hive.search")));
+        scoutSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
+        scoutSearch.setMaxLength(32);
+        scoutSearch.setBordered(true);
+        scoutSearch.setResponder(text -> PacketDistributor.sendToServer(new com.projecthivemind.network.SetScoutSearchPayload(menu.containerId, text)));
+        scoutSearch.visible = false;
 
         // Fly the camera back to the Hive Heart.
         addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.hive.to_heart"), button -> {
@@ -386,68 +347,183 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    /**
-     * Which slots of the menu show: on the Hive tab the storage, the gear and one workstation, the crafting grid or the furnace; on the
-     * other tabs none. The two buttons by the storage's scrollbar (there only once the furnace is unlocked) choose between the workstations.
-     */
-    private void applyMenuGroups(Tab forTab) {
-        // The workstations the hive can use: the crafting grid (2x2 to begin with, 3x3 once a crafting table has been consumed), the furnace and the brewing stand once each has been consumed on the Evolve
-        // tab, and the evolve slot from level 2. The one shown is the one chosen, or else the first there is.
-        boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), menu.hasEnchanting(), menu.hasJukebox(), menu.hasCartography(), menu.hasAnvil()};
-        int chosen = anvilShown ? 6 : cartographyShown ? 5 : jukeboxShown ? 4 : enchantShown ? 3 : brewingShown ? 2 : furnaceShown ? 1 : 0;
-        if (!offered[chosen]) {
-            chosen = 0;
-            for (int i = 0; i < offered.length; i++) {
-                if (offered[i]) {
-                    chosen = i;
-                    break;
-                }
-            }
-        }
-        furnaceShown = chosen == 1;
-        brewingShown = chosen == 2;
-        enchantShown = chosen == 3;
-        jukeboxShown = chosen == 4;
-        cartographyShown = chosen == 5;
-        anvilShown = chosen == 6;
-        menu.visibleGroups = forTab == Tab.HIVE
-                ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR
-                        | (chosen == 6 ? HiveMenu.GROUP_ANVIL : chosen == 5 ? HiveMenu.GROUP_CARTOGRAPHY : chosen == 4 ? HiveMenu.GROUP_JUKEBOX : chosen == 3 ? HiveMenu.GROUP_ENCHANT : chosen == 2 ? HiveMenu.GROUP_BREWING : chosen == 1 ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
-        if (craftingButton != null) {
-            // The buttons for the workstations on offer, one under the other. With only one there is nothing to choose.
-            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, enchantStationButton, jukeboxButton, cartographyButton, anvilButton};
-            int count = 0;
-            for (boolean has : offered) {
-                count += has ? 1 : 0;
-            }
-            int row = 0;
-            for (int i = 0; i < buttons.length; i++) {
-                buttons[i].visible = forTab == Tab.HIVE && offered[i] && count > 1;
-                buttons[i].active = chosen != i;
-                if (offered[i]) {
-                    buttons[i].setY(topPos + HiveMenu.STORAGE_Y + row * 24);
-                    row++;
-                }
-            }
-            stationKey = stationKey();
+    // ---- the workstations: one at a time, chosen from a scrolling column of buttons ----
+
+    /** One workstation of the right of the Hive tab: its slots, and the group of them the server sends shift-clicked items to. */
+    private enum Station {
+        CRAFT(HiveMenu.GROUP_CRAFT, "screen.projecthivemind.hive.crafting"), FURNACE(HiveMenu.GROUP_FURNACE, "screen.projecthivemind.hive.furnace"),
+        BREWING(HiveMenu.GROUP_BREWING, "screen.projecthivemind.hive.brewing"), ENCHANT(HiveMenu.GROUP_ENCHANT, "screen.projecthivemind.hive.enchanting"),
+        JUKEBOX(HiveMenu.GROUP_JUKEBOX, "screen.projecthivemind.hive.jukebox"), CARTOGRAPHY(HiveMenu.GROUP_CARTOGRAPHY, "screen.projecthivemind.hive.cartography"),
+        ANVIL(HiveMenu.GROUP_ANVIL, "screen.projecthivemind.hive.anvil"), TRASH(HiveMenu.GROUP_TRASH, "screen.projecthivemind.hive.trash");
+
+        final int group;
+        final String title;
+
+        Station(int group, String title) {
+            this.group = group;
+            this.title = title;
         }
     }
+
+    /** The buttons that choose the workstation sit in a column beside the storage's scrollbar: this wide, this far apart, and scrolled by the wheel. */
+    private static final int STATION_BUTTON_SIZE = 20;
+    private static final int STATION_BUTTON_STEP = 24;
+    private static final int STATION_BUTTON_X = HiveMenu.STORAGE_X + 9 * 18 + 10;
+    private final SeedButton[] stationButtons = new SeedButton[Station.values().length];
+    private int stationScroll;
+    /** The workstation that is open: its slots show, and shift-click sends items to it. */
+    private Station focusedStation = Station.CRAFT;
+    private final boolean[] stationShown = new boolean[Station.values().length];
+    /** The server was last told these groups were the ones shift-click goes to. */
+    private int sentGroups = -1;
+
+    private boolean stationAvailable(Station station) {
+        return switch (station) {
+            case FURNACE -> menu.hasFurnace();
+            case BREWING -> menu.hasBrewing();
+            case ENCHANT -> menu.hasEnchanting();
+            case JUKEBOX -> menu.hasJukebox();
+            case CARTOGRAPHY -> menu.hasCartography();
+            case ANVIL -> menu.hasAnvil();
+            default -> true;
+        };
+    }
+
+    private net.minecraft.world.item.Item stationIcon(Station station) {
+        return switch (station) {
+            case CRAFT -> Items.CRAFTING_TABLE;
+            case FURNACE -> Items.FURNACE;
+            case BREWING -> Items.BREWING_STAND;
+            case ENCHANT -> Items.ENCHANTING_TABLE;
+            case JUKEBOX -> Items.JUKEBOX;
+            case CARTOGRAPHY -> Items.CARTOGRAPHY_TABLE;
+            case ANVIL -> Items.ANVIL;
+            case TRASH -> Items.CAULDRON;
+        };
+    }
+
+    /** The buttons are made when the screen is: one for each workstation. */
+    private void createStationButtons() {
+        for (Station station : Station.values()) {
+            SeedButton button = addRenderableWidget(new SeedButton(leftPos + STATION_BUTTON_X, topPos + HiveMenu.STORAGE_Y, STATION_BUTTON_SIZE, STATION_BUTTON_SIZE,
+                    () -> new ItemStack(stationIcon(station)), pressed -> {
+                        focusedStation = station;
+                        layoutStations();
+                    }));
+            button.setTooltip(Tooltip.create(Component.translatable(station.title)));
+            button.visible = false;
+            stationButtons[station.ordinal()] = button;
+        }
+    }
+
+    /** How tall the window the buttons are seen through is: the storage grid's height. */
+    private int stationViewHeight() {
+        return menu.storageScroll().visibleRows() * 18;
+    }
+
+    private int stationButtonsHeight() {
+        int count = 0;
+        for (boolean shown : stationShown) {
+            count += shown ? 1 : 0;
+        }
+        return Math.max(0, count * STATION_BUTTON_STEP - (STATION_BUTTON_STEP - STATION_BUTTON_SIZE));
+    }
+
+    private int maxStationScroll() {
+        return Math.max(0, stationButtonsHeight() - stationViewHeight());
+    }
+
+    private void scrollStations(int pixels) {
+        stationScroll = Math.max(0, Math.min(maxStationScroll(), stationScroll + pixels));
+        layoutStations();
+    }
+
+    /** The panel x of the buttons' scrollbar. */
+    private int stationBarX() {
+        return STATION_BUTTON_X + STATION_BUTTON_SIZE + 2;
+    }
+
+    /** The open workstation's name goes where the workstation's title always was. */
+    private int stationTitleY(Station station) {
+        return LABEL_Y;
+    }
+
+    /** The open workstation is drawn where its slots were made. */
+    private int stationDy(Station station) {
+        return 0;
+    }
+
+    private boolean stationInView(Station station) {
+        return tab == Tab.HIVE && stationShown[station.ordinal()] && station == focusedStation;
+    }
+
+    /**
+     * Every tick (and when the tab changes): the buttons for the workstations the hive has, in a column scrolled as far as the player has scrolled it
+     * (a button not wholly in the window is hidden), and the slots of the open workstation shown and the rest hidden. The server is told which group
+     * shift-click sends items to.
+     */
+    private void layoutStations() {
+        int row = 0;
+        for (Station station : Station.values()) {
+            boolean there = stationAvailable(station);
+            stationShown[station.ordinal()] = there;
+            SeedButton button = stationButtons[station.ordinal()];
+            if (button == null) {
+                continue;
+            }
+            if (there) {
+                int y = HiveMenu.STORAGE_Y + row * STATION_BUTTON_STEP - stationScroll;
+                button.setX(leftPos + STATION_BUTTON_X);
+                button.setY(topPos + y);
+                // With the one workstation there is nothing to choose between.
+                button.visible = tab == Tab.HIVE && stationButtonsHeight() > STATION_BUTTON_SIZE && y >= HiveMenu.STORAGE_Y
+                        && y + STATION_BUTTON_SIZE <= HiveMenu.STORAGE_Y + stationViewHeight();
+                button.active = station != focusedStation;
+                row++;
+            } else {
+                button.visible = false;
+            }
+        }
+        stationScroll = Math.max(0, Math.min(stationScroll, maxStationScroll()));
+        if (!stationShown[focusedStation.ordinal()]) {
+            focusedStation = Station.CRAFT;
+        }
+        for (Station station : Station.values()) {
+            // Only the open workstation's slots are in view.
+            boolean open = stationInView(station);
+            menu.layoutStation(station.group, 0, open ? Integer.MIN_VALUE : Integer.MAX_VALUE, open ? Integer.MAX_VALUE : Integer.MAX_VALUE);
+        }
+        // The scouts' page shows the armor every scout wears; the other tabs have no slots.
+        int groups = tab == Tab.HIVE ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | focusedStation.group
+                : tab == Tab.UNITS && unitPage == UnitKind.SCOUT ? HiveMenu.GROUP_SCOUT_ARMOR | HiveMenu.GROUP_SCOUT_STORAGE : 0;
+        if (scoutSearch != null) {
+            scoutSearch.visible = tab == Tab.UNITS && unitPage == UnitKind.SCOUT;
+        }
+        if (menu.visibleGroups != groups || sentGroups != groups) {
+            menu.visibleGroups = groups;
+            sentGroups = groups;
+            PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, groups));
+        }
+    }
+
+    /** The enchanting options are there while the enchanting station is open. */
+    private boolean enchantVisible() {
+        return stationInView(Station.ENCHANT) && menu.hasEnchanting();
+    }
+
 
     /** The evolve slot is there from level 2. */
     private boolean evolveAvailable() {
         return menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
     }
 
-    private int stationKey() {
-        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (menu.hasCrafting() ? 8 : 0) | (menu.hasEnchanting() ? 16 : 0) | (menu.hasJukebox() ? 32 : 0) | (menu.hasCartography() ? 64 : 0) | (menu.hasAnvil() ? 128 : 0);
-    }
 
     /**
      * The three enchanting options: there while the enchanting station is open. Each shows the level it asks for; its popup gives the hint of what
      * it may enchant with (as at an enchanting table), and what it costs, in red where the hive is short.
      */
     private void updateEnchantButtons() {
-        boolean shown = tab == Tab.HIVE && enchantShown && menu.hasEnchanting();
+        boolean shown = enchantVisible();
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || minecraft.level == null) {
             return;
@@ -486,16 +562,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    private void chooseWorkstation(int station) {
-        furnaceShown = station == 1;
-        brewingShown = station == 2;
-        enchantShown = station == 3;
-        jukeboxShown = station == 4;
-        cartographyShown = station == 5;
-        anvilShown = station == 6;
-        applyMenuGroups(tab);
-        PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
-    }
 
     /** Switch tab. Each tab shows its own slots, and the Units tab shows the page of one kind of unit. */
     private void showTab(Tab newTab, UnitKind kind) {
@@ -505,8 +571,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         behaviorScroll = 0;
         // Only the Hive tab has slots; on the others they are hidden and cannot be clicked. The server is told, so that
         // shift-click agrees.
-        applyMenuGroups(newTab);
-        PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
+        layoutStations();
         hiveTab.active = newTab != Tab.HIVE;
         questsTab.active = newTab != Tab.QUESTS;
         teamTab.active = newTab != Tab.TEAM;
@@ -537,7 +602,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldierWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.SOLDIER);
         workerWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.WORKER);
         collectorWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.COLLECTOR);
-        scoutWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.SCOUT);
         feederWidgets.forEach(widget -> widget.visible = units && unitPage == UnitKind.FEEDER);
         applyBehaviorScroll();
     }
@@ -555,7 +619,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case SOLDIER -> BEHAVIOR_TOP + 4 * BEHAVIOR_ROW;
             case WORKER -> BEHAVIOR_TOP + (WOODWORK_ROW + 4) * BEHAVIOR_ROW;
             case FEEDER -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
-            case SCOUT -> BEHAVIOR_TOP + 6 * BEHAVIOR_ROW;
             default -> 0;
         };
     }
@@ -571,7 +634,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void applyBehaviorScroll() {
         int delta = appliedScroll - behaviorScroll;
         if (delta != 0) {
-            for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets, feederWidgets)) {
+            for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, feederWidgets)) {
                 for (AbstractWidget widget : group) {
                     widget.setY(widget.getY() + delta);
                 }
@@ -580,7 +643,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         int top = topPos + BEHAVIOR_TOP - 4;
         int bottom = topPos + behaviorViewBottom();
-        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets, feederWidgets)) {
+        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, feederWidgets)) {
             for (AbstractWidget widget : group) {
                 if (widget.visible && (widget.getY() < top || widget.getY() + widget.getHeight() > bottom)) {
                     widget.visible = false;
@@ -736,12 +799,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     protected void containerTick() {
         super.containerTick();
         updateJobBox();
-        // The portal network comes with level 2; the tab is there once the hive has it.
+        // The portal network and the evolve slot come with a level of the hive; their tabs are there once the hive has it.
         updateTabButtons();
-        // The workstation buttons depend on the level, which only reaches the client a moment after the menu opens (and changes when the hive levels up).
-        if (stationKey != stationKey()) {
-            applyMenuGroups(tab);
-        }
+        layoutStations();
         updateEnchantButtons();
         if (tab == Tab.EVOLVE && !evolveTab.visible) {
             showTab(Tab.HIVE, unitPage);
@@ -946,7 +1006,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         soldierWidgets.clear();
         workerWidgets.clear();
         collectorWidgets.clear();
-        scoutWidgets.clear();
         feederWidgets.clear();
 
         // Soldiers: four options with a radius each, then the one that reaches anywhere.
@@ -1017,15 +1076,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         collectorWidgets.add(clearSaplingSpotsButton);
         collectorPickUp = behaviorBox(collectorWidgets, 0, "screen.projecthivemind.behavior.collector_pickup", this::sendCollectorBehavior);
 
-        // Scouts: the two things they may do on their own, each with its radius.
-        pickUpItems = behaviorBox(scoutWidgets, 0, "screen.projecthivemind.behavior.scout_pickup", this::sendScoutBehavior);
-        scoutRadii[0] = radiusBox(scoutWidgets, 0, 0, this::sendScoutBehavior);
-        fleeHostiles = behaviorBox(scoutWidgets, 1, "screen.projecthivemind.behavior.scout_flee", this::sendScoutBehavior);
-        scoutRadii[1] = radiusBox(scoutWidgets, 1, 1, this::sendScoutBehavior);
-        scoutStay = behaviorBox(scoutWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendScoutBehavior);
-        scoutWander = behaviorBox(scoutWidgets, 3, "screen.projecthivemind.behavior.wander", this::sendScoutBehavior);
-        scoutSneak = behaviorBox(scoutWidgets, 4, "screen.projecthivemind.behavior.scout_sneak", this::sendScoutBehavior);
-
         setBehaviorEnabled(false);
         filling = false;
     }
@@ -1063,7 +1113,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private void setBehaviorEnabled(boolean enabled) {
-        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, scoutWidgets, feederWidgets)) {
+        for (List<AbstractWidget> group : List.of(soldierWidgets, workerWidgets, collectorWidgets, feederWidgets)) {
             for (AbstractWidget widget : group) {
                 if (widget instanceof EditBox editBox) {
                     editBox.setEditable(enabled);
@@ -1120,16 +1170,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(collectorPickUp, (flags & 1) != 0);
             }
             case SCOUT -> {
-                ScoutBehavior scout = ScoutBehavior.from(flags, radii);
-                setChecked(pickUpItems, scout.collectItems());
-                setChecked(fleeHostiles, scout.fleeHostiles());
-                setChecked(scoutStay, scout.stayInside());
-                setChecked(scoutWander, scout.wander());
-                setChecked(scoutSneak, scout.sneak());
-                int[] values = scout.radii();
-                for (int i = 0; i < scoutRadii.length; i++) {
-                    scoutRadii[i].setValue(String.valueOf(values[i]));
-                }
             }
         }
         filling = false;
@@ -1178,13 +1218,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    private void sendScoutBehavior() {
-        if (canSend()) {
-            ScoutBehavior behavior = new ScoutBehavior(pickUpItems.selected(), number(scoutRadii[0]), fleeHostiles.selected(), number(scoutRadii[1]), scoutStay.selected(), scoutWander.selected(), scoutSneak.selected());
-            sendBehavior(behavior.flags(), behavior.radii());
-        }
-    }
-
 
     private void sendBehavior(int flags, int[] radii) {
         List<Integer> list = new ArrayList<>();
@@ -1210,6 +1243,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        layoutStations();
         mouseXNow = mouseX;
         mouseYNow = mouseY;
         super.render(graphics, mouseX, mouseY, partialTick);
@@ -1227,8 +1261,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (tab == Tab.HIVE) {
             renderUnitIcons(graphics, mouseX, mouseY);
             net.minecraft.world.inventory.Slot trash = menu.trashSlot();
-            if (mouseX >= leftPos + trash.x && mouseX < leftPos + trash.x + 16 && mouseY >= topPos + trash.y && mouseY < topPos + trash.y + 16) {
-                graphics.renderTooltip(font, Component.translatable("screen.projecthivemind.hive.trash"), mouseX, mouseY);
+            if (trash.isActive() && !trash.hasItem() && mouseX >= leftPos + trash.x && mouseX < leftPos + trash.x + 16 && mouseY >= topPos + trash.y && mouseY < topPos + trash.y + 16) {
+                graphics.renderTooltip(font, Component.translatable("screen.projecthivemind.hive.trash.about"), mouseX, mouseY);
             }
         }
         if (tab == Tab.EVOLVE) {
@@ -1249,15 +1283,22 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 graphics.fill(x - 1, y - 1, x + 17, y + 17, SLOT_EDGE);
                 boolean trash = slot == menu.trashSlot();
                 graphics.fill(x, y, x + 16, y + 16, trash ? 0xFF4A1818 : SLOT_FILL);
-                if (trash) {
+                if (trash && !slot.hasItem()) {
                     // The trash: a reddish slot with a cross, so it reads as where things are thrown away.
                     graphics.drawString(font, "\u00D7", x + 8 - font.width("\u00D7") / 2, y + 4, 0xFFAA5555, false);
+                }
+                if (slot == menu.foodSlot() && !slot.hasItem()) {
+                    // The empty food slot shows what goes in it, as a faint outline of a piece of food.
+                    graphics.renderFakeItem(foodOutline, x, y);
+                    graphics.fill(x, y, x + 16, y + 16, 0xB0000000 | (SLOT_FILL & 0xFFFFFF));
                 }
             }
         }
 
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, stationDy(Station.FURNACE), 0.0F);
         // The furnace's flame (burning fuel left) between its input and fuel slots, and its arrow (how far the item has cooked).
-        if (tab == Tab.HIVE && furnaceShown && !brewingShown && menu.hasFurnace()) {
+        if (stationInView(Station.FURNACE)) {
             int flameX = leftPos + HiveMenu.FURNACE_INPUT_X + 4;
             int flameY = topPos + (HiveMenu.FURNACE_INPUT_Y + HiveMenu.FURNACE_FUEL_Y) / 2 + 1;
             graphics.fill(flameX, flameY, flameX + 8, flameY + 14, 0xFF3A2A18);
@@ -1269,8 +1310,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             graphics.fill(arrowX, arrowY, arrowX + Math.round(24 * menu.furnaceProgress()), arrowY + 6, 0xFFE0E0E0);
         }
 
+        graphics.pose().popPose();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, stationDy(Station.BREWING), 0.0F);
         // The brewing stand's progress: the bubbling bar under the ingredient, and the blaze powder's charges beside the fuel.
-        if (tab == Tab.HIVE && brewingShown && menu.hasBrewing()) {
+        if (stationInView(Station.BREWING)) {
             int barX = leftPos + HiveMenu.BREW_INGREDIENT_X + 6;
             int barY = topPos + HiveMenu.BREW_INGREDIENT_Y + 22;
             graphics.fill(barX, barY, barX + 4, barY + 28, 0xFF3A2A18);
@@ -1284,10 +1328,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             graphics.fill(fuelX, fuelY, fuelX + Math.round(18 * menu.brewFuel() / (float) com.projecthivemind.HiveBrewing.FUEL_CHARGES), fuelY + 4, 0xFFE8741A);
         }
 
+        graphics.pose().popPose();
+
         if (tab == Tab.HIVE) {
+            // The list of workstations has a scrollbar of its own, at the panel's right edge.
+            HiveStyle.scrollbar(graphics, leftPos + stationBarX(), topPos + HiveMenu.STORAGE_Y, stationViewHeight(), stationButtonsHeight(), stationViewHeight(), stationScroll);
             StorageScroll scroll = menu.storageScroll();
             HiveStyle.scrollbar(graphics, leftPos + HiveMenu.STORAGE_X + 9 * 18 + 1, topPos + HiveMenu.STORAGE_Y,
                     scroll.visibleRows() * 18, scroll.totalRows(), scroll.visibleRows(), scroll.row());
+        }
+
+        if (tab == Tab.UNITS && unitPage == UnitKind.SCOUT) {
+            StorageScroll scoutScroll = menu.scoutScroll();
+            HiveStyle.scrollbar(graphics, leftPos + HiveMenu.SCOUT_INV_X + HiveMenu.SCOUT_INV_COLUMNS * 18 + 1, topPos + HiveMenu.SCOUT_INV_Y,
+                    scoutScroll.visibleRows() * 18, scoutScroll.totalRows(), scoutScroll.visibleRows(), scoutScroll.row());
         }
     }
 
@@ -1296,8 +1350,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
      */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (storageSearch != null && storageSearch.visible && storageSearch.isFocused() && keyCode != org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
-            return storageSearch.keyPressed(keyCode, scanCode, modifiers) || storageSearch.canConsumeInput();
+        for (EditBox box : new EditBox[] {storageSearch, scoutSearch}) {
+            if (box != null && box.visible && box.isFocused() && keyCode != org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
+                return box.keyPressed(keyCode, scanCode, modifiers) || box.canConsumeInput();
+            }
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
@@ -1306,12 +1362,27 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         StorageScroll scroll = menu.storageScroll();
+        StorageScroll scoutScroll = menu.scoutScroll();
+        if (tab == Tab.UNITS && unitPage == UnitKind.SCOUT && scoutScroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.SCOUT_INV_X
+                && mouseX < leftPos + HiveMenu.SCOUT_INV_X + HiveMenu.SCOUT_INV_COLUMNS * 18 + 6 && mouseY >= topPos + HiveMenu.SCOUT_INV_Y
+                && mouseY < topPos + HiveMenu.SCOUT_INV_Y + scoutScroll.visibleRows() * 18) {
+            int row = HiveStyle.scrolledRow(scoutScroll.row(), scrollY, scoutScroll.maxRow());
+            if (row != scoutScroll.row()) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.ScrollScoutStoragePayload(menu.containerId, row));
+            }
+            return true;
+        }
         if (tab == Tab.HIVE && scroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.STORAGE_X && mouseX < leftPos + HiveMenu.STORAGE_X + 9 * 18 + 6
                 && mouseY >= topPos + HiveMenu.STORAGE_Y && mouseY < topPos + HiveMenu.STORAGE_Y + scroll.visibleRows() * 18) {
             int row = HiveStyle.scrolledRow(scroll.row(), scrollY, scroll.maxRow());
             if (row != scroll.row()) {
                 PacketDistributor.sendToServer(new ScrollStoragePayload(menu.containerId, row));
             }
+            return true;
+        }
+        if (tab == Tab.HIVE && maxStationScroll() > 0 && mouseX >= leftPos + STATION_BUTTON_X - 2 && mouseX < leftPos + stationBarX() + 8
+                && mouseY >= topPos + HiveMenu.STORAGE_Y && mouseY < topPos + HiveMenu.STORAGE_Y + stationViewHeight()) {
+            scrollStations(-(int) Math.signum(scrollY) * STATION_BUTTON_STEP);
             return true;
         }
         if (tab == Tab.EVOLVE && evolveDoneRows() > evolveVisibleRows() && mouseY >= topPos + evolveDoneTop()) {
@@ -1394,13 +1465,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                     : Component.translatable("screen.projecthivemind.job.none");
             graphics.drawString(font, Component.translatable("screen.projecthivemind.job.title", job), BEHAVIOR_X + 4, JOB_TOP, 0xE0E0E0, false);
         }
-        if (unitPage != UnitKind.COLLECTOR && unitPage != UnitKind.SOLDIER && unitPage != UnitKind.FEEDER) {
+        if (unitPage != UnitKind.COLLECTOR && unitPage != UnitKind.SOLDIER && unitPage != UnitKind.FEEDER && unitPage != UnitKind.SCOUT) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.radius"), imageWidth - 12 - 34, BEHAVIOR_TOP - 12, 0xA0A0A0, false);
         }
         switch (unitPage) {
             case COLLECTOR -> renderCollectorTask(graphics);
-            case SCOUT -> graphics.drawString(font, Component.translatable("screen.projecthivemind.behavior.scout_note"),
-                    BEHAVIOR_X + 4, BEHAVIOR_TOP + 5 * BEHAVIOR_ROW + 4, 0x909090, false);
+            case SCOUT -> {
+                graphics.drawString(font, Component.translatable("screen.projecthivemind.scout_armor"), BEHAVIOR_X + 4, HiveMenu.SCOUT_ARMOR_Y - 12, 0xA0A0A0, false);
+            }
             case WORKER -> renderWorkerNote(graphics);
             default -> {
             }
@@ -1513,7 +1585,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private static final int EVOLVE_TOP = 98;
     private static final int EVOLVE_ROW = 22;
-    private static final int EVOLVE_COLUMN = 176;
     /** The step between the icons of the tasks to do: 16 of them fit across the panel. */
     private static final int EVOLVE_STEP = 18;
     /** How many rows of the Completed list are scrolled off the top. */
@@ -1530,7 +1601,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
             done += task.doneIn(menu.evolveMask()) ? 1 : 0;
         }
-        return (done + 1) / 2;
+        return done;
     }
 
     /** One task's icon on the Evolve tab: whether it is done, whether the hive can do it now, and where it is (in the panel's own coordinates). */
@@ -1576,10 +1647,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
             if (task.doneIn(mask)) {
-                // Two columns: the next one goes to the right, then back to the left on the next row. Only the rows in view are there.
-                int row = done / 2;
+                // One to a row. Only the rows in view are there.
+                int row = done;
                 if (row >= evolveScroll && row < evolveScroll + evolveVisibleRows()) {
-                    icons.add(new EvolveIcon(task, true, false, UNIT_LIST_X + (done % 2) * EVOLVE_COLUMN, evolveDoneTop() + (row - evolveScroll) * 20));
+                    icons.add(new EvolveIcon(task, true, false, UNIT_LIST_X, evolveDoneTop() + (row - evolveScroll) * 20));
                 }
                 done++;
             }
@@ -2019,28 +2090,40 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.armor"), HiveMenu.ARMOR_X, LABEL_Y, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.storage"), HiveMenu.STORAGE_X, LABEL_Y, 0xA0A0A0, false);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.food"), HiveMenu.ARMOR_X,
-                HiveMenu.ARMOR_Y + 4 * 18 + 22, 0xA0A0A0, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.scout_hand"), HiveMenu.STORAGE_X + 22,
                 HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
-        // The workstation on the right is named for the open tab.
-        // (With no workstation unlocked yet there is nothing to name.)
-        String workstation = anvilShown && menu.hasAnvil() ? "screen.projecthivemind.hive.anvil"
-                : cartographyShown && menu.hasCartography() ? "screen.projecthivemind.hive.cartography"
-                : jukeboxShown && menu.hasJukebox() ? "screen.projecthivemind.hive.jukebox"
-                : enchantShown && menu.hasEnchanting() ? "screen.projecthivemind.hive.enchanting"
-                : brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
-                : furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace"
-                : menu.hasCrafting() ? "screen.projecthivemind.hive.crafting" : "screen.projecthivemind.hive.crafting_small";
-        graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
-        if (anvilShown && menu.hasAnvil() && menu.anvilCost() > 0) {
+        drawStationTitles(graphics);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
+                HiveMenu.TOOLS_X + com.projecthivemind.HiveEquipment.TOOL_SLOTS * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
+    }
+
+    /** The name of each workstation in view, over its slots, and what the anvil's result costs. (Drawn in the panel's own coordinates.) */
+    private void drawStationTitles(GuiGraphics graphics) {
+        if (tab != Tab.HIVE) {
+            return;
+        }
+        for (Station station : Station.values()) {
+            if (!stationInView(station)) {
+                continue;
+            }
+            String key = switch (station) {
+                case CRAFT -> menu.hasCrafting() ? "screen.projecthivemind.hive.crafting" : "screen.projecthivemind.hive.crafting_small";
+                case FURNACE -> "screen.projecthivemind.hive.furnace";
+                case BREWING -> "screen.projecthivemind.hive.brewing";
+                case ENCHANT -> "screen.projecthivemind.hive.enchanting";
+                case JUKEBOX -> "screen.projecthivemind.hive.jukebox";
+                case CARTOGRAPHY -> "screen.projecthivemind.hive.cartography";
+                case ANVIL -> "screen.projecthivemind.hive.anvil";
+                case TRASH -> "screen.projecthivemind.hive.trash";
+            };
+            graphics.drawString(font, Component.translatable(key), HiveMenu.GRID_X, stationTitleY(station), 0xA0A0A0, false);
+        }
+        if (stationInView(Station.ANVIL) && menu.anvilCost() > 0) {
             // What the result costs, in the hivemind's own levels: green when it has them, red when it has not.
             boolean affordable = minecraft.player != null && (minecraft.player.experienceLevel >= menu.anvilCost() || minecraft.player.getAbilities().instabuild);
             graphics.drawString(font, Component.translatable("container.repair.cost", menu.anvilCost()), HiveMenu.FURNACE_INPUT_X,
-                    HiveMenu.FURNACE_FUEL_Y + 26, affordable ? 0x80FF20 : 0xFF6060, false);
+                    HiveMenu.FURNACE_FUEL_Y + 26 + stationDy(Station.ANVIL), affordable ? 0x80FF20 : 0xFF6060, false);
         }
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
-                HiveMenu.TOOLS_X + com.projecthivemind.HiveEquipment.TOOL_SLOTS * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }
 
     /**

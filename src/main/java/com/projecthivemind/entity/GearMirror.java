@@ -19,6 +19,17 @@ public final class GearMirror {
     private final UUID[] linkOf = new UUID[EquipmentSlot.values().length];
     private final int[] damageOf = new int[EquipmentSlot.values().length];
     private final int[] maxDamageOf = new int[EquipmentSlot.values().length];
+    private final EquipmentSlot[] watched;
+
+    /** Watches every slot. */
+    public GearMirror() {
+        this(EquipmentSlot.values());
+    }
+
+    /** Watches only these slots (so that two mirrors on one unit, one for its hand and one for its armor, do not both charge the same wear). */
+    public GearMirror(EquipmentSlot... watched) {
+        this.watched = watched;
+    }
 
     /**
      * Forget what each slot held. Call this just before deliberately changing a unit's gear, so the swap is not
@@ -29,7 +40,7 @@ public final class GearMirror {
     }
 
     public void tick(Mob mob, HiveHeart heart) {
-        for (EquipmentSlot slot : EquipmentSlot.values()) {
+        for (EquipmentSlot slot : watched) {
             int i = slot.ordinal();
             ItemStack stack = mob.getItemBySlot(slot);
             UUID link = HiveEquipment.link(stack);

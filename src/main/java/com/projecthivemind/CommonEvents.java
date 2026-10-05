@@ -113,6 +113,7 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
         registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
         registrar.playToServer(com.projecthivemind.network.BuildGeneratorPayload.TYPE, com.projecthivemind.network.BuildGeneratorPayload.STREAM_CODEC, ServerPayloads::onBuildGenerator);
+        registrar.playToServer(com.projecthivemind.network.BuildNetherPortalPayload.TYPE, com.projecthivemind.network.BuildNetherPortalPayload.STREAM_CODEC, ServerPayloads::onBuildNetherPortal);
         registrar.playToServer(com.projecthivemind.network.BuildTunnelPayload.TYPE, com.projecthivemind.network.BuildTunnelPayload.STREAM_CODEC, ServerPayloads::onBuildTunnel);
         registrar.playToServer(com.projecthivemind.network.TogglePortalResummonPayload.TYPE, com.projecthivemind.network.TogglePortalResummonPayload.STREAM_CODEC, ServerPayloads::onTogglePortalResummon);
         registrar.playToClient(com.projecthivemind.network.SyncTeamPayload.TYPE, com.projecthivemind.network.SyncTeamPayload.STREAM_CODEC, ClientPayloads::onSyncTeam);
@@ -126,6 +127,8 @@ public final class CommonEvents {
         registrar.playToServer(BuildTowerPayload.TYPE, BuildTowerPayload.STREAM_CODEC, ServerPayloads::onBuildTower);
         registrar.playToServer(com.projecthivemind.network.SetStorageSearchPayload.TYPE, com.projecthivemind.network.SetStorageSearchPayload.STREAM_CODEC, ServerPayloads::onStorageSearch);
         registrar.playToServer(ScrollStoragePayload.TYPE, ScrollStoragePayload.STREAM_CODEC, ServerPayloads::onScrollStorage);
+        registrar.playToServer(com.projecthivemind.network.ScrollScoutStoragePayload.TYPE, com.projecthivemind.network.ScrollScoutStoragePayload.STREAM_CODEC, ServerPayloads::onScrollScoutStorage);
+        registrar.playToServer(com.projecthivemind.network.SetScoutSearchPayload.TYPE, com.projecthivemind.network.SetScoutSearchPayload.STREAM_CODEC, ServerPayloads::onScoutSearch);
         registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
         registrar.playToClient(TradeOffersPayload.TYPE, TradeOffersPayload.STREAM_CODEC, ClientPayloads::onTradeOffers);
         registrar.playToClient(SyncHeartHealthPayload.TYPE, SyncHeartHealthPayload.STREAM_CODEC, ClientPayloads::onSyncHeartHealth);

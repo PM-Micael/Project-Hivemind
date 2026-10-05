@@ -535,6 +535,8 @@ public final class HiveSelection {
                 case 0 -> {
                     if (config.getInt("TunnelSize") > 0) {
                         minecraft.setScreen(new BuildTunnelScreen(pos, config));
+                    } else if (config.getBoolean("Portal")) {
+                        minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.nether_portal_no_options"), false);
                     } else if (config.getBoolean("Generator")) {
                         minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.generator_no_options"), false);
                     } else {

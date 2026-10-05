@@ -206,6 +206,15 @@ public final class ClientControl {
         input.shiftKeyDown = false;
     }
 
+    /** Sprinting widens the view, as it does for a player (the game only knows the player's own sprinting, and the player is a camera). */
+    @SubscribeEvent
+    static void onFov(net.neoforged.neoforge.client.event.ComputeFovModifierEvent event) {
+        HiveScout scout = scout();
+        if (scout != null && scout.isSprinting()) {
+            event.setNewFovModifier(event.getNewFovModifier() * (float) Mth.lerp(Minecraft.getInstance().options.fovEffectScale().get(), 1.0D, 1.15D));
+        }
+    }
+
     /** The mouse wheel picks the hotbar slot. */
     @SubscribeEvent
     static void onScroll(InputEvent.MouseScrollingEvent event) {

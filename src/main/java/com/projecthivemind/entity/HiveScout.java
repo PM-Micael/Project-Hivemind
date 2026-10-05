@@ -49,7 +49,9 @@ public class HiveScout extends Husk implements HiveUnit {
     private UnitAction action;
     /** This unit's own settings, edited from the hive menu's page for its kind. */
     /** The scout's gear mirror, used while it holds a tool from the hive for an order: wear on the copy is charged to the original. */
-    private final GearMirror gearMirror = new GearMirror();
+    private final GearMirror gearMirror = new GearMirror(EquipmentSlot.MAINHAND);
+    /** Keeps the armor on the scout and the originals in the hive in step: wear on a copy is charged to the original. */
+    private final GearMirror armorMirror = new GearMirror(HiveEquipment.ARMOR_SLOTS);
     /** True while the hand holds a tool from the hive's pool for a dig or attack order, instead of the hand slot's item. */
     private boolean toolOverride;
 
@@ -118,7 +120,12 @@ public class HiveScout extends Husk implements HiveUnit {
                 this.goalSelector.disableControlFlag(flag);
             }
             this.getNavigation().stop();
+            // A player steps up half a block, not two: that is part of how a player moves, and what makes sneaking on an edge work.
+            this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(PLAYER_STEP_HEIGHT);
         } else if (drive == null && was) {
+            this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(STEP_HEIGHT);
+            this.setPose(net.minecraft.world.entity.Pose.STANDING);
+            sprintBlocked = false;
             for (net.minecraft.world.entity.ai.goal.Goal.Flag flag : net.minecraft.world.entity.ai.goal.Goal.Flag.values()) {
                 this.goalSelector.enableControlFlag(flag);
             }
@@ -183,6 +190,76 @@ public class HiveScout extends Husk implements HiveUnit {
         }
     }
 
+    /** A player's step height, in blocks. */
+    private static final double PLAYER_STEP_HEIGHT = 0.6D;
+    /** How much lower a crouching scout is than a standing one (a player's 1.8 becomes 1.5). */
+    private static final float CROUCH_SCALE = 0.85F;
+    private boolean sprintBlocked;
+
+    /** Crouch while the sneak key is down, and stand up again only where there is room, as a player does. */
+    private void updateControlPose(boolean sneak) {
+        net.minecraft.world.entity.Pose pose = this.getPose();
+        if (sneak && pose == net.minecraft.world.entity.Pose.STANDING) {
+            this.setPose(net.minecraft.world.entity.Pose.CROUCHING);
+        } else if (!sneak && pose == net.minecraft.world.entity.Pose.CROUCHING) {
+            var standing = this.getDimensions(net.minecraft.world.entity.Pose.STANDING).makeBoundingBox(this.position());
+            if (this.level().noCollision(this, standing)) {
+                this.setPose(net.minecraft.world.entity.Pose.STANDING);
+            }
+        }
+    }
+
+    @Override
+    public net.minecraft.world.entity.EntityDimensions getDefaultDimensions(net.minecraft.world.entity.Pose pose) {
+        return pose == net.minecraft.world.entity.Pose.CROUCHING
+                ? super.getDefaultDimensions(net.minecraft.world.entity.Pose.STANDING).scale(1.0F, CROUCH_SCALE) : super.getDefaultDimensions(pose);
+    }
+
+    /** In the air a player steers a little, a little more when sprinting. */
+    @Override
+    protected float getFlyingSpeed() {
+        return drive != null ? (this.isSprinting() ? 0.025999999F : 0.02F) : super.getFlyingSpeed();
+    }
+
+    /** Sneaking on an edge keeps the scout from walking off it, exactly as it does a player (the same method as a player's). */
+    @Override
+    protected net.minecraft.world.phys.Vec3 maybeBackOffFromEdge(net.minecraft.world.phys.Vec3 vec, net.minecraft.world.entity.MoverType mover) {
+        float step = this.maxUpStep();
+        if (drive == null || !this.isShiftKeyDown() || vec.y > 0.0D || mover != net.minecraft.world.entity.MoverType.SELF
+                || !(this.onGround() || this.fallDistance < step && !canFallAtLeast(0.0D, 0.0D, step - this.fallDistance))) {
+            return vec;
+        }
+        double x = vec.x;
+        double z = vec.z;
+        double stepX = Math.signum(x) * 0.05D;
+        double stepZ = Math.signum(z) * 0.05D;
+        while (x != 0.0D && canFallAtLeast(x, 0.0D, step)) {
+            if (Math.abs(x) <= 0.05D) {
+                x = 0.0D;
+                break;
+            }
+            x -= stepX;
+        }
+        while (z != 0.0D && canFallAtLeast(0.0D, z, step)) {
+            if (Math.abs(z) <= 0.05D) {
+                z = 0.0D;
+                break;
+            }
+            z -= stepZ;
+        }
+        while (x != 0.0D && z != 0.0D && canFallAtLeast(x, z, step)) {
+            x = Math.abs(x) <= 0.05D ? 0.0D : x - stepX;
+            z = Math.abs(z) <= 0.05D ? 0.0D : z - stepZ;
+        }
+        return new net.minecraft.world.phys.Vec3(x, vec.y, z);
+    }
+
+    private boolean canFallAtLeast(double x, double z, float distance) {
+        net.minecraft.world.phys.AABB box = this.getBoundingBox();
+        return this.level().noCollision(this, new net.minecraft.world.phys.AABB(box.minX + x, box.minY - distance - 1.0E-5F, box.minZ + z,
+                box.maxX + x, box.minY, box.maxZ + z));
+    }
+
     /** Make the scout do what the player presses: face where they face, and walk, sneak, sprint and jump as they do. */
     private void applyDrive(Drive d) {
         this.setYRot(d.yaw());
@@ -190,7 +267,15 @@ public class HiveScout extends Husk implements HiveUnit {
         this.setYHeadRot(d.yaw());
         this.setXRot(d.pitch());
         this.setShiftKeyDown(d.sneak());
-        boolean sprinting = (d.sprint() && d.forward() > 0.0F && !d.sneak()) || (this.isInWater() && !d.sneak());
+        updateControlPose(d.sneak());
+        // Running into a wall ends a sprint, as for a player; it takes a fresh press of forward to start another.
+        if (this.horizontalCollision) {
+            sprintBlocked = true;
+        }
+        if (!d.sprint() || d.forward() <= 0.0F) {
+            sprintBlocked = false;
+        }
+        boolean sprinting = (d.sprint() && d.forward() > 0.0F && !d.sneak() && !sprintBlocked) || (this.isInWater() && !d.sneak());
         this.setSprinting(sprinting);
         // A mob's setSpeed also sets its forward input, so the speed goes in first and the keys after it.
         super.setSpeed(sprinting ? CONTROL_SPRINT_SPEED : CONTROL_WALK_SPEED);
@@ -206,6 +291,9 @@ public class HiveScout extends Husk implements HiveUnit {
         super(type, level);
         // What it holds is the hive's, and stays in the hive when the scout dies.
         this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+        for (EquipmentSlot slot : HiveEquipment.ARMOR_SLOTS) {
+            this.setDropChance(slot, 0.0F);
+        }
     }
 
     /**
@@ -272,6 +360,37 @@ public class HiveScout extends Husk implements HiveUnit {
         }
     }
 
+    /**
+     * Every scout wears a copy of the armor in the hive's scout armor slots, the way soldiers wear the soldiers'. A piece that is not what the slot holds
+     * (changed, taken out, or broken and replaced) is put right at once, and what the copy loses is charged to the original in the Heart.
+     */
+    private void wearScoutArmor(HiveHeart heart) {
+        armorMirror.tick(this, heart);
+        for (int i = 0; i < HiveEquipment.ARMOR_SLOTS.length; i++) {
+            EquipmentSlot slot = HiveEquipment.ARMOR_SLOTS[i];
+            ItemStack stored = heart.getScoutArmor().getItem(i);
+            ItemStack worn = this.getItemBySlot(slot);
+            if (stored.isEmpty()) {
+                if (!worn.isEmpty()) {
+                    armorMirror.reset();
+                    this.setItemSlot(slot, ItemStack.EMPTY);
+                }
+                continue;
+            }
+            java.util.UUID link = HiveEquipment.link(stored);
+            if (worn.isEmpty() || link == null || !link.equals(HiveEquipment.link(worn))) {
+                armorMirror.reset();
+                this.setItemSlot(slot, HiveEquipment.linkedCopy(heart.getScoutArmor(), i));
+            }
+        }
+    }
+
+    /** Mobs never wear their armor down in the game, only players do. A scout does: its armor is a copy, and the wear is charged to the original. */
+    @Override
+    protected void hurtArmor(DamageSource source, float damage) {
+        this.doHurtEquipment(source, damage, HiveEquipment.ARMOR_SLOTS);
+    }
+
     /** Carries a walk order a long way, past what one path can reach. */
     private final WalkProgress walkProgress = new WalkProgress();
 
@@ -315,6 +434,10 @@ public class HiveScout extends Husk implements HiveUnit {
             this.setXRot(driven.pitch());
         }
         speedProbe.tick(this);
+        HiveHeart armorHeart = findHeart();
+        if (armorHeart != null) {
+            wearScoutArmor(armorHeart);
+        }
         if (driven == null) {
             applySneak();
             // In water the scout swims the way a swimming player does: sprinting in water is what makes a player swim, and it is
@@ -370,8 +493,8 @@ public class HiveScout extends Husk implements HiveUnit {
         if (heart != null && this.tickCount % 2 == 0) {
             pickUpNearbyExperience();
         }
-        // A scout a player controls picks up what it touches, as a player does, whatever its setting says.
-        if (heart != null && (behavior.collectItems() || driven != null)) {
+        // A scout picks up what it touches, as a player does (it does not walk to items: it does nothing on its own).
+        if (heart != null) {
             pickUpNearbyItems(heart);
         }
     }
@@ -493,10 +616,9 @@ public class HiveScout extends Husk implements HiveUnit {
         return radii;
     }
 
+    /** Scouts have no settings: they pick up what they touch and do nothing on their own, so there is nothing to change. */
     @Override
     public void setBehavior(int flags, int[] radii) {
-        this.behavior = ScoutBehavior.from(flags, radii);
-        applySneak();
     }
 
     /** The Sneak setting: crouching makes the scout as hard to notice as a sneaking player, and it slows to a walking zombie's speed. */
@@ -537,14 +659,12 @@ public class HiveScout extends Husk implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
-        if (tag.contains("Behavior")) {
-            behavior = ScoutBehavior.load(tag.getCompound("Behavior"));
-        }
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }
         // A mob's attribute values are saved with it, so a scout saved before the speed was changed would come back
         // with its old one. Always put the current speed back after loading.
         this.getAttribute(Attributes.MOVEMENT_SPEED).setBaseValue(MOVEMENT_SPEED);
+        this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(STEP_HEIGHT);
     }
 }

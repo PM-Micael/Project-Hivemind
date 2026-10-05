@@ -33,22 +33,29 @@ public final class StorageScroll {
     /** How many slots there are to scroll through: all of them, or only those the search matches. */
     private final DataSlot matches = DataSlot.standalone();
     private final int total;
+    /** The most slots the window shows at once (a window of three rows for the scout page, six for the hive's own storage). */
+    private final int maxVisible;
     private final Container view;
     @Nullable
     private final Window window;
 
     /** @param backing the real storage on the server, or null on the client */
     public StorageScroll(@Nullable SimpleContainer backing, int total) {
+        this(backing, total, MAX_VISIBLE);
+    }
+
+    public StorageScroll(@Nullable SimpleContainer backing, int total, int maxVisible) {
+        this.maxVisible = maxVisible;
         this.total = total;
         this.matches.set(total);
         if (backing != null) {
-            this.window = new Window(backing, visibleSlots(total));
+            this.window = new Window(backing, Math.min(total, maxVisible));
             this.view = window;
         } else {
             this.window = null;
             // The client's copy only shows what the server says: it must not cut a stack down to the item's usual size, or a stack the evolution
             // tasks made bigger would show as 64 until it was picked up. (The server's storage decides how much a slot really holds.)
-            this.view = new SimpleContainer(visibleSlots(total)) {
+            this.view = new SimpleContainer(Math.min(total, maxVisible)) {
                 @Override
                 public int getMaxStackSize(net.minecraft.world.item.ItemStack stack) {
                     return stack.getMaxStackSize() > 1 ? 1024 : stack.getMaxStackSize();
@@ -84,7 +91,7 @@ public final class StorageScroll {
     }
 
     public int visibleRows() {
-        return rows(visibleSlots(total));
+        return rows(Math.min(total, maxVisible));
     }
 
     /** How many rows there are to scroll through: the whole storage, or what the search matches. */

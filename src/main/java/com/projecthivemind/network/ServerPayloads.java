@@ -76,7 +76,7 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL | HiveMenu.GROUP_TRASH);
         }
     }
 
@@ -87,6 +87,24 @@ public final class ServerPayloads {
                 && player.containerMenu.containerId == payload.containerId()) {
             menu.storageScroll().setSearch(payload.text());
             player.containerMenu.broadcastChanges();
+        }
+    }
+
+    /** The player typed in the search box on the scouts' page. */
+    public static void onScoutSearch(SetScoutSearchPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.scoutScroll().setSearch(payload.text());
+            menu.broadcastChanges();
+        }
+    }
+
+    /** The mouse wheel moved the window onto the storage on the scouts' page. */
+    public static void onScrollScoutStorage(ScrollScoutStoragePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.scoutScroll().scrollTo(payload.row());
+            menu.broadcastChanges();
         }
     }
 
@@ -124,6 +142,12 @@ public final class ServerPayloads {
     public static void onBuildGenerator(BuildGeneratorPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HiveActions.buildGenerator(player, payload);
+        }
+    }
+
+    public static void onBuildNetherPortal(BuildNetherPortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.buildNetherPortal(player, payload);
         }
     }
 

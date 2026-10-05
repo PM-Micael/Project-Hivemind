@@ -265,6 +265,86 @@ public final class HiveActions {
     }
 
     /**
+     * Workers build the smallest nether portal there is on the block clicked (a frame of ten obsidian round an opening two wide and three high, see
+     * BridgeJob#portal) and light it with a flint and steel. The obsidian and the flint and steel come from the hive. Only where a portal can be lit:
+     * the Overworld and the Nether.
+     */
+    public static void buildNetherPortal(ServerPlayer player, com.projecthivemind.network.BuildNetherPortalPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos site = request.site();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || !level.isInWorldBounds(site) || !level.isLoaded(site)) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD && level.dimension() != net.minecraft.world.level.Level.NETHER) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.nether_portal_bad_dimension"), true);
+            return;
+        }
+        // The frame runs along the first axis where it fits.
+        Direction along = null;
+        for (Direction candidate : new Direction[] {Direction.EAST, Direction.SOUTH}) {
+            if (netherPortalFits(level, site, candidate)) {
+                along = candidate;
+                break;
+            }
+        }
+        if (along == null) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.nether_portal_bad_site"), true);
+            return;
+        }
+        if (heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
+        }
+        com.projecthivemind.build.BridgeJob job = com.projecthivemind.build.BridgeJob.portal(site.immutable(), along);
+        java.util.Set<Long> reserved = new java.util.HashSet<>();
+        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+            reserved.add(HiveConstructions.columnKey(placement.pos().getX(), placement.pos().getZ()));
+        }
+        Direction facing = along.getClockWise();
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, site.getX() + facing.getStepX() * 4, site.getZ() + facing.getStepZ() * 4, reserved);
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofBridge(level.dimension(), anchor, job);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(site), 1));
+        player.displayClientMessage(Component.translatable("message.projecthivemind.nether_portal_started"), true);
+    }
+
+    /**
+     * True if the portal's frame and opening can go on this block, running in this direction: the block is solid and so is the one beside it (what
+     * the bottom edge rests on), and each place for the frame and the opening is loaded, in the world, free of liquid, and either empty or something
+     * a worker can dig out.
+     */
+    private static boolean netherPortalFits(ServerLevel level, BlockPos site, Direction along) {
+        com.projecthivemind.build.BridgeJob job = com.projecthivemind.build.BridgeJob.portal(site, along);
+        for (BlockPos ground : new BlockPos[] {site, site.relative(along)}) {
+            if (!level.isLoaded(ground) || !level.getBlockState(ground).isFaceSturdy(level, ground, Direction.UP)) {
+                return false;
+            }
+        }
+        java.util.List<BlockPos> cells = new ArrayList<>(job.portalFrame());
+        cells.addAll(job.portalOpening());
+        for (BlockPos cell : cells) {
+            if (!level.isLoaded(cell) || !level.isInWorldBounds(cell)) {
+                return false;
+            }
+            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(cell);
+            if (!state.getFluidState().isEmpty()
+                    || !(state.canBeReplaced() || (state.getDestroySpeed(level, cell) >= 0.0F && !state.hasBlockEntity()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Workers dig a tunnel from the block clicked, in the direction and of the size ordered, for its length; where the floor is missing along the
      * way, the chosen block is laid. Checked here: the block is plain and full (it comes from the hive), the size and length are in range, and the
      * start is loaded.

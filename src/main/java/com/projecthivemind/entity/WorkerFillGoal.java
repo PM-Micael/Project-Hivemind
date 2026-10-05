@@ -37,6 +37,8 @@ public class WorkerFillGoal extends Goal {
     private static final int PLACE_INTERVAL = 5;
     /** How far below the Heart's floor a column of ground may be and still be filled: a cliff or a pit this deep is not a gap. */
     private static final int MAX_DEPTH = 16;
+    /** The hive area is only filled where the ground is one block under the Heart's floor: the Heart's own floor block and the one under it are all it cares about. */
+    private static final int HIVE_AREA_MAX_DEPTH = 1;
     /** How long a worker may spend unable to get to a gap before it gives up on it for a while, and for how long. */
     private static final int GIVE_UP_TICKS = 200;
     private static final int IGNORE_TICKS = 600;
@@ -200,7 +202,7 @@ public class WorkerFillGoal extends Goal {
                         continue;
                     }
                     int groundTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
-                    if (groundTop >= floorTop || floorTop - groundTop > MAX_DEPTH) {
+                    if (groundTop >= floorTop || floorTop - groundTop > (region.circle() == null ? HIVE_AREA_MAX_DEPTH : MAX_DEPTH)) {
                         continue;
                     }
                     BlockPos ground = new BlockPos(x, groundTop, z);

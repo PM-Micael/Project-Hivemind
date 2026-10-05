@@ -33,17 +33,17 @@ import net.minecraft.world.phys.Vec3;
  * @param torches whether torches go along the way
  * @param width  how many blocks wide the deck is, {@link #MIN_WIDTH} to {@link #MAX_WIDTH}
  */
-public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width, boolean generator, int tunnelSize) {
+public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width, boolean generator, int tunnelSize, boolean portal) {
     public BridgeJob {
         width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width));
     }
 
     public BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width) {
-        this(start, dest, deck, fence, torches, width, false, 0);
+        this(start, dest, deck, fence, torches, width, false, 0, false);
     }
 
     public BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width, boolean generator) {
-        this(start, dest, deck, fence, torches, width, generator, 0);
+        this(start, dest, deck, fence, torches, width, generator, 0, false);
     }
 
     /** The longest bridge that can be ordered, in blocks along the ground. */
@@ -52,7 +52,7 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
     private static final int TORCH_EVERY = 6;
 
     public enum Kind {
-        DECK, FENCE, TORCH, WALL, LAVA, WATER, DIG, SLAB
+        DECK, FENCE, TORCH, WALL, LAVA, WATER, DIG, SLAB, OBSIDIAN, IGNITE
     }
 
     /**
@@ -105,6 +105,9 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
     private List<Placement> computePlacements() {
         if (generator) {
             return generatorPlacements();
+        }
+        if (portal) {
+            return portalPlacements();
         }
         if (tunnelSize > 0) {
             return tunnelPlacements();
@@ -262,6 +265,72 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         return start.relative(generatorDirection() == null ? net.minecraft.core.Direction.EAST : generatorDirection(), 2);
     }
 
+    // ---- the nether portal ----
+
+    /**
+     * The smallest nether portal there is, as a recipe in the same form as a bridge: a frame of ten obsidian round an opening two wide and three
+     * high (the four corners of the frame are not needed), standing on the ground with {@code ground} (the block clicked) under the left half of
+     * its bottom edge. It runs along {@code along}. Once the frame is whole, the last step is lighting the opening with a flint and steel.
+     */
+    public static BridgeJob portal(BlockPos ground, net.minecraft.core.Direction along) {
+        return new BridgeJob(ground, ground.relative(along, 1), net.minecraft.world.item.Items.OBSIDIAN, null, false, MIN_WIDTH, false, 0, true);
+    }
+
+    /** The way the portal's frame runs along the ground. */
+    public net.minecraft.core.Direction portalDirection() {
+        net.minecraft.core.Direction direction = net.minecraft.core.Direction.fromDelta(Integer.signum(dest.getX() - start.getX()), 0, Integer.signum(dest.getZ() - start.getZ()));
+        return direction == null ? net.minecraft.core.Direction.EAST : direction;
+    }
+
+    /** The frame's blocks in the order they are placed (bottom, sides, top), as positions. */
+    public List<BlockPos> portalFrame() {
+        net.minecraft.core.Direction along = portalDirection();
+        BlockPos bottom = start.above();
+        List<BlockPos> frame = new ArrayList<>();
+        for (int i = 0; i <= 1; i++) {
+            frame.add(bottom.relative(along, i));
+        }
+        for (int up = 1; up <= 3; up++) {
+            frame.add(bottom.relative(along, -1).above(up));
+            frame.add(bottom.relative(along, 2).above(up));
+        }
+        for (int i = 0; i <= 1; i++) {
+            frame.add(bottom.relative(along, i).above(4));
+        }
+        return frame;
+    }
+
+    /** The two-by-three opening, bottom row first: where the portal forms. */
+    public List<BlockPos> portalOpening() {
+        net.minecraft.core.Direction along = portalDirection();
+        List<BlockPos> opening = new ArrayList<>();
+        for (int up = 1; up <= 3; up++) {
+            for (int i = 0; i <= 1; i++) {
+                opening.add(start.above().relative(along, i).above(up));
+            }
+        }
+        return opening;
+    }
+
+    private List<Placement> portalPlacements() {
+        net.minecraft.core.Direction along = portalDirection();
+        net.minecraft.core.Direction facing = along.getClockWise();
+        // Where a worker stands: on the ground a couple of blocks in front of the middle of the frame (it can reach the top from there).
+        Vec3 stand = Vec3.atBottomCenterOf(start.above().relative(along, 0).relative(facing, 2)).add(along.getStepX() * 0.5D, 0.0D, along.getStepZ() * 0.5D);
+        List<Placement> result = new ArrayList<>();
+        // 1. Clear the opening of whatever is in it (the worker digs it out).
+        for (BlockPos cell : portalOpening()) {
+            result.add(new Placement(cell, Kind.DIG, stand));
+        }
+        // 2. The frame.
+        for (BlockPos pos : portalFrame()) {
+            result.add(new Placement(pos, Kind.OBSIDIAN, stand));
+        }
+        // 3. Lit from the bottom of the opening.
+        result.add(new Placement(portalOpening().get(0), Kind.IGNITE, stand));
+        return result;
+    }
+
     // ---- the tunnel ----
 
     /** The tunnel sizes, as (width, height) in blocks: 1x2 (one wide, two high), 2x2, 3x3 and 5x5. Indexed by the size number minus one. */
@@ -277,7 +346,7 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
      */
     public static BridgeJob tunnel(BlockPos start, net.minecraft.core.Direction direction, int length, Item block, int size) {
         int clamped = Math.max(TUNNEL_MIN_LENGTH, Math.min(TUNNEL_MAX_LENGTH, length));
-        return new BridgeJob(start, start.relative(direction, clamped - 1), block, null, false, MIN_WIDTH, false, Math.max(1, Math.min(TUNNEL_SIZE_COUNT, size)));
+        return new BridgeJob(start, start.relative(direction, clamped - 1), block, null, false, MIN_WIDTH, false, Math.max(1, Math.min(TUNNEL_SIZE_COUNT, size)), false);
     }
 
     public boolean isTunnel() {
@@ -343,6 +412,7 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         tag.putInt("Width", width);
         tag.putBoolean("Generator", generator);
         tag.putInt("TunnelSize", tunnelSize);
+        tag.putBoolean("Portal", portal);
         return tag;
     }
 
@@ -354,6 +424,6 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         Item deck = deckId == null ? null : BuiltInRegistries.ITEM.getOptional(deckId).orElse(null);
         ResourceLocation fenceId = tag.contains("Fence") ? ResourceLocation.tryParse(tag.getString("Fence")) : null;
         Item fence = fenceId == null ? null : BuiltInRegistries.ITEM.getOptional(fenceId).orElse(null);
-        return start == null || dest == null || deck == null ? null : new BridgeJob(start, dest, deck, fence, tag.getBoolean("Torches"), tag.contains("Width") ? tag.getInt("Width") : 3, tag.getBoolean("Generator"), tag.getInt("TunnelSize"));
+        return start == null || dest == null || deck == null ? null : new BridgeJob(start, dest, deck, fence, tag.getBoolean("Torches"), tag.contains("Width") ? tag.getInt("Width") : 3, tag.getBoolean("Generator"), tag.getInt("TunnelSize"), tag.getBoolean("Portal"));
     }
 }
