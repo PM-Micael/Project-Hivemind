@@ -157,33 +157,31 @@ public final class HiveEquipment {
     }
 
     /**
-     * The tool slot of the hive's best tool for this block: a tool that can harvest it (so it drops its items) beats one that
-     * cannot; among those, the one that breaks it fastest wins, Efficiency included. Only tools fitted for the block count: -1 if the hive has
-     * none (the hand stays empty).
+     * The tool slot the hive uses for this block: the first one from the left that is fitted for it. A block that drops nothing without the
+     * right tool (an ore) skips the tools that cannot harvest it, so a better tool is only used when the block needs it. Only tools fitted
+     * for the block count (a sword on dirt, an axe on stone, a block or food never do): -1 if the hive has none (the hand stays empty).
      */
     public static int bestToolSlot(HiveHeart heart, RegistryAccess registries, BlockState state) {
-        int best = -1;
-        boolean bestCorrect = false;
-        float bestSpeed = 0.0F;
+        boolean needsCorrect = state.requiresCorrectToolForDrops();
+        int fallback = -1;
         for (int i = 0; i < TOOL_SLOTS; i++) {
             ItemStack tool = heart.getToolGear().getItem(i);
             if (tool.isEmpty()) {
                 continue;
             }
             boolean correct = tool.isCorrectToolForDrops(state);
-            // An item that is neither the right tool for the block nor any faster on it than a bare hand (a sword on dirt, an axe on stone, a
-            // block, food) is not fitted for the job: it is never taken up.
             if (!correct && tool.getDestroySpeed(state) <= 1.0F) {
                 continue;
             }
-            float speed = miningSpeed(tool, state, registries);
-            if (best == -1 || (correct && !bestCorrect) || (correct == bestCorrect && speed > bestSpeed)) {
-                best = i;
-                bestCorrect = correct;
-                bestSpeed = speed;
+            if (correct || !needsCorrect) {
+                return i;
+            }
+            // Fitted but cannot harvest it: only if no tool can.
+            if (fallback == -1) {
+                fallback = i;
             }
         }
-        return best;
+        return fallback;
     }
 
     /**
