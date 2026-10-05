@@ -347,6 +347,7 @@
   "action.projecthivemind.interact": "Interact",
   "action.projecthivemind.till": "Till",
   "message.projecthivemind.cannot_till": "That block cannot be tilled.",
+  "message.projecthivemind.cannot_till_detail": "That block cannot be tilled (%1$s, with %2$s on top).",
   "action.projecthivemind.attack": "Attack",
   "action.projecthivemind.cancel": "Cancel actions",
   "action.projecthivemind.trade": "Trade",

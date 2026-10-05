@@ -10,6 +10,7 @@ import com.projecthivemind.UnitAction;
 import com.projecthivemind.UnitKind;
 import com.projecthivemind.client.ClientSelection;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -78,6 +79,8 @@ public class HiveFeeder extends Bee implements HiveUnit {
         this.goalSelector.addGoal(1, new LeavePortalGoal(this));
         // Above everything else: a feeder always stays inside the hive border.
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> true));
+        // Above its work: a block it was told to till comes first.
+        this.goalSelector.addGoal(1, new FeederTillGoal(this));
         this.goalSelector.addGoal(2, new FeederChannelGoal(this));
         this.goalSelector.addGoal(2, new FeederCompostGoal(this));
         // The last thing it does: drift along the border.
@@ -96,6 +99,23 @@ public class HiveFeeder extends Bee implements HiveUnit {
 
     public void setHeartId(@Nullable UUID heartId) {
         this.heartId = heartId;
+    }
+
+    /** The block this feeder was told to till and is flying to, or null. Not saved. */
+    @Nullable
+    private BlockPos tillTarget;
+
+    @Nullable
+    public BlockPos tillTarget() {
+        return tillTarget;
+    }
+
+    public void orderTill(BlockPos pos) {
+        this.tillTarget = pos.immutable();
+    }
+
+    public void clearTill() {
+        this.tillTarget = null;
     }
 
     /** Feeders take no orders: they never have an action. */

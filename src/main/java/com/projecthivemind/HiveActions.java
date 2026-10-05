@@ -483,7 +483,7 @@ public final class HiveActions {
      */
     /** A feeder hoes the block, inside the hive border only: the same as a right click on its top with a hoe. */
     private static void till(ServerPlayer player, ServerLevel level, HiveHeart heart, List<Integer> ids, BlockPos pos) {
-        Mob feeder = null;
+        com.projecthivemind.entity.HiveFeeder feeder = null;
         for (int id : ids) {
             if (HivemindManager.findById(player, id) instanceof com.projecthivemind.entity.HiveFeeder found && found.isAlive()
                     && player.getUUID().equals(found.ownerId())) {
@@ -498,14 +498,61 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.plant_outside"), true);
             return;
         }
-        ItemStack hoe = new ItemStack(net.minecraft.world.item.Items.NETHERITE_HOE);
-        net.minecraft.world.phys.Vec3 click = net.minecraft.world.phys.Vec3.atCenterOf(pos).add(0.0D, 0.5D, 0.0D);
-        net.minecraft.world.item.context.UseOnContext context = new net.minecraft.world.item.context.UseOnContext(level, player,
-                net.minecraft.world.InteractionHand.MAIN_HAND, hoe,
-                new net.minecraft.world.phys.BlockHitResult(click, Direction.UP, pos, false));
-        if (!hoe.useOn(context).consumesAction()) {
-            player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_till"), true);
+        // The feeder flies over and hoes the block when it gets there (see FeederTillGoal).
+        feeder.orderTill(pos);
+    }
+
+    /**
+     * Hoe the block now, as a player's right click on its top would. Returns null if it worked, otherwise what to tell the player.
+     * Short grass, ferns and the like on top of a grass block stop a hoe (it needs air above), and clicking the plant itself is clicking the
+     * plant: the ground is the block below it, and the plant is cleared off it, as a player would do before hoeing.
+     */
+    @Nullable
+    public static Component tillBlock(ServerLevel level, BlockPos pos) {
+        if (hoeClick(level, pos)) {
+            return null;
         }
+        BlockPos ground = pos;
+        for (int i = 0; i < 2 && isGroundCover(level, ground); i++) {
+            ground = ground.below();
+        }
+        boolean cleared = false;
+        net.minecraft.world.level.block.state.BlockState soil = level.getBlockState(ground);
+        boolean tillable = soil.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK) || soil.is(net.minecraft.world.level.block.Blocks.DIRT)
+                || soil.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT) || soil.is(net.minecraft.world.level.block.Blocks.DIRT_PATH)
+                || soil.is(net.minecraft.world.level.block.Blocks.ROOTED_DIRT);
+        // (Only off soil a hoe can work: plants are not cleared for nothing.)
+        for (BlockPos cover = ground.above(); tillable && isGroundCover(level, cover); cover = cover.above()) {
+            level.destroyBlock(cover, false);
+            cleared = true;
+        }
+        if ((!ground.equals(pos) || cleared) && hoeClick(level, ground)) {
+            return null;
+        }
+        return Component.translatable("message.projecthivemind.cannot_till_detail",
+                level.getBlockState(ground).getBlock().getName(), level.getBlockState(ground.above()).getBlock().getName());
+    }
+
+    /**
+     * A right click on the top of the block with a (netherite) hoe, made by the hive's fake player. (The player's own entity cannot do it: it is a
+     * spectator, and the game does not let one use an item on a block.) True if the hoe did something.
+     */
+    private static boolean hoeClick(ServerLevel level, BlockPos pos) {
+        net.neoforged.neoforge.common.util.FakePlayer fake = net.neoforged.neoforge.common.util.FakePlayerFactory.get(level, FAKE_PROFILE);
+        fake.moveTo(pos.getX() + 0.5D, pos.getY() + 1.0D, pos.getZ() + 0.5D, 0.0F, 90.0F);
+        fake.setShiftKeyDown(false);
+        ItemStack hoe = new ItemStack(net.minecraft.world.item.Items.NETHERITE_HOE);
+        fake.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, hoe);
+        net.minecraft.world.phys.Vec3 click = net.minecraft.world.phys.Vec3.atCenterOf(pos).add(0.0D, 0.5D, 0.0D);
+        net.minecraft.world.InteractionResult result = fake.gameMode.useItemOn(fake, level, hoe, net.minecraft.world.InteractionHand.MAIN_HAND,
+                new net.minecraft.world.phys.BlockHitResult(click, Direction.UP, pos, false));
+        fake.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        return result.consumesAction();
+    }
+    /** Plants that give way to a hoe once cleared: short and tall grass, ferns, dead bushes, snow layers and the like. Not water. */
+    private static boolean isGroundCover(ServerLevel level, BlockPos pos) {
+        net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
+        return !state.isAir() && state.is(net.minecraft.tags.BlockTags.REPLACEABLE) && state.getFluidState().isEmpty();
     }
 
     private static void interact(ServerPlayer player, ServerLevel level, List<Integer> ids, BlockPos pos) {
