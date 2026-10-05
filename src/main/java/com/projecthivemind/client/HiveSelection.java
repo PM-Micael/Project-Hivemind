@@ -423,8 +423,16 @@ public final class HiveSelection {
             openCollectorMenu(minecraft, collectors.get(0), hit.getBlockPos());
             return;
         }
+        List<Integer> feeders = unitsOfKind(minecraft, selected, UnitKind.FEEDER);
+        if (!feeders.isEmpty()) {
+            // The one thing a feeder is told to do: hoe the block.
+            int[] feederCursor = ContextMenu.cursor(minecraft);
+            ContextMenu.open(minecraft, feederCursor[0], feederCursor[1], List.of(option("action.projecthivemind.till", feeders, hit.getBlockPos(), BlockAction.TILL)),
+                    hit.getBlockPos(), -1);
+            return;
+        }
         if (hasPassiveSelected(minecraft, selected)) {
-            return; // a feeder takes no tasks from the menu
+            return; // a collector takes no tasks from the menu
         }
 
         BlockPos pos = hit.getBlockPos();

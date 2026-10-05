@@ -8,5 +8,7 @@ public enum BlockAction {
     /** Stop every unit that is doing something to that block. */
     CANCEL,
     /** Selected workers keep mining that block: whenever there is a block there, they dig it (for a cobblestone generator). */
-    REPEAT_DIG
+    REPEAT_DIG,
+    /** A selected feeder hoes the block, as a right click with a hoe would: dirt and grass become farmland. */
+    TILL
 }

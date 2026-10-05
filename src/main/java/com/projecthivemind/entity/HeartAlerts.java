@@ -5,8 +5,6 @@ import com.projecthivemind.HivemindStage;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
-import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -17,7 +15,7 @@ import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Mob;
 
 /**
- * Warns the owner when the Hive Heart is in danger, wherever their camera is: red text in the middle of the screen and a sound. A mob that has the
+ * Warns the owner when the Hive Heart is in danger, wherever their camera is: red action-bar text and a sound. A mob that has the
  * Heart as its target gives the Warden's heartbeat; the Heart being hit gives the Elder Guardian's curse. Neither repeats more often than every
  * few seconds, and while the Heart is being hit the heartbeat is left out.
  */
@@ -74,7 +72,6 @@ public final class HeartAlerts {
             return;
         }
         owner.playNotifySound(sound, SoundSource.PLAYERS, 1.0F, 1.0F);
-        owner.connection.send(new ClientboundSetTitlesAnimationPacket(2, 30, 10));
-        owner.connection.send(new ClientboundSetTitleTextPacket(Component.translatable(textKey).withStyle(ChatFormatting.RED)));
+        owner.displayClientMessage(Component.translatable(textKey).withStyle(ChatFormatting.RED), true);
     }
 }

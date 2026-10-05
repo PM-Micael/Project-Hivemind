@@ -82,6 +82,7 @@ public final class HiveActions {
             case INTERACT -> interact(player, level, request.unitIds(), pos);
             case CANCEL -> cancelBlock(player, level, heart, pos);
             case REPEAT_DIG -> repeatDig(player, level, request.unitIds(), pos);
+            case TILL -> till(player, level, heart, request.unitIds(), pos);
         }
         syncActions(player, heart);
     }
@@ -400,6 +401,33 @@ public final class HiveActions {
      * Workers go and right-click the block once. Scouts go and open its inventory for the player, if it has one.
      * Anything else selected is not asked to do anything.
      */
+    /** A feeder hoes the block, inside the hive border only: the same as a right click on its top with a hoe. */
+    private static void till(ServerPlayer player, ServerLevel level, HiveHeart heart, List<Integer> ids, BlockPos pos) {
+        Mob feeder = null;
+        for (int id : ids) {
+            if (HivemindManager.findById(player, id) instanceof com.projecthivemind.entity.HiveFeeder found && found.isAlive()
+                    && player.getUUID().equals(found.ownerId())) {
+                feeder = found;
+                break;
+            }
+        }
+        if (feeder == null) {
+            return;
+        }
+        if (!HiveArea.containsXZ(heart, pos.getX() + 0.5D, pos.getZ() + 0.5D)) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.plant_outside"), true);
+            return;
+        }
+        ItemStack hoe = new ItemStack(net.minecraft.world.item.Items.NETHERITE_HOE);
+        net.minecraft.world.phys.Vec3 click = net.minecraft.world.phys.Vec3.atCenterOf(pos).add(0.0D, 0.5D, 0.0D);
+        net.minecraft.world.item.context.UseOnContext context = new net.minecraft.world.item.context.UseOnContext(level, player,
+                net.minecraft.world.InteractionHand.MAIN_HAND, hoe,
+                new net.minecraft.world.phys.BlockHitResult(click, Direction.UP, pos, false));
+        if (!hoe.useOn(context).consumesAction()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.cannot_till"), true);
+        }
+    }
+
     private static void interact(ServerPlayer player, ServerLevel level, List<Integer> ids, BlockPos pos) {
         List<Mob> workers = commandable(player, level, ids, UnitKind.WORKER);
         List<Mob> scouts = commandable(player, level, ids, UnitKind.SCOUT);

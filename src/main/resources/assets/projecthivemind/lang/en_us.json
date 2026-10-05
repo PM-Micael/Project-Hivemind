@@ -333,6 +333,8 @@
   "job.projecthivemind.repeat_dig": "Mining a spot",
   "message.projecthivemind.repeat_dig_started": "The workers will keep mining that spot.",
   "action.projecthivemind.interact": "Interact",
+  "action.projecthivemind.till": "Till",
+  "message.projecthivemind.cannot_till": "That block cannot be tilled.",
   "action.projecthivemind.attack": "Attack",
   "action.projecthivemind.cancel": "Cancel actions",
   "action.projecthivemind.trade": "Trade",
