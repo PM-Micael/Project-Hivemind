@@ -294,9 +294,41 @@ public final class ClientControl {
         }
         if (!cursorMode) {
             drawCrosshair(graphics);
+            drawChargeMeter(graphics, scout, deltaTracker.getGameTimeDeltaPartialTick(false));
         }
         drawHotbar(graphics, minecraft);
         drawScoutHealth(graphics, minecraft, scout);
+    }
+
+    /**
+     * A small meter under the crosshair while a bow is drawn or a crossbow loaded: it fills as the draw gets stronger (a bow's power, which
+     * grows faster at first) and turns green when full, so the player knows when to let go. A loaded crossbow shows a full gold bar.
+     */
+    private static void drawChargeMeter(GuiGraphics graphics, HiveScout scout, float partialTick) {
+        ItemStack stack = scout.getMainHandItem();
+        float fill;
+        int color;
+        if (scout.isUsingItem() && scout.getUseItem().getItem() instanceof net.minecraft.world.item.BowItem) {
+            float seconds = (scout.getUseItem().getUseDuration(scout) - scout.getUseItemRemainingTicks() + partialTick) / 20.0F;
+            fill = Mth.clamp((seconds * seconds + seconds * 2.0F) / 3.0F, 0.0F, 1.0F);
+            color = fill >= 1.0F ? 0xFF55FF55 : 0xFFE8E8E8;
+        } else if (scout.isUsingItem() && scout.getUseItem().getItem() instanceof net.minecraft.world.item.CrossbowItem) {
+            int duration = net.minecraft.world.item.CrossbowItem.getChargeDuration(scout.getUseItem(), scout);
+            float ticks = scout.getUseItem().getUseDuration(scout) - scout.getUseItemRemainingTicks() + partialTick;
+            fill = Mth.clamp(ticks / duration, 0.0F, 1.0F);
+            color = fill >= 1.0F ? 0xFF55FF55 : 0xFFE8E8E8;
+        } else if (stack.getItem() instanceof net.minecraft.world.item.CrossbowItem && net.minecraft.world.item.CrossbowItem.isCharged(stack)) {
+            fill = 1.0F;
+            color = 0xFFFFC832;
+        } else {
+            return;
+        }
+        int width = 40;
+        int left = (graphics.guiWidth() - width) / 2;
+        int top = graphics.guiHeight() / 2 + 12;
+        graphics.fill(left - 1, top - 1, left + width + 1, top + 5, 0xFF000000);
+        graphics.fill(left, top, left + width, top + 4, 0xFF303030);
+        graphics.fill(left, top, left + Math.round(width * fill), top + 4, color);
     }
 
     private static void drawCrosshair(GuiGraphics graphics) {

@@ -6,6 +6,9 @@
   "mixins": [
     "BaseSpawnerMixin"
   ],
+  "client": [
+    "GameRendererMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

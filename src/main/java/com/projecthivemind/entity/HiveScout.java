@@ -27,17 +27,17 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
-import net.minecraft.world.entity.monster.Husk;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 /**
- * Scout unit. Looks like a husk and, like every unit, is passive: no combat AI, never despawns, no experience, no
+ * Scout unit. Built like a player (a player's hitbox, poses and sounds, and under control a player's movement). Like every unit it is passive: no combat AI, never despawns, no experience, no
  * drops. It can be selected and sent places; what a scout is actually for is still to come.
  */
-public class HiveScout extends Husk implements HiveUnit {
+public class HiveScout extends PathfinderMob implements HiveUnit {
     /** Synced so the owner's client knows which units are theirs and should be outlined. */
     private static final EntityDataAccessor<Optional<UUID>> DATA_OWNER =
             SynchedEntityData.defineId(HiveScout.class, EntityDataSerializers.OPTIONAL_UUID);
@@ -82,6 +82,8 @@ public class HiveScout extends Husk implements HiveUnit {
 
     /** Whether the scout had something in hand on the last tick: an empty hand after that means the tool broke. */
     private boolean wasHolding;
+    /** Which of the hive's hand slots the hand was last made a copy of (-1: none yet), so a change of slot is not mistaken for the item breaking. */
+    private int handSlot = -1;
 
     /**
      * What the player who controls this scout is pressing and facing, as of this tick (see ScoutControl). While there is one the scout does
@@ -126,6 +128,7 @@ public class HiveScout extends Husk implements HiveUnit {
             this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(STEP_HEIGHT);
             this.setPose(net.minecraft.world.entity.Pose.STANDING);
             sprintBlocked = false;
+            this.stopUsingItem();
             for (net.minecraft.world.entity.ai.goal.Goal.Flag flag : net.minecraft.world.entity.ai.goal.Goal.Flag.values()) {
                 this.goalSelector.enableControlFlag(flag);
             }
@@ -192,27 +195,54 @@ public class HiveScout extends Husk implements HiveUnit {
 
     /** The step height a controlled scout has: one block of step assist, so a ledge a block high is walked up without jumping. */
     private static final double PLAYER_STEP_HEIGHT = 1.0D;
-    /** How much lower a crouching scout is than a standing one (a player's 1.8 becomes 1.5). */
-    private static final float CROUCH_SCALE = 0.85F;
     private boolean sprintBlocked;
 
-    /** Crouch while the sneak key is down, and stand up again only where there is room, as a player does. */
-    private void updateControlPose(boolean sneak) {
-        net.minecraft.world.entity.Pose pose = this.getPose();
-        if (sneak && pose == net.minecraft.world.entity.Pose.STANDING) {
-            this.setPose(net.minecraft.world.entity.Pose.CROUCHING);
-        } else if (!sneak && pose == net.minecraft.world.entity.Pose.CROUCHING) {
-            var standing = this.getDimensions(net.minecraft.world.entity.Pose.STANDING).makeBoundingBox(this.position());
-            if (this.level().noCollision(this, standing)) {
-                this.setPose(net.minecraft.world.entity.Pose.STANDING);
-            }
-        }
-    }
+    /** A player's crouching and swimming hitboxes and eye heights; the standing one is the entity type's (see ModEntities). */
+    private static final net.minecraft.world.entity.EntityDimensions CROUCHING_DIMENSIONS =
+            net.minecraft.world.entity.EntityDimensions.scalable(0.6F, 1.5F).withEyeHeight(1.27F);
+    private static final net.minecraft.world.entity.EntityDimensions SWIMMING_DIMENSIONS =
+            net.minecraft.world.entity.EntityDimensions.scalable(0.6F, 0.6F).withEyeHeight(0.4F);
 
     @Override
     public net.minecraft.world.entity.EntityDimensions getDefaultDimensions(net.minecraft.world.entity.Pose pose) {
-        return pose == net.minecraft.world.entity.Pose.CROUCHING
-                ? super.getDefaultDimensions(net.minecraft.world.entity.Pose.STANDING).scale(1.0F, CROUCH_SCALE) : super.getDefaultDimensions(pose);
+        return switch (pose) {
+            case CROUCHING -> CROUCHING_DIMENSIONS;
+            case SWIMMING, FALL_FLYING, SPIN_ATTACK -> SWIMMING_DIMENSIONS;
+            default -> super.getDefaultDimensions(net.minecraft.world.entity.Pose.STANDING);
+        };
+    }
+
+    private boolean fitsWhen(net.minecraft.world.entity.Pose pose) {
+        return this.level().noCollision(this, this.getDimensions(pose).makeBoundingBox(this.position()).deflate(1.0E-7D));
+    }
+
+    /**
+     * The pose a player would be in (the same choice as the player's own): swimming while swimming, crouching while the sneak key is down,
+     * and where there is no room for that pose, crouching or at the lowest swimming, so it stands up again only where there is room.
+     */
+    private void updateScoutPose() {
+        if (!fitsWhen(net.minecraft.world.entity.Pose.SWIMMING)) {
+            return;
+        }
+        net.minecraft.world.entity.Pose wanted = this.isSwimming() ? net.minecraft.world.entity.Pose.SWIMMING
+                : this.isShiftKeyDown() ? net.minecraft.world.entity.Pose.CROUCHING : net.minecraft.world.entity.Pose.STANDING;
+        net.minecraft.world.entity.Pose pose = this.isPassenger() || fitsWhen(wanted) ? wanted
+                : fitsWhen(net.minecraft.world.entity.Pose.CROUCHING) ? net.minecraft.world.entity.Pose.CROUCHING : net.minecraft.world.entity.Pose.SWIMMING;
+        this.setPose(pose);
+    }
+
+    /** A swimming player steers up and down with where they look; the vertical swimming is the player's own code. */
+    @Override
+    public void travel(net.minecraft.world.phys.Vec3 travelVector) {
+        if (drive != null && this.isSwimming() && !this.isPassenger()) {
+            double look = this.getLookAngle().y;
+            double rate = look < -0.2D ? 0.085D : 0.06D;
+            if (look <= 0.0D || this.jumping || !this.level().getBlockState(net.minecraft.core.BlockPos.containing(this.getX(), this.getY() + 1.0D - 0.1D, this.getZ())).getFluidState().isEmpty()) {
+                net.minecraft.world.phys.Vec3 motion = this.getDeltaMovement();
+                this.setDeltaMovement(motion.add(0.0D, (look - motion.y) * rate, 0.0D));
+            }
+        }
+        super.travel(travelVector);
     }
 
     /** In the air a player steers a little, a little more when sprinting. */
@@ -267,7 +297,6 @@ public class HiveScout extends Husk implements HiveUnit {
         this.setYHeadRot(d.yaw());
         this.setXRot(d.pitch());
         this.setShiftKeyDown(d.sneak());
-        updateControlPose(d.sneak());
         // Running into a wall ends a sprint, as for a player; it takes a fresh press of forward to start another.
         if (this.horizontalCollision) {
             sprintBlocked = true;
@@ -275,11 +304,13 @@ public class HiveScout extends Husk implements HiveUnit {
         if (!d.sprint() || d.forward() <= 0.0F) {
             sprintBlocked = false;
         }
-        boolean sprinting = (d.sprint() && d.forward() > 0.0F && !d.sneak() && !sprintBlocked) || (this.isInWater() && !d.sneak());
+        // Drawing a bow (or eating) slows a player to a fifth and ends a sprint.
+        boolean busyHands = this.isUsingItem() && !this.isPassenger();
+        boolean sprinting = !busyHands && ((d.sprint() && d.forward() > 0.0F && !d.sneak() && !sprintBlocked) || (this.isInWater() && !d.sneak()));
         this.setSprinting(sprinting);
         // A mob's setSpeed also sets its forward input, so the speed goes in first and the keys after it.
         super.setSpeed(sprinting ? CONTROL_SPRINT_SPEED : CONTROL_WALK_SPEED);
-        float keys = d.sneak() ? CONTROL_SNEAK_FACTOR : 1.0F;
+        float keys = (d.sneak() ? CONTROL_SNEAK_FACTOR : 1.0F) * (busyHands ? 0.2F : 1.0F);
         this.zza = d.forward() * keys;
         this.xxa = d.strafe() * keys;
         this.jumping = d.jump();
@@ -310,8 +341,10 @@ public class HiveScout extends Husk implements HiveUnit {
     public static final double STEP_HEIGHT = 2.1D;
 
     public static AttributeSupplier.Builder createScoutAttributes() {
-        return Zombie.createAttributes()
-                .add(Attributes.SPAWN_REINFORCEMENTS_CHANCE, 0.0D)
+        return Mob.createMobAttributes()
+                // A player's health and bare-handed damage, a zombie's pathfinding range; no armor of its own, as a player has none.
+                .add(Attributes.ATTACK_DAMAGE, 1.0D)
+                .add(Attributes.FOLLOW_RANGE, 35.0D)
                 .add(Attributes.MOVEMENT_SPEED, MOVEMENT_SPEED)
                 // Steps up 2 blocks without jumping, and the pathfinder plans routes that way: more mobility than the usual one-block hop.
                 .add(Attributes.STEP_HEIGHT, STEP_HEIGHT);
@@ -426,6 +459,7 @@ public class HiveScout extends Husk implements HiveUnit {
         if (this.level().isClientSide) {
             return;
         }
+        updateScoutPose();
         if (driven != null) {
             // Nothing the mob does in its tick (looking at things, say) turns it away from where the player faces.
             this.setYRot(driven.yaw());
@@ -474,13 +508,25 @@ public class HiveScout extends Husk implements HiveUnit {
             // that broke in the hand is gone from the slot. Without this the copy is simply replaced by the unworn original.
             ItemStack held = this.getMainHandItem();
             ItemStack slot = heart.scoutHeld();
-            if (held.isEmpty() && wasHolding && slot.isDamageableItem()) {
+            // Only while the hand is the copy of the slot that is selected now: right after the hotbar slot is changed the hand still holds the
+            // old slot's item (or nothing) until the sync below, and comparing it with the new slot would break or wear the wrong item.
+            boolean linked = handSlot == heart.scoutSelected();
+            if (!linked) {
+                wasHolding = false;
+            } else if (held.isEmpty() && wasHolding && slot.isDamageableItem()) {
                 heart.setScoutHeld(ItemStack.EMPTY);
             } else if (!held.isEmpty() && ItemStack.isSameItem(held, slot) && held.getDamageValue() > slot.getDamageValue()) {
                 slot.setDamageValue(held.getDamageValue());
                 heart.scoutHand().setChanged();
             }
-            wasHolding = !held.isEmpty();
+            // A crossbow's loaded arrow lives on the stack in the hand: the hive's slot keeps it, or the next sync would unload it.
+            if (linked && held.getItem() instanceof net.minecraft.world.item.CrossbowItem && ItemStack.isSameItem(held, slot)
+                    && !java.util.Objects.equals(held.get(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES),
+                            slot.get(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES))) {
+                slot.set(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES, held.get(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES));
+                heart.scoutHand().setChanged();
+            }
+            wasHolding = linked && !held.isEmpty();
         }
         if (heart != null && !toolOverride && (this.tickCount % 10 == 0 || resyncHand)) {
             // The scout holds a copy of what is in its hand slot in the hive menu.
@@ -488,6 +534,10 @@ public class HiveScout extends Husk implements HiveUnit {
             ItemStack wanted = heart.scoutHeld();
             if (!ItemStack.matches(this.getMainHandItem(), wanted)) {
                 this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
+            }
+            if (handSlot != heart.scoutSelected()) {
+                handSlot = heart.scoutSelected();
+                wasHolding = !this.getMainHandItem().isEmpty();
             }
         }
         if (heart != null && this.tickCount % 2 == 0) {
@@ -544,18 +594,13 @@ public class HiveScout extends Husk implements HiveUnit {
     }
 
     @Override
-    protected boolean isSunSensitive() {
-        return false;
+    protected net.minecraft.sounds.SoundEvent getHurtSound(DamageSource source) {
+        return SoundEvents.PLAYER_HURT;
     }
 
     @Override
-    protected boolean isSunBurnTick() {
-        return false;
-    }
-
-    @Override
-    protected boolean convertsInWater() {
-        return false;
+    protected net.minecraft.sounds.SoundEvent getDeathSound() {
+        return SoundEvents.PLAYER_DEATH;
     }
 
     @Override

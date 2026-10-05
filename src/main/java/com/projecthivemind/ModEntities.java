@@ -26,10 +26,11 @@ public final class ModEntities {
 
     public static final DeferredHolder<EntityType<?>, EntityType<HiveScout>> HIVE_SCOUT = ENTITY_TYPES.register("hive_scout",
             () -> EntityType.Builder.of(HiveScout::new, MobCategory.MISC)
-                    .sized(0.6F, 1.95F)
-                    .eyeHeight(1.74F)
-                    .passengerAttachments(2.0125F)
-                    .ridingOffset(-0.7F)
+                    // A player's hitbox and eye height.
+                    .sized(0.6F, 1.8F)
+                    .eyeHeight(1.62F)
+                    .passengerAttachments(1.8625F)
+                    .ridingOffset(-0.6F)
                     .clientTrackingRange(8)
                     .build("hive_scout"));
 

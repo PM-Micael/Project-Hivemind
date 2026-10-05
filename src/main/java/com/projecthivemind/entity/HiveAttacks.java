@@ -19,6 +19,7 @@ public final class HiveAttacks {
 
     /** True if this damage comes from the hive's own attacks: its bullets, or anything the Heart itself did. */
     public static boolean isHiveAttack(DamageSource source) {
-        return source.getDirectEntity() instanceof HiveShulkerBullet || source.getEntity() instanceof HiveHeart;
+        return source.getDirectEntity() instanceof HiveShulkerBullet || source.getEntity() instanceof HiveHeart
+                || (source.getDirectEntity() instanceof net.minecraft.world.entity.projectile.AbstractArrow arrow && arrow.getOwner() instanceof HiveUnit);
     }
 }

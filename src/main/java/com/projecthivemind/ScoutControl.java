@@ -293,8 +293,20 @@ public final class ScoutControl {
         scout.setControlWork(working);
 
         boolean using = in.has(ControlInputPayload.USE) && !busy;
-        if (using) {
-            boolean fresh = !session.useWasHeld;
+        boolean fresh = !session.useWasHeld;
+        if (busy && scout.isUsingItem()) {
+            scout.stopUsingItem(); // a menu opened: the draw is called off, not fired
+        }
+        // A bow or crossbow is used unless the click is for a villager or something that opens (as for a player, those come first).
+        boolean opensSomething = (entityHit != null && entityHit.getEntity() instanceof AbstractVillager)
+                || (entityHit == null && blockFound && !in.has(ControlInputPayload.SNEAK) && HiveAccess.canOpen(level, blockHit.getBlockPos()));
+        boolean bowInHand = scout.getMainHandItem().getItem() instanceof net.minecraft.world.item.BowItem
+                || scout.getMainHandItem().getItem() instanceof net.minecraft.world.item.CrossbowItem;
+        boolean drawing = scout.isUsingItem();
+        if (bowInHand || drawing) {
+            ranged(heart, scout, level, using, fresh, !opensSomething);
+        }
+        if (using && !(bowInHand && (drawing || !opensSomething))) {
             boolean repeat = session.useCooldown <= 0 && heart.scoutHeld().getItem() instanceof BlockItem;
             if (fresh || repeat) {
                 use(session, heart, scout, player, level, blockFound ? blockHit : null, entityHit, eye, look, in.has(ControlInputPayload.SNEAK));
@@ -447,6 +459,107 @@ public final class ScoutControl {
         if (ScoutItems.usable(held) && ScoutItems.usedFromAfar(held)) {
             Vec3 far = eye.add(look.scale(16.0D));
             ScoutItems.use(level, heart, scout, player, BlockPos.containing(far), Direction.UP);
+        }
+    }
+
+
+    // ---- the bow ----
+
+    /** The first of the hive's stored items that this bow can fire (arrows, say), or empty. It is the stack in the storage itself. */
+    private static ItemStack findAmmo(HiveHeart heart, ItemStack bow) {
+        java.util.function.Predicate<ItemStack> supported = ((net.minecraft.world.item.ProjectileWeaponItem) bow.getItem()).getAllSupportedProjectiles();
+        for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
+            ItemStack stack = heart.getStorage().getItem(i);
+            if (!stack.isEmpty() && supported.test(stack)) {
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /**
+     * Drawing and letting go of a bow, as a player does it: pressing use starts drawing (if the hive has something to fire), the scout slows while
+     * it draws, and letting go fires with the power of how long it was drawn, using up ammo from the hive's storage and wearing the bow.
+     */
+    private static void bow(HiveHeart heart, HiveScout scout, ServerLevel level, boolean using, boolean fresh, boolean mayDraw) {
+        ItemStack bow = scout.getMainHandItem();
+        if (!(bow.getItem() instanceof net.minecraft.world.item.BowItem bowItem)) {
+            return;
+        }
+        if (!scout.isUsingItem()) {
+            if (using && fresh && mayDraw && !findAmmo(heart, bow).isEmpty()) {
+                scout.startUsingItem(InteractionHand.MAIN_HAND);
+            }
+            return;
+        }
+        if (using) {
+            return;
+        }
+        float power = net.minecraft.world.item.BowItem.getPowerForTime(bow.getUseDuration(scout) - scout.getUseItemRemainingTicks());
+        scout.releaseUsingItem();
+        ItemStack ammo = power < 0.1F ? ItemStack.EMPTY : findAmmo(heart, bow);
+        if (ammo.isEmpty()) {
+            return;
+        }
+        List<ItemStack> fired = net.minecraft.world.item.ProjectileWeaponItem.draw(bow, ammo, scout);
+        heart.getStorage().setChanged();
+        if (!fired.isEmpty()) {
+            bowItem.shoot(level, scout, InteractionHand.MAIN_HAND, bow, fired, power * 3.0F, 1.0F, power == 1.0F, null);
+        }
+        level.playSound(null, scout.getX(), scout.getY(), scout.getZ(), net.minecraft.sounds.SoundEvents.ARROW_SHOOT,
+                net.minecraft.sounds.SoundSource.PLAYERS, 1.0F, 1.0F / (level.getRandom().nextFloat() * 0.4F + 1.2F) + power * 0.5F);
+    }
+
+
+    /**
+     * A crossbow, as a player uses it: pressing use with it empty starts loading (if the hive has an arrow), letting go once it is fully
+     * loaded puts the arrow in, and pressing use with it loaded fires. The arrow comes out of the hive's storage and the crossbow wears.
+     */
+    private static void crossbow(HiveHeart heart, HiveScout scout, ServerLevel level, boolean using, boolean fresh, boolean mayDraw) {
+        ItemStack crossbow = scout.getMainHandItem();
+        if (!(crossbow.getItem() instanceof net.minecraft.world.item.CrossbowItem crossbowItem)) {
+            return;
+        }
+        if (!scout.isUsingItem()) {
+            if (!using || !fresh || !mayDraw) {
+                return;
+            }
+            if (net.minecraft.world.item.CrossbowItem.isCharged(crossbow)) {
+                net.minecraft.world.item.component.ChargedProjectiles loaded =
+                        crossbow.set(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES, net.minecraft.world.item.component.ChargedProjectiles.EMPTY);
+                if (loaded != null && !loaded.isEmpty()) {
+                    float power = loaded.contains(net.minecraft.world.item.Items.FIREWORK_ROCKET) ? 1.6F : 3.15F;
+                    crossbowItem.shoot(level, scout, InteractionHand.MAIN_HAND, crossbow, loaded.getItems(), power, 1.0F, true, null);
+                }
+            } else if (!findAmmo(heart, crossbow).isEmpty()) {
+                scout.startUsingItem(InteractionHand.MAIN_HAND);
+            }
+            return;
+        }
+        if (using) {
+            return;
+        }
+        int drawn = crossbow.getUseDuration(scout) - scout.getUseItemRemainingTicks();
+        boolean full = drawn >= net.minecraft.world.item.CrossbowItem.getChargeDuration(crossbow, scout);
+        scout.releaseUsingItem();
+        ItemStack ammo = full && !net.minecraft.world.item.CrossbowItem.isCharged(crossbow) ? findAmmo(heart, crossbow) : ItemStack.EMPTY;
+        if (ammo.isEmpty()) {
+            return;
+        }
+        List<ItemStack> loaded = net.minecraft.world.item.ProjectileWeaponItem.draw(crossbow, ammo, scout);
+        heart.getStorage().setChanged();
+        if (!loaded.isEmpty()) {
+            crossbow.set(net.minecraft.core.component.DataComponents.CHARGED_PROJECTILES, net.minecraft.world.item.component.ChargedProjectiles.of(loaded));
+            level.playSound(null, scout.getX(), scout.getY(), scout.getZ(), net.minecraft.sounds.SoundEvents.CROSSBOW_LOADING_END,
+                    net.minecraft.sounds.SoundSource.PLAYERS, 1.0F, 1.0F / (level.getRandom().nextFloat() * 0.5F + 1.0F) + 0.2F);
+        }
+    }
+
+    private static void ranged(HiveHeart heart, HiveScout scout, ServerLevel level, boolean using, boolean fresh, boolean mayDraw) {
+        if (scout.getMainHandItem().getItem() instanceof net.minecraft.world.item.CrossbowItem) {
+            crossbow(heart, scout, level, using, fresh, mayDraw);
+        } else {
+            bow(heart, scout, level, using, fresh, mayDraw);
         }
     }
 
