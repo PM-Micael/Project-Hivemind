@@ -75,14 +75,21 @@ public final class ClientEvents {
             net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME, com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM,
             org.lwjgl.glfw.GLFW.GLFW_KEY_UNKNOWN, "key.categories.projecthivemind");
 
+    /** Lets go of the scout the player controls, back to the strategy camera. */
+    public static final net.minecraft.client.KeyMapping RELEASE_CONTROL = new net.minecraft.client.KeyMapping("key.projecthivemind.release_control",
+            net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME, com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM,
+            org.lwjgl.glfw.GLFW.GLFW_KEY_BACKSPACE, "key.categories.projecthivemind");
+
     @SubscribeEvent
     static void registerKeys(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
         event.register(ROTATE_CAMERA);
         event.register(ROTATE_CAMERA_ALT);
+        event.register(RELEASE_CONTROL);
     }
 
     @SubscribeEvent
     static void registerGuiLayers(RegisterGuiLayersEvent event) {
+        event.registerAboveAll(ProjectHivemind.id("control_hud"), ClientControl::render);
         event.registerAboveAll(ProjectHivemind.id("context_menu"), ContextMenu::render);
         event.registerAboveAll(ProjectHivemind.id("command_bar"), CommandBar::render);
         event.registerAboveAll(ProjectHivemind.id("hive_health"), HiveHud::render);

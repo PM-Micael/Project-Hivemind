@@ -36,6 +36,10 @@ public final class ClientPayloads {
         }
     }
 
+    public static void onControlHotbar(ControlHotbarPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientControl.setHotbar(payload.stacks(), payload.counts(), payload.selected());
+    }
+
     public static void onSyncSight(SyncSightPayload payload, IPayloadContext context) {
         ClientSight.update(payload.visibleMobs());
     }

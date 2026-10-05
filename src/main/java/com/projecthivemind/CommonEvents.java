@@ -131,6 +131,10 @@ public final class CommonEvents {
         registrar.playToClient(SyncHeartHealthPayload.TYPE, SyncHeartHealthPayload.STREAM_CODEC, ClientPayloads::onSyncHeartHealth);
         registrar.playToClient(SyncEyesPayload.TYPE, SyncEyesPayload.STREAM_CODEC, ClientPayloads::onSyncEyes);
         registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);
+        registrar.playToServer(com.projecthivemind.network.ControlRequestPayload.TYPE, com.projecthivemind.network.ControlRequestPayload.STREAM_CODEC, ServerPayloads::onControlRequest);
+        registrar.playToServer(com.projecthivemind.network.ControlInputPayload.TYPE, com.projecthivemind.network.ControlInputPayload.STREAM_CODEC, ServerPayloads::onControlInput);
+        registrar.playToServer(com.projecthivemind.network.ControlSelectPayload.TYPE, com.projecthivemind.network.ControlSelectPayload.STREAM_CODEC, ServerPayloads::onControlSelect);
+        registrar.playToClient(com.projecthivemind.network.ControlHotbarPayload.TYPE, com.projecthivemind.network.ControlHotbarPayload.STREAM_CODEC, ClientPayloads::onControlHotbar);
         registrar.playToServer(MobActionPayload.TYPE, MobActionPayload.STREAM_CODEC, ServerPayloads::onMobAction);
         registrar.playToClient(WeakToolPayload.TYPE, WeakToolPayload.STREAM_CODEC, ClientPayloads::onWeakTool);
         registrar.playToClient(WeakStairsPayload.TYPE, WeakStairsPayload.STREAM_CODEC, ClientPayloads::onWeakStairs);
@@ -162,8 +166,19 @@ public final class CommonEvents {
     /** A hivemind whose Heart is not loaded gets it loaded, so the hive works wherever the camera is. */
     @SubscribeEvent
     static void onPlayerTick(net.neoforged.neoforge.event.tick.PlayerTickEvent.Post event) {
-        if (event.getEntity() instanceof ServerPlayer player && player.tickCount % 20 == 0) {
-            HivemindManager.ensureHeartLoaded(player);
+        if (event.getEntity() instanceof ServerPlayer player) {
+            ScoutControl.tick(player);
+            if (player.tickCount % 20 == 0) {
+                HivemindManager.ensureHeartLoaded(player);
+            }
+        }
+    }
+
+    /** A player who leaves is no longer controlling a scout. */
+    @SubscribeEvent
+    static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            ScoutControl.onLogout(player);
         }
     }
 

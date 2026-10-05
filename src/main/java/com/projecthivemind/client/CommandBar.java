@@ -58,7 +58,7 @@ public final class CommandBar {
     @SubscribeEvent
     static void onClientTick(ClientTickEvent.Pre event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.level == null || !ClientState.hiveMode() || minecraft.screen != null) {
+        if (minecraft.player == null || minecraft.level == null || !ClientState.hiveMode() || minecraft.screen != null || ClientControl.active()) {
             return;
         }
         KeyMapping[] keys = minecraft.options.keyHotbarSlots;
@@ -132,7 +132,7 @@ public final class CommandBar {
 
     /** Drawn as a GUI layer along the bottom of the screen. */
     public static void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
-        if (!ClientState.hiveMode()) {
+        if (!ClientState.hiveMode() || ClientControl.active()) {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();

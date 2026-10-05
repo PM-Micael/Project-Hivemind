@@ -359,6 +359,13 @@ public final class HiveSelection {
                 ClientSelection.deselect(ownEntity.getId());
                 PacketDistributor.sendToServer(new ReturnToBasePayload(ownEntity.getId()));
             })));
+            // A scout can be taken over: the player then plays from its point of view.
+            if (ownUnit.kind() == UnitKind.SCOUT) {
+                unitOptions.add(0, new ContextMenu.Option(Component.translatable("action.projecthivemind.take_control"), () -> {
+                    ClientSelection.deselect(ownEntity.getId());
+                    ClientControl.request(ownEntity.getId());
+                }));
+            }
             // With soldiers selected, another of the player's units (not a soldier) can be given a bodyguard.
             List<Integer> selectedNow = List.copyOf(ClientSelection.selected());
             List<Integer> guards = unitsOfKind(minecraft, selectedNow, UnitKind.SOLDIER);

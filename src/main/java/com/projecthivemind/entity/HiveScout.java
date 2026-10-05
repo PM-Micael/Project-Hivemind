@@ -80,6 +80,125 @@ public class HiveScout extends Husk implements HiveUnit {
 
     /** Whether the scout had something in hand on the last tick: an empty hand after that means the tool broke. */
     private boolean wasHolding;
+
+    /**
+     * What the player who controls this scout is pressing and facing, as of this tick (see ScoutControl). While there is one the scout does
+     * what it says and nothing else: its goals are held off and its movement is the player's.
+     */
+    public record Drive(float forward, float strafe, boolean jump, boolean sneak, boolean sprint, float yaw, float pitch) {
+    }
+    /**
+     * A player's own movement numbers: the speed a player walks and sprints at, and the 0.3 that sneaking scales the keys by. (A mob's own
+     * movement sets its forward input to its speed as well, which squares the speed; here the forward input is the key, as a player's is.)
+     */
+    private static final float CONTROL_WALK_SPEED = 0.1F;
+    private static final float CONTROL_SPRINT_SPEED = 0.13F;
+    private static final float CONTROL_SNEAK_FACTOR = 0.3F;
+
+    @Nullable
+    private Drive drive;
+    /** True while the player controlling this scout is breaking a block or hitting a mob, so the hive's tool stays in its hand. */
+    private boolean controlWork;
+    /** The hand slot changed from outside the scout's own sync: copy it to the hand on the next tick instead of waiting for the next check. */
+    private boolean resyncHand;
+
+    public boolean isControlled() {
+        return drive != null;
+    }
+
+    /**
+     * Start, change or (null) end the player's control. Starting holds off every goal: they all move or look, and a goal cannot be told
+     * to wait, only kept from starting.
+     */
+    public void setDrive(@Nullable Drive drive) {
+        boolean was = this.drive != null;
+        this.drive = drive;
+        if (drive != null && !was) {
+            for (net.minecraft.world.entity.ai.goal.Goal.Flag flag : net.minecraft.world.entity.ai.goal.Goal.Flag.values()) {
+                this.goalSelector.disableControlFlag(flag);
+            }
+            this.getNavigation().stop();
+        } else if (drive == null && was) {
+            for (net.minecraft.world.entity.ai.goal.Goal.Flag flag : net.minecraft.world.entity.ai.goal.Goal.Flag.values()) {
+                this.goalSelector.enableControlFlag(flag);
+            }
+            this.jumping = false;
+            this.xxa = 0.0F;
+            this.zza = 0.0F;
+            this.controlWork = false;
+            this.resyncHand = true;
+            super.setSpeed(0.0F);
+            this.setSprinting(false);
+            applySneak();
+        }
+    }
+
+    /** True while a tool or weapon taken from the hive is in the hand for the work in hand. */
+    public boolean holdsHiveTool() {
+        return toolOverride;
+    }
+
+    public void setControlWork(boolean working) {
+        this.controlWork = working;
+    }
+
+    /** The hand slot in the hive changed: show it in the hand at once. */
+    public void refreshHand() {
+        this.resyncHand = true;
+    }
+
+    // While controlled, the movement controls and jump control of the mob (which still tick) must not undo what the player presses.
+    @Override
+    public void setSpeed(float speed) {
+        if (drive == null) {
+            super.setSpeed(speed);
+        }
+    }
+
+    @Override
+    public void setZza(float zza) {
+        if (drive == null) {
+            super.setZza(zza);
+        }
+    }
+
+    @Override
+    public void setXxa(float xxa) {
+        if (drive == null) {
+            super.setXxa(xxa);
+        }
+    }
+
+    @Override
+    public void setYya(float yya) {
+        if (drive == null) {
+            super.setYya(yya);
+        }
+    }
+
+    @Override
+    public void setJumping(boolean jumping) {
+        if (drive == null) {
+            super.setJumping(jumping);
+        }
+    }
+
+    /** Make the scout do what the player presses: face where they face, and walk, sneak, sprint and jump as they do. */
+    private void applyDrive(Drive d) {
+        this.setYRot(d.yaw());
+        this.yBodyRot = d.yaw();
+        this.setYHeadRot(d.yaw());
+        this.setXRot(d.pitch());
+        this.setShiftKeyDown(d.sneak());
+        boolean sprinting = (d.sprint() && d.forward() > 0.0F && !d.sneak()) || (this.isInWater() && !d.sneak());
+        this.setSprinting(sprinting);
+        // A mob's setSpeed also sets its forward input, so the speed goes in first and the keys after it.
+        super.setSpeed(sprinting ? CONTROL_SPRINT_SPEED : CONTROL_WALK_SPEED);
+        float keys = d.sneak() ? CONTROL_SNEAK_FACTOR : 1.0F;
+        this.zza = d.forward() * keys;
+        this.xxa = d.strafe() * keys;
+        this.jumping = d.jump();
+    }
     private ScoutBehavior behavior = ScoutBehavior.DEFAULT;
     private final SpeedProbe speedProbe = new SpeedProbe("scout");
 
@@ -180,17 +299,30 @@ public class HiveScout extends Husk implements HiveUnit {
 
     @Override
     public void tick() {
+        Drive driven = this.level().isClientSide ? null : drive;
+        if (driven != null) {
+            applyDrive(driven);
+        }
         super.tick();
         if (this.level().isClientSide) {
             return;
         }
+        if (driven != null) {
+            // Nothing the mob does in its tick (looking at things, say) turns it away from where the player faces.
+            this.setYRot(driven.yaw());
+            this.yBodyRot = driven.yaw();
+            this.setYHeadRot(driven.yaw());
+            this.setXRot(driven.pitch());
+        }
         speedProbe.tick(this);
-        applySneak();
-        // In water the scout swims the way a swimming player does: sprinting in water is what makes a player swim, and it is
-        // what cuts the water's drag (0.9 instead of 0.8), which is where the extra speed comes from. Not while sneaking.
-        boolean swimming = this.isInWater() && !behavior.sneak();
-        if (this.isSprinting() != swimming) {
-            this.setSprinting(swimming);
+        if (driven == null) {
+            applySneak();
+            // In water the scout swims the way a swimming player does: sprinting in water is what makes a player swim, and it is
+            // what cuts the water's drag (0.9 instead of 0.8), which is where the extra speed comes from. Not while sneaking.
+            boolean swimming = this.isInWater() && !behavior.sneak();
+            if (this.isSprinting() != swimming) {
+                this.setSprinting(swimming);
+            }
         }
         if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
             action = null;
@@ -198,7 +330,7 @@ public class HiveScout extends Husk implements HiveUnit {
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
         // one that is not selected walks to items and takes them on arrival.
         HiveHeart heart = findHeart();
-        boolean working = action != null && (action.kind() == UnitAction.Kind.DIG || action.kind() == UnitAction.Kind.ATTACK);
+        boolean working = controlWork || (action != null && (action.kind() == UnitAction.Kind.DIG || action.kind() == UnitAction.Kind.ATTACK));
         if (toolOverride && (!working || heart == null)) {
             // The last swing of the order may have worn the tool this very tick: charge it to the original before letting go.
             if (heart != null) {
@@ -209,6 +341,7 @@ public class HiveScout extends Husk implements HiveUnit {
             gearMirror.reset();
             this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
             wasHolding = false;
+            resyncHand = true;
         }
         if (toolOverride) {
             // A tool from the hive pool is in hand: its wear is charged to the original tool in the hive.
@@ -226,8 +359,9 @@ public class HiveScout extends Husk implements HiveUnit {
             }
             wasHolding = !held.isEmpty();
         }
-        if (heart != null && !toolOverride && this.tickCount % 10 == 0) {
+        if (heart != null && !toolOverride && (this.tickCount % 10 == 0 || resyncHand)) {
             // The scout holds a copy of what is in its hand slot in the hive menu.
+            resyncHand = false;
             ItemStack wanted = heart.scoutHand().getItem(0);
             if (!ItemStack.matches(this.getMainHandItem(), wanted)) {
                 this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
@@ -236,7 +370,8 @@ public class HiveScout extends Husk implements HiveUnit {
         if (heart != null && this.tickCount % 2 == 0) {
             pickUpNearbyExperience();
         }
-        if (heart != null && behavior.collectItems()) {
+        // A scout a player controls picks up what it touches, as a player does, whatever its setting says.
+        if (heart != null && (behavior.collectItems() || driven != null)) {
             pickUpNearbyItems(heart);
         }
     }
@@ -366,6 +501,9 @@ public class HiveScout extends Husk implements HiveUnit {
 
     /** The Sneak setting: crouching makes the scout as hard to notice as a sneaking player, and it slows to a walking zombie's speed. */
     private void applySneak() {
+        if (drive != null) {
+            return; // the player's own sneak key decides while they control the scout
+        }
         this.setShiftKeyDown(behavior.sneak());
         var speed = this.getAttribute(Attributes.MOVEMENT_SPEED);
         double wanted = behavior.sneak() ? SNEAK_SPEED : MOVEMENT_SPEED;

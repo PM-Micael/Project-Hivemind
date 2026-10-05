@@ -18,6 +18,24 @@ public final class ServerPayloads {
     private ServerPayloads() {
     }
 
+    public static void onControlRequest(ControlRequestPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.ScoutControl.request(player, payload.scoutId());
+        }
+    }
+
+    public static void onControlInput(ControlInputPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.ScoutControl.input(player, payload);
+        }
+    }
+
+    public static void onControlSelect(ControlSelectPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.ScoutControl.select(player, payload.slot());
+        }
+    }
+
     public static void onChooseMode(ChooseModePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.choose(player, payload.hivemind());
