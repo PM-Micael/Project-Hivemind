@@ -60,7 +60,7 @@ public final class ScoutItems {
      * is put back in the hand slot, and the player is shown what a book or a sign needs showing.
      */
     public static boolean use(ServerLevel level, HiveHeart heart, HiveScout scout, ServerPlayer owner, BlockPos pos, Direction face) {
-        ItemStack held = heart.scoutHand().getItem(0);
+        ItemStack held = heart.scoutHeld();
         if (held.isEmpty()) {
             return false;
         }
@@ -121,7 +121,7 @@ public final class ScoutItems {
 
         // What is left of the item goes back in the hand slot.
         ItemStack left = fake.getMainHandItem();
-        heart.scoutHand().setItem(0, left.isEmpty() ? ItemStack.EMPTY : left.copy());
+        heart.setScoutHeld(left.isEmpty() ? ItemStack.EMPTY : left.copy());
         fake.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
         fake.setShiftKeyDown(false);
         scout.swing(InteractionHand.MAIN_HAND);
@@ -174,7 +174,7 @@ public final class ScoutItems {
         ItemStack now = owner.getInventory().getItem(session.slot());
         boolean written = !now.isEmpty() && !ItemStack.matches(now, session.original());
         if (written && (now.is(Items.WRITABLE_BOOK) || now.is(Items.WRITTEN_BOOK))) {
-            heart.scoutHand().setItem(0, now.copy());
+            heart.setScoutHeld(now.copy());
         }
         if (written || now.isEmpty() || owner.level().getGameTime() >= session.expires()) {
             if (!now.isEmpty() && ItemStack.matches(now, session.original()) || written) {

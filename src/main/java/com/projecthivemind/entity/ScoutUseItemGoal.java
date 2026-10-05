@@ -73,14 +73,14 @@ public class ScoutUseItemGoal extends Goal {
         HiveHeart heart = scout.findHeart();
         ServerPlayer owner = scout.ownerId() == null || level.getServer() == null ? null
                 : level.getServer().getPlayerList().getPlayer(scout.ownerId());
-        if (pos == null || face == null || heart == null || owner == null || heart.scoutHand().getItem(0).isEmpty()) {
+        if (pos == null || face == null || heart == null || owner == null || heart.scoutHeld().isEmpty()) {
             scout.setAction(null);
             return;
         }
 
         // Where the item is used: the spot in front of the clicked face.
         Vec3 spot = Vec3.atCenterOf(pos).add(face.getStepX() * 0.5D, face.getStepY() * 0.5D, face.getStepZ() * 0.5D);
-        boolean far = ScoutItems.usedFromAfar(heart.scoutHand().getItem(0));
+        boolean far = ScoutItems.usedFromAfar(heart.scoutHeld());
         if (!far && scout.getEyePosition().distanceToSqr(spot) > ScoutItems.REACH * ScoutItems.REACH) {
             if (++waitedTicks > GIVE_UP_TICKS) {
                 owner.displayClientMessage(Component.translatable("message.projecthivemind.scout_cannot_reach"), true);
@@ -95,7 +95,7 @@ public class ScoutUseItemGoal extends Goal {
         scout.getNavigation().stop();
         scout.getLookControl().setLookAt(spot);
         // The owner can only have one screen open: a book or a sign needs the screen free.
-        if (owner.containerMenu != owner.inventoryMenu && (far || heart.scoutHand().getItem(0).is(net.minecraft.tags.ItemTags.SIGNS) || heart.scoutHand().getItem(0).is(net.minecraft.tags.ItemTags.HANGING_SIGNS))) {
+        if (owner.containerMenu != owner.inventoryMenu && (far || heart.scoutHeld().is(net.minecraft.tags.ItemTags.SIGNS) || heart.scoutHeld().is(net.minecraft.tags.ItemTags.HANGING_SIGNS))) {
             return;
         }
         boolean done = ScoutItems.use(level, heart, scout, owner, pos, face);

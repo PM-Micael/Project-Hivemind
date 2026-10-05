@@ -120,7 +120,7 @@ public class HiveScout extends Husk implements HiveUnit {
                 this.goalSelector.disableControlFlag(flag);
             }
             this.getNavigation().stop();
-            // A player steps up half a block, not two: that is part of how a player moves, and what makes sneaking on an edge work.
+            // One block of step assist, not the two a scout steps on its own: a ledge a block high is walked up, a higher one is jumped.
             this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(PLAYER_STEP_HEIGHT);
         } else if (drive == null && was) {
             this.getAttribute(Attributes.STEP_HEIGHT).setBaseValue(STEP_HEIGHT);
@@ -190,8 +190,8 @@ public class HiveScout extends Husk implements HiveUnit {
         }
     }
 
-    /** A player's step height, in blocks. */
-    private static final double PLAYER_STEP_HEIGHT = 0.6D;
+    /** The step height a controlled scout has: one block of step assist, so a ledge a block high is walked up without jumping. */
+    private static final double PLAYER_STEP_HEIGHT = 1.0D;
     /** How much lower a crouching scout is than a standing one (a player's 1.8 becomes 1.5). */
     private static final float CROUCH_SCALE = 0.85F;
     private boolean sprintBlocked;
@@ -473,9 +473,9 @@ public class HiveScout extends Husk implements HiveUnit {
             // Wear on the tool in hand is charged to the one in the hive's hand slot, which the hand is only a copy of; and a tool
             // that broke in the hand is gone from the slot. Without this the copy is simply replaced by the unworn original.
             ItemStack held = this.getMainHandItem();
-            ItemStack slot = heart.scoutHand().getItem(0);
+            ItemStack slot = heart.scoutHeld();
             if (held.isEmpty() && wasHolding && slot.isDamageableItem()) {
-                heart.scoutHand().setItem(0, ItemStack.EMPTY);
+                heart.setScoutHeld(ItemStack.EMPTY);
             } else if (!held.isEmpty() && ItemStack.isSameItem(held, slot) && held.getDamageValue() > slot.getDamageValue()) {
                 slot.setDamageValue(held.getDamageValue());
                 heart.scoutHand().setChanged();
@@ -485,7 +485,7 @@ public class HiveScout extends Husk implements HiveUnit {
         if (heart != null && !toolOverride && (this.tickCount % 10 == 0 || resyncHand)) {
             // The scout holds a copy of what is in its hand slot in the hive menu.
             resyncHand = false;
-            ItemStack wanted = heart.scoutHand().getItem(0);
+            ItemStack wanted = heart.scoutHeld();
             if (!ItemStack.matches(this.getMainHandItem(), wanted)) {
                 this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
             }

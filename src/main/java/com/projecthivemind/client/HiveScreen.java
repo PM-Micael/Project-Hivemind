@@ -124,6 +124,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private EditBox storageSearch;
     /** The search box of the storage window on the scouts' page. */
     private EditBox scoutSearch;
+    /** The button under the trash slot, which deletes what is in it. */
+    private Button clearTrashButton;
     private final Map<UnitKind, Button> kindTabs = new EnumMap<>(UnitKind.class);
 
     /** The units of the open page whose heads are shown, and their buttons. */
@@ -241,6 +243,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
         // Search the storage: what is typed here filters the storage grid to the items whose name has it in it.
         createStationButtons();
+        clearTrashButton = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.hive.trash_clear"),
+                button -> PacketDistributor.sendToServer(new com.projecthivemind.network.ClearTrashPayload(menu.containerId)))
+                .bounds(leftPos + HiveMenu.GRID_X - 8, topPos + HiveMenu.GRID_Y + 22, 50, 16).build());
+        clearTrashButton.visible = false;
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
                 Component.translatable("screen.projecthivemind.hive.search")));
         storageSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
@@ -492,6 +498,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             // Only the open workstation's slots are in view.
             boolean open = stationInView(station);
             menu.layoutStation(station.group, 0, open ? Integer.MIN_VALUE : Integer.MAX_VALUE, open ? Integer.MAX_VALUE : Integer.MAX_VALUE);
+        }
+        if (clearTrashButton != null) {
+            clearTrashButton.visible = stationInView(Station.TRASH);
         }
         // The scouts' page shows the armor every scout wears; the other tabs have no slots.
         int groups = tab == Tab.HIVE ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | focusedStation.group
@@ -1472,6 +1481,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case COLLECTOR -> renderCollectorTask(graphics);
             case SCOUT -> {
                 graphics.drawString(font, Component.translatable("screen.projecthivemind.scout_armor"), BEHAVIOR_X + 4, HiveMenu.SCOUT_ARMOR_Y - 12, 0xA0A0A0, false);
+                graphics.drawString(font, Component.translatable("screen.projecthivemind.scout_hotbar"), HiveMenu.SCOUT_HOTBAR_X, HiveMenu.SCOUT_HOTBAR_Y - 11, 0xA0A0A0, false);
             }
             case WORKER -> renderWorkerNote(graphics);
             default -> {

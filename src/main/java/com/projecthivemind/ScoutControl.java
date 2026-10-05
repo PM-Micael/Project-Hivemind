@@ -75,9 +75,6 @@ public final class ScoutControl {
         final UUID scoutId;
         ControlInputPayload input = new ControlInputPayload(0.0F, 0.0F, 0, 0.0F, 0.0F);
         long inputTime;
-        /** What each hotbar slot stands for: one of the item, or empty. */
-        final ItemStack[] hotbar = new ItemStack[ControlHotbarPayload.SLOTS];
-        int selected;
         /** The block being broken, and what it was when it started, so a different block starts over. */
         @Nullable
         BlockPos breaking;
@@ -87,7 +84,6 @@ public final class ScoutControl {
         int attackCooldown;
         int useCooldown;
         boolean useWasHeld;
-        boolean handWasFull;
         /** The hive's best weapon is already in the hand for the mob being hit, so it is not taken again with every blow. */
         boolean weaponHeld;
         /** A tool from the hive is in the hand for the block being broken, so an empty hand means it broke. */
@@ -98,7 +94,6 @@ public final class ScoutControl {
 
         Session(UUID scoutId) {
             this.scoutId = scoutId;
-            java.util.Arrays.fill(hotbar, ItemStack.EMPTY);
         }
     }
 
@@ -152,7 +147,8 @@ public final class ScoutControl {
         scout.getNavigation().stop();
         Session session = new Session(scout.getUUID());
         session.inputTime = player.level().getGameTime();
-        fillHotbar(session, heart);
+        heart.setScoutSelected(0);
+        scout.refreshHand();
         SESSIONS.put(player.getUUID(), session);
         scout.setDrive(new HiveScout.Drive(0.0F, 0.0F, false, false, false, scout.getYRot(), scout.getXRot()));
         player.setCamera(scout);
@@ -166,6 +162,10 @@ public final class ScoutControl {
             return;
         }
         Entity found = player.serverLevel().getEntity(session.scoutId);
+        HiveHeart ownHeart = HivemindManager.findHeart(player);
+        if (ownHeart != null) {
+            ownHeart.setScoutSelected(0);
+        }
         player.setCamera(null);
         if (found instanceof HiveScout scout) {
             clearCracks(scout, session);
@@ -183,6 +183,10 @@ public final class ScoutControl {
     /** The player left the game: nothing keeps controlling a scout for them. */
     public static void onLogout(ServerPlayer player) {
         Session session = SESSIONS.remove(player.getUUID());
+        HiveHeart logoutHeart = HivemindManager.findHeart(player);
+        if (session != null && logoutHeart != null) {
+            logoutHeart.setScoutSelected(0);
+        }
         if (session != null && player.serverLevel().getEntity(session.scoutId) instanceof HiveScout scout) {
             clearCracks(scout, session);
             scout.setDrive(null);
@@ -212,7 +216,7 @@ public final class ScoutControl {
         if (session == null || heart == null || slot < 0 || slot >= ControlHotbarPayload.SLOTS) {
             return;
         }
-        equip(session, heart, slot);
+        heart.setScoutSelected(slot);
         if (player.serverLevel().getEntity(session.scoutId) instanceof HiveScout scout) {
             scout.refreshHand();
         }
@@ -250,7 +254,6 @@ public final class ScoutControl {
         scout.setDrive(new HiveScout.Drive(in.forward(), in.strafe(), in.has(ControlInputPayload.JUMP), in.has(ControlInputPayload.SNEAK),
                 in.has(ControlInputPayload.SPRINT), in.yaw(), in.pitch()));
 
-        keepHand(session, heart, scout);
         if (session.breakDelay > 0) {
             session.breakDelay--;
         }
@@ -292,7 +295,7 @@ public final class ScoutControl {
         boolean using = in.has(ControlInputPayload.USE) && !busy;
         if (using) {
             boolean fresh = !session.useWasHeld;
-            boolean repeat = session.useCooldown <= 0 && heart.scoutHand().getItem(0).getItem() instanceof BlockItem;
+            boolean repeat = session.useCooldown <= 0 && heart.scoutHeld().getItem() instanceof BlockItem;
             if (fresh || repeat) {
                 use(session, heart, scout, player, level, blockFound ? blockHit : null, entityHit, eye, look, in.has(ControlInputPayload.SNEAK));
                 session.useCooldown = USE_REPEAT_TICKS;
@@ -426,7 +429,7 @@ public final class ScoutControl {
         if (entity != null) {
             return;
         }
-        ItemStack held = heart.scoutHand().getItem(0);
+        ItemStack held = heart.scoutHeld();
         if (block != null) {
             BlockPos pos = block.getBlockPos();
             Direction face = block.getDirection();
@@ -449,127 +452,26 @@ public final class ScoutControl {
 
     // ---- the hotbar ----
 
-    private static boolean same(ItemStack a, ItemStack b) {
-        return !a.isEmpty() && !b.isEmpty() && ItemStack.isSameItemSameComponents(a, b);
-    }
-
-    /** At the start: the item in the hand first, then what the storage holds, one slot to each kind of item. */
-    private static void fillHotbar(Session session, HiveHeart heart) {
-        int next = 0;
-        ItemStack hand = heart.scoutHand().getItem(0);
-        if (!hand.isEmpty()) {
-            session.hotbar[next++] = hand.copyWithCount(1);
-        }
-        for (int i = 0; i < heart.getStorage().getContainerSize() && next < session.hotbar.length; i++) {
-            ItemStack stack = heart.getStorage().getItem(i);
-            if (stack.isEmpty() || HiveEquipment.isToolOrWeapon(stack) || HiveEquipment.link(stack) != null) {
-                continue;
-            }
-            boolean listed = false;
-            for (int j = 0; j < next; j++) {
-                listed |= same(session.hotbar[j], stack);
-            }
-            if (!listed) {
-                session.hotbar[next++] = stack.copyWithCount(1);
-            }
-        }
-        session.selected = 0;
-    }
-
-    /** How many of this item the hive has, in its storage and in the scout's hand. */
-    private static int countOf(HiveHeart heart, ItemStack template) {
-        int total = 0;
-        for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
-            ItemStack stack = heart.getStorage().getItem(i);
-            if (same(stack, template)) {
-                total += stack.getCount();
-            }
-        }
-        ItemStack hand = heart.scoutHand().getItem(0);
-        return same(hand, template) ? total + hand.getCount() : total;
-    }
-
     /**
-     * Put the hand's item back into the storage and take the slot's item out of it, a stack's worth. False if the storage has no room to
-     * take the hand's item back (nothing changes then).
+     * The hotbar is the scouts' hotbar of the hive (nine slots, set up on the scouts' page of the hive menu): its first slot is the item the scouts
+     * hold for the orders they are given, and the slot the player picks is the one in the scout's hand while it is controlled.
      */
-    private static boolean equip(Session session, HiveHeart heart, int slot) {
-        ItemStack template = session.hotbar[slot];
-        ItemStack hand = heart.scoutHand().getItem(0);
-        session.selected = slot;
-        if (same(hand, template) || (hand.isEmpty() && template.isEmpty())) {
-            return true;
-        }
-        if (!hand.isEmpty()) {
-            ItemStack left = heart.getStorage().addItem(hand.copy());
-            if (!left.isEmpty()) {
-                // No room: put back what did fit, keep the rest in hand.
-                hand.setCount(left.getCount());
-                heart.scoutHand().setChanged();
-                return false;
-            }
-            heart.scoutHand().setItem(0, ItemStack.EMPTY);
-        }
-        if (!template.isEmpty()) {
-            ItemStack taken = ItemStack.EMPTY;
-            int got = 0;
-            int limit = template.getMaxStackSize();
-            for (int i = 0; i < heart.getStorage().getContainerSize() && got < limit; i++) {
-                ItemStack stack = heart.getStorage().getItem(i);
-                if (!same(stack, template)) {
-                    continue;
-                }
-                if (taken.isEmpty()) {
-                    taken = stack.copyWithCount(1);
-                }
-                int move = Math.min(limit - got, stack.getCount());
-                got += move;
-                stack.shrink(move);
-                if (stack.isEmpty()) {
-                    heart.getStorage().setItem(i, ItemStack.EMPTY);
-                }
-            }
-            if (got > 0) {
-                taken.setCount(got);
-                heart.scoutHand().setItem(0, taken);
-            }
-        }
-        heart.getStorage().setChanged();
-        return true;
-    }
-
-    /**
-     * Keep the selected slot and the hand in step. What the hand holds that the slot does not stand for (the player put it there from the hive
-     * menu) becomes what the slot stands for; and a hand that was emptied by using the last of it is filled again if the hive has more.
-     */
-    private static void keepHand(Session session, HiveHeart heart, HiveScout scout) {
-        ItemStack hand = heart.scoutHand().getItem(0);
-        if (!hand.isEmpty() && !same(hand, session.hotbar[session.selected])) {
-            session.hotbar[session.selected] = hand.copyWithCount(1);
-        }
-        if (hand.isEmpty() && session.handWasFull && !session.hotbar[session.selected].isEmpty()
-                && countOf(heart, session.hotbar[session.selected]) > 0) {
-            equip(session, heart, session.selected);
-            scout.refreshHand();
-        }
-        session.handWasFull = !heart.scoutHand().getItem(0).isEmpty();
-    }
-
     private static void syncHotbar(ServerPlayer player, Session session, HiveHeart heart, boolean force) {
         List<ItemStack> shown = new ArrayList<>();
         List<Integer> counts = new ArrayList<>();
-        for (ItemStack template : session.hotbar) {
-            shown.add(template.copy());
-            counts.add(template.isEmpty() ? 0 : countOf(heart, template));
+        for (int i = 0; i < ControlHotbarPayload.SLOTS; i++) {
+            ItemStack stack = heart.scoutHand().getItem(i);
+            shown.add(stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1));
+            counts.add(stack.getCount());
         }
-        // An item the hive has run out of is still shown, with a count of 0.
-        boolean changed = force || session.lastSentSelected != session.selected || !session.lastCounts.equals(counts)
+        int selected = heart.scoutSelected();
+        boolean changed = force || session.lastSentSelected != selected || !session.lastCounts.equals(counts)
                 || !ItemStack.listMatches(shown, session.lastSent);
         if (changed) {
             session.lastSent = shown;
             session.lastCounts = counts;
-            session.lastSentSelected = session.selected;
-            PacketDistributor.sendToPlayer(player, new ControlHotbarPayload(shown, counts, session.selected));
+            session.lastSentSelected = selected;
+            PacketDistributor.sendToPlayer(player, new ControlHotbarPayload(shown, counts, selected));
         }
     }
 }

@@ -90,6 +90,15 @@ public final class ServerPayloads {
         }
     }
 
+    /** The player pressed the button under the trash slot: what is in it is deleted. */
+    public static void onClearTrash(ClearTrashPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.clearTrash();
+            menu.broadcastChanges();
+        }
+    }
+
     /** The player typed in the search box on the scouts' page. */
     public static void onScoutSearch(SetScoutSearchPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu

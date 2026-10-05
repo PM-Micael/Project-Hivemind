@@ -133,7 +133,9 @@ public class HiveHeart extends Mob {
     /** Where each of the hive's units was last seen (dimension and chunk), so they can be loaded again after a restart. */
     private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
-    private final SimpleContainer scoutHand = new SimpleContainer(1);
+    private final SimpleContainer scoutHand = new SimpleContainer(SCOUT_HOTBAR_SLOTS);
+    /** The slot of the scout hotbar that is held: always the first (the hive menu's hand slot) except while a player controls a scout and picks another. Not saved. */
+    private int scoutSelected;
     /** The hive's jukebox slot: the music disc that is playing. Saved. */
     private final SimpleContainer jukeboxSlot = new SimpleContainer(1);
     /** The disc the owner's client was last told about. Not saved. */
@@ -748,6 +750,26 @@ public class HiveHeart extends Mob {
 
     public void setLastMusic(String disc) {
         this.lastMusic = disc;
+    }
+
+    /** How many slots the scouts' hotbar has: the first is the item the scouts hold for the orders they are given. */
+    public static final int SCOUT_HOTBAR_SLOTS = 9;
+
+    public int scoutSelected() {
+        return scoutSelected;
+    }
+
+    public void setScoutSelected(int slot) {
+        this.scoutSelected = Math.max(0, Math.min(SCOUT_HOTBAR_SLOTS - 1, slot));
+    }
+
+    /** The item the scouts hold now: the selected slot of the hotbar. */
+    public ItemStack scoutHeld() {
+        return scoutHand.getItem(scoutSelected);
+    }
+
+    public void setScoutHeld(ItemStack stack) {
+        scoutHand.setItem(scoutSelected, stack);
     }
 
     public SimpleContainer scoutHand() {

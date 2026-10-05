@@ -77,6 +77,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private int scoutArmorStart;
     private int scoutStorageStart;
     private int scoutStorageEnd;
+    private int scoutHotbarStart;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
 
@@ -110,6 +111,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int SCOUT_INV_SLOTS = 27;
     public static final int SCOUT_INV_X = 140;
     public static final int SCOUT_INV_Y = 152;
+    /** The scouts' hotbar, a row of nine under the storage window: its first slot is the item the scouts hold (the hive page's hand slot). */
+    public static final int SCOUT_HOTBAR_X = SCOUT_INV_X;
+    public static final int SCOUT_HOTBAR_Y = SCOUT_INV_Y + 3 * 18 + 16;
     /** The groups of slots that are workstations, in the screen's scrolling list: their slots are moved about, and hidden when out of view. */
     public static final int STATION_GROUPS = GROUP_CRAFT | GROUP_FURNACE | GROUP_BREWING | GROUP_ENCHANT | GROUP_JUKEBOX | GROUP_CARTOGRAPHY | GROUP_ANVIL | GROUP_TRASH;
     /** The trash may hold a stack of anything stackable this many times as large as usual: a whole storage stack, and more. */
@@ -291,7 +295,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace, boolean hasBrewing) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots), new StorageScroll(null, totalStorageSlots, SCOUT_INV_SLOTS),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
-                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(1), new SimpleContainer(1), new SimpleContainer(1), new com.projecthivemind.entity.HiveStorage(1, () -> TRASH_STACK_MULTIPLIER), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), true, true, new SimpleContainerData(DATA_COUNT),
+                new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(HiveHeart.SCOUT_HOTBAR_SLOTS), new SimpleContainer(1), new SimpleContainer(1), new com.projecthivemind.entity.HiveStorage(1, () -> TRASH_STACK_MULTIPLIER), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), true, true, new SimpleContainerData(DATA_COUNT),
                 new int[] {-1, -1}, null);
     }
 
@@ -398,6 +402,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             }
         }
         this.scoutStorageEnd = this.slots.size();
+        this.scoutHotbarStart = this.slots.size();
+        for (int i = 0; i < HiveHeart.SCOUT_HOTBAR_SLOTS; i++) {
+            this.addSlot(new HiveSlot(scoutHand, i, SCOUT_HOTBAR_X + i * 18, SCOUT_HOTBAR_Y, GROUP_SCOUT_ARMOR));
+        }
         this.addDataSlots(data);
         this.addDataSlot(scroll.position());
         this.addDataSlot(scroll.matchCount());
@@ -772,6 +780,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return this.slots.get(foodIndex);
     }
 
+    /** Delete what is in the trash. */
+    public void clearTrash() {
+        trashSlot.container.clearContent();
+        trashSlot.setChanged();
+    }
+
     /** The trash slot, so the screen can draw it. */
     public Slot trashSlot() {
         return trashSlot;
@@ -1075,11 +1089,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         } else if (index >= scoutStorageStart && index < scoutStorageEnd) {
             // From the storage window on the scouts' page: onto the scouts (the armor slots take only leather armor). Not back into the storage, which is
             // what the window is a view of.
-            if (!this.moveItemStackTo(stack, scoutArmorStart, scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length, false)) {
+            if (!this.moveItemStackTo(stack, scoutArmorStart, scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length, false)
+                    && !this.moveItemStackTo(stack, scoutHotbarStart, scoutHotbarStart + HiveHeart.SCOUT_HOTBAR_SLOTS, false)) {
                 return ItemStack.EMPTY;
             }
-        } else if (index >= scoutArmorStart && index < scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length) {
-            // From the scouts' armor: into the hive's storage itself (wherever there is room in it, not only in the window onto it).
+        } else if ((index >= scoutArmorStart && index < scoutArmorStart + HiveEquipment.ARMOR_SLOTS.length)
+                || (index >= scoutHotbarStart && index < scoutHotbarStart + HiveHeart.SCOUT_HOTBAR_SLOTS)) {
+            // From the scouts' armor or hotbar: into the hive's storage itself (wherever there is room in it, not only in the window onto it).
             if (storage == null) {
                 return ItemStack.EMPTY;
             }

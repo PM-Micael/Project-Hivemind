@@ -766,7 +766,7 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts_use"), true);
             return;
         }
-        if (!ScoutItems.usable(heart.scoutHand().getItem(0))) {
+        if (!ScoutItems.usable(heart.scoutHeld())) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.scout_hand_empty"), true);
             return;
         }
@@ -828,13 +828,13 @@ public final class HiveActions {
         List<Mob> scouts = new ArrayList<>(commandable(player, level, request.unitIds(), UnitKind.SCOUT));
         scouts.sort(java.util.Comparator.comparingInt(scout -> numbered.indexOf(scout.getUUID())));
         for (Mob scout : scouts) {
-            ItemStack hand = heart.scoutHand().getItem(0);
+            ItemStack hand = heart.scoutHeld();
             if (hand.isEmpty()) {
                 break;
             }
             ItemStack one = hand.split(1);
             if (hand.isEmpty()) {
-                heart.scoutHand().setItem(0, ItemStack.EMPTY);
+                heart.setScoutHeld(ItemStack.EMPTY);
             }
             heart.scoutHand().setChanged();
             Vec3 look = scout.getLookAngle();

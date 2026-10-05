@@ -127,6 +127,7 @@ public final class CommonEvents {
         registrar.playToServer(BuildTowerPayload.TYPE, BuildTowerPayload.STREAM_CODEC, ServerPayloads::onBuildTower);
         registrar.playToServer(com.projecthivemind.network.SetStorageSearchPayload.TYPE, com.projecthivemind.network.SetStorageSearchPayload.STREAM_CODEC, ServerPayloads::onStorageSearch);
         registrar.playToServer(ScrollStoragePayload.TYPE, ScrollStoragePayload.STREAM_CODEC, ServerPayloads::onScrollStorage);
+        registrar.playToServer(com.projecthivemind.network.ClearTrashPayload.TYPE, com.projecthivemind.network.ClearTrashPayload.STREAM_CODEC, ServerPayloads::onClearTrash);
         registrar.playToServer(com.projecthivemind.network.ScrollScoutStoragePayload.TYPE, com.projecthivemind.network.ScrollScoutStoragePayload.STREAM_CODEC, ServerPayloads::onScrollScoutStorage);
         registrar.playToServer(com.projecthivemind.network.SetScoutSearchPayload.TYPE, com.projecthivemind.network.SetScoutSearchPayload.STREAM_CODEC, ServerPayloads::onScoutSearch);
         registrar.playToServer(TradePayload.TYPE, TradePayload.STREAM_CODEC, ServerPayloads::onTrade);
