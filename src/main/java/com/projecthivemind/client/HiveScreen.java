@@ -126,6 +126,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private boolean jukeboxShown;
     private SeedButton cartographyButton;
     private boolean cartographyShown;
+    private SeedButton anvilButton;
+    private boolean anvilShown;
     private final Button[] enchantOptions = new Button[3];
     private boolean enchantShown;
     private SeedButton craftingButton;
@@ -273,6 +275,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 () -> new ItemStack(net.minecraft.world.item.Items.CARTOGRAPHY_TABLE), button -> chooseWorkstation(5)));
         cartographyButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.cartography")));
         cartographyButton.visible = false;
+        anvilButton = addRenderableWidget(new SeedButton(stationX, topPos + HiveMenu.STORAGE_Y + 144, 20, 20,
+                () -> new ItemStack(net.minecraft.world.item.Items.ANVIL), button -> chooseWorkstation(6)));
+        anvilButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.hive.anvil")));
+        anvilButton.visible = false;
         // The three enchanting options, to the right of the item and lapis slots.
         for (int i = 0; i < 3; i++) {
             int option = i;
@@ -387,8 +393,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void applyMenuGroups(Tab forTab) {
         // The workstations the hive can use: the crafting grid (2x2 to begin with, 3x3 once a crafting table has been consumed), the furnace and the brewing stand once each has been consumed on the Evolve
         // tab, and the evolve slot from level 2. The one shown is the one chosen, or else the first there is.
-        boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), menu.hasEnchanting(), menu.hasJukebox(), menu.hasCartography()};
-        int chosen = cartographyShown ? 5 : jukeboxShown ? 4 : enchantShown ? 3 : brewingShown ? 2 : furnaceShown ? 1 : 0;
+        boolean[] offered = {true, menu.hasFurnace(), menu.hasBrewing(), menu.hasEnchanting(), menu.hasJukebox(), menu.hasCartography(), menu.hasAnvil()};
+        int chosen = anvilShown ? 6 : cartographyShown ? 5 : jukeboxShown ? 4 : enchantShown ? 3 : brewingShown ? 2 : furnaceShown ? 1 : 0;
         if (!offered[chosen]) {
             chosen = 0;
             for (int i = 0; i < offered.length; i++) {
@@ -403,12 +409,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         enchantShown = chosen == 3;
         jukeboxShown = chosen == 4;
         cartographyShown = chosen == 5;
+        anvilShown = chosen == 6;
         menu.visibleGroups = forTab == Tab.HIVE
                 ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR
-                        | (chosen == 5 ? HiveMenu.GROUP_CARTOGRAPHY : chosen == 4 ? HiveMenu.GROUP_JUKEBOX : chosen == 3 ? HiveMenu.GROUP_ENCHANT : chosen == 2 ? HiveMenu.GROUP_BREWING : chosen == 1 ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
+                        | (chosen == 6 ? HiveMenu.GROUP_ANVIL : chosen == 5 ? HiveMenu.GROUP_CARTOGRAPHY : chosen == 4 ? HiveMenu.GROUP_JUKEBOX : chosen == 3 ? HiveMenu.GROUP_ENCHANT : chosen == 2 ? HiveMenu.GROUP_BREWING : chosen == 1 ? HiveMenu.GROUP_FURNACE : HiveMenu.GROUP_CRAFT) : 0;
         if (craftingButton != null) {
             // The buttons for the workstations on offer, one under the other. With only one there is nothing to choose.
-            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, enchantStationButton, jukeboxButton, cartographyButton};
+            SeedButton[] buttons = {craftingButton, furnaceButton, brewingButton, enchantStationButton, jukeboxButton, cartographyButton, anvilButton};
             int count = 0;
             for (boolean has : offered) {
                 count += has ? 1 : 0;
@@ -432,7 +439,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     private int stationKey() {
-        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (menu.hasCrafting() ? 8 : 0) | (menu.hasEnchanting() ? 16 : 0) | (menu.hasJukebox() ? 32 : 0) | (menu.hasCartography() ? 64 : 0);
+        return (menu.hasFurnace() ? 1 : 0) | (menu.hasBrewing() ? 2 : 0) | (menu.hasCrafting() ? 8 : 0) | (menu.hasEnchanting() ? 16 : 0) | (menu.hasJukebox() ? 32 : 0) | (menu.hasCartography() ? 64 : 0) | (menu.hasAnvil() ? 128 : 0);
     }
 
     /**
@@ -485,6 +492,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         enchantShown = station == 3;
         jukeboxShown = station == 4;
         cartographyShown = station == 5;
+        anvilShown = station == 6;
         applyMenuGroups(tab);
         PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, menu.visibleGroups));
     }
@@ -1947,6 +1955,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (quest.blazeRods() > 0) {
             y = questLine(graphics, y, Component.translatable("screen.projecthivemind.quest.blaze", quest.blazeRods()), menu.questBlaze(), quest.blazeRods(), 1, "");
         }
+        if (quest.evolve() != null) {
+            boolean evolved = quest.evolve().doneIn(menu.evolveMask());
+            y = questLineText(graphics, y, Component.translatable("screen.projecthivemind.quest.evolve", new ItemStack(quest.evolve().item()).getHoverName()), evolved, evolved ? "1 / 1" : "0 / 1");
+        }
 
         y += 8;
         graphics.drawString(font, Component.translatable("screen.projecthivemind.quest.unlocks", next.level()), QUEST_X, y, 0xFFDD55, false);
@@ -2013,13 +2025,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 HiveMenu.scoutHandY(menu.storageRows()) + 4, 0xA0A0A0, false);
         // The workstation on the right is named for the open tab.
         // (With no workstation unlocked yet there is nothing to name.)
-        String workstation = cartographyShown && menu.hasCartography() ? "screen.projecthivemind.hive.cartography"
+        String workstation = anvilShown && menu.hasAnvil() ? "screen.projecthivemind.hive.anvil"
+                : cartographyShown && menu.hasCartography() ? "screen.projecthivemind.hive.cartography"
                 : jukeboxShown && menu.hasJukebox() ? "screen.projecthivemind.hive.jukebox"
                 : enchantShown && menu.hasEnchanting() ? "screen.projecthivemind.hive.enchanting"
                 : brewingShown && menu.hasBrewing() ? "screen.projecthivemind.hive.brewing"
                 : furnaceShown && menu.hasFurnace() ? "screen.projecthivemind.hive.furnace"
                 : menu.hasCrafting() ? "screen.projecthivemind.hive.crafting" : "screen.projecthivemind.hive.crafting_small";
         graphics.drawString(font, Component.translatable(workstation), HiveMenu.GRID_X, LABEL_Y, 0xA0A0A0, false);
+        if (anvilShown && menu.hasAnvil() && menu.anvilCost() > 0) {
+            // What the result costs, in the hivemind's own levels: green when it has them, red when it has not.
+            boolean affordable = minecraft.player != null && (minecraft.player.experienceLevel >= menu.anvilCost() || minecraft.player.getAbilities().instabuild);
+            graphics.drawString(font, Component.translatable("container.repair.cost", menu.anvilCost()), HiveMenu.FURNACE_INPUT_X,
+                    HiveMenu.FURNACE_FUEL_Y + 26, affordable ? 0x80FF20 : 0xFF6060, false);
+        }
         graphics.drawString(font, Component.translatable("screen.projecthivemind.hive.tools"),
                 HiveMenu.TOOLS_X + com.projecthivemind.HiveEquipment.TOOL_SLOTS * 18 + 6, HiveMenu.toolsY(menu.storageRows()) + 5, 0xA0A0A0, false);
     }

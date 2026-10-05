@@ -253,7 +253,9 @@ public final class TowerBuild {
         if (placement.stair()) {
             return state.getBlock() instanceof StairBlock && state.getValue(StairBlock.FACING) == placement.facing();
         }
-        return set.isWallBlock(state);
+        // A wall block is only built where there is nothing else: any other block already there (stone, dirt, a cave wall...) is left as it is and counts as
+        // done. Air, liquid and plants that a block replaces are still to be filled.
+        return set.isWallBlock(state) || (!state.isAir() && !state.canBeReplaced() && state.getFluidState().isEmpty());
     }
 
     public boolean isComplete(ServerLevel level) {
@@ -427,6 +429,10 @@ public final class TowerBuild {
         }
 
         BlockState existing = level.getBlockState(pos);
+        if (!placement.stair() && !existing.canBeReplaced() && existing.getFluidState().isEmpty()) {
+            // Something else is there: a wall block is not built over it.
+            return Result.SKIPPED;
+        }
         if (!existing.canBeReplaced()) {
             if (existing.getDestroySpeed(level, pos) < 0.0F || existing.hasBlockEntity()) {
                 skipped.add(pos);

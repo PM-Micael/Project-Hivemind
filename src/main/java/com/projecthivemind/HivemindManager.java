@@ -1375,6 +1375,7 @@ public final class HivemindManager {
                 && heart.kills() >= quest.kills() && heart.ageTicks() >= quest.survivalTicks()
                 && heart.coalProgress() >= quest.coal() && heart.ironProgress() >= quest.ironIngots()
                 && heart.blazeProgress() >= quest.blazeRods() && (!quest.nether() || heart.netherEntered()) && (!quest.dragon() || heart.dragonDefeated())
+                && (quest.evolve() == null || quest.evolve().doneIn(heart.evolveMask()))
                 && (quest.reachY() == null || heart.lowestY() <= quest.reachY())) {
             levelUp(heart, owner);
         }

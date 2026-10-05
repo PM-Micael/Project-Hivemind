@@ -442,6 +442,10 @@ public final class HiveSelection {
             if (hasWorker || selectionHas(minecraft, selected, UnitKind.SCOUT)) {
                 options.add(option("action.projecthivemind.dig", selected, pos, BlockAction.DIG));
             }
+            // Workers can be set to keep mining a spot: what forms there again and again (a cobblestone generator).
+            if (hasWorker) {
+                options.add(option("action.projecthivemind.repeat_dig", selected, pos, BlockAction.REPEAT_DIG));
+            }
             // A scout opens containers (chests, furnaces, hoppers...) for the player.
             boolean scoutCanOpen = selectionHas(minecraft, selected, UnitKind.SCOUT)
                     && minecraft.level.getBlockEntity(pos) instanceof Container;
@@ -513,7 +517,15 @@ public final class HiveSelection {
         options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.construction_options"), () -> {
             net.minecraft.nbt.CompoundTag config = construction.config();
             switch (construction.kind()) {
-                case 0 -> minecraft.setScreen(new BuildBridgeScreen(pos, config));
+                case 0 -> {
+                    if (config.getInt("TunnelSize") > 0) {
+                        minecraft.setScreen(new BuildTunnelScreen(pos, config));
+                    } else if (config.getBoolean("Generator")) {
+                        minecraft.gui.setOverlayMessage(Component.translatable("message.projecthivemind.generator_no_options"), false);
+                    } else {
+                        minecraft.setScreen(new BuildBridgeScreen(pos, config));
+                    }
+                }
                 case 1 -> minecraft.setScreen(new DigStaircaseScreen(pos, config));
                 default -> minecraft.setScreen(new BuildTowerScreen(pos, config));
             }

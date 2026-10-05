@@ -254,7 +254,7 @@ public class HiveHeart extends Mob {
 
     /** Ticks until the next spawning interval, which tops up units and refreshes out-of-date ones. */
     public int ticksUntilSpawn() {
-        return Math.max(0, SPAWN_INTERVAL_TICKS - spawnTimer);
+        return Math.max(0, com.projecthivemind.EvolveTask.spawnIntervalTicks(evolveMask) - spawnTimer);
     }
 
     /**
@@ -496,7 +496,7 @@ public class HiveHeart extends Mob {
             keepLight();
         }
         // The Heart makes its own units: every interval it tops up what is below the cap and refreshes out-of-date gear.
-        if (++spawnTimer >= SPAWN_INTERVAL_TICKS) {
+        if (++spawnTimer >= com.projecthivemind.EvolveTask.spawnIntervalTicks(evolveMask)) {
             spawnTimer = 0;
             HivemindManager.tickUnitSpawning(this);
         }
@@ -511,6 +511,8 @@ public class HiveHeart extends Mob {
         }
         if (this.tickCount % 20 == 0) {
             HivemindManager.tickDefence(this);
+            HeartAlerts.tick(this);
+            refillFoodSlot();
         }
         if (this.tickCount % 2 == 0) {
             // The storage is kept in alphabetical order, with like stacks merged.
@@ -701,6 +703,25 @@ public class HiveHeart extends Mob {
         return foodSlot;
     }
 
+    /** Keeps the food slot full: while it holds less than a full stack, the same food (same item and data) is moved in from the hive's storage. Once a second. */
+    private void refillFoodSlot() {
+        ItemStack held = foodSlot.getItem(0);
+        if (held.isEmpty() || held.getCount() >= held.getMaxStackSize()) {
+            return;
+        }
+        for (int i = 0; i < storage.getContainerSize() && held.getCount() < held.getMaxStackSize(); i++) {
+            ItemStack stored = storage.getItem(i);
+            if (stored.isEmpty() || !ItemStack.isSameItemSameComponents(held, stored)) {
+                continue;
+            }
+            int moved = Math.min(held.getMaxStackSize() - held.getCount(), stored.getCount());
+            held.grow(moved);
+            stored.shrink(moved);
+            storage.setChanged();
+        }
+        foodSlot.setChanged();
+    }
+
     /** Like a player, the Heart wears down the armor it wears (the hive's own pieces) when it takes a hit. */
     @Override
     protected void hurtArmor(DamageSource source, float damage) {
@@ -832,7 +853,27 @@ public class HiveHeart extends Mob {
      * A soldier's copy of a piece of gear lost durability: charge the same amount to the original in the hive's slots.
      * If that wears the original out, it breaks. Does nothing if the original is no longer in a gear slot.
      */
+    /** With the anvil evolution done, the hive's tools and armor wear half as fast: each point of wear is dropped half the time. */
+    private int reducedWear(int amount) {
+        if (!com.projecthivemind.EvolveTask.ANVIL.doneIn(evolveMask)) {
+            return amount;
+        }
+        int kept = 0;
+        for (int i = 0; i < amount; i++) {
+            if (this.random.nextBoolean()) {
+                kept++;
+            }
+        }
+        return kept;
+    }
+
     public void damageLinked(UUID link, int amount) {
+        damageLinked(link, amount, true);
+    }
+
+    /** As above; {@code reducible} false charges all of it (the copy broke, so the original is worn out to match). */
+    public void damageLinked(UUID link, int amount, boolean reducible) {
+        amount = reducible ? reducedWear(amount) : amount;
         if (amount > 0 && !damageLinkedIn(armorSlots, link, amount)) {
             damageLinkedIn(toolSlots, link, amount);
         }

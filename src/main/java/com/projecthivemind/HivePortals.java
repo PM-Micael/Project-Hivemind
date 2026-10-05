@@ -47,9 +47,9 @@ public final class HivePortals {
     }
 
     public static int max(HiveHeart heart) {
-        // The level gives the first portal (from level 2); the ender pearl task gives one more, but only once portals exist at all.
+        // The level gives the portal (from level 2).
         int fromLevel = HiveLevels.get(heart.hiveLevel()).maxPortals();
-        return fromLevel > 0 && com.projecthivemind.EvolveTask.ENDER_PEARL.doneIn(heart.evolveMask()) ? fromLevel + 1 : fromLevel;
+        return fromLevel;
     }
 
     // ---- placing ----
@@ -112,6 +112,7 @@ public final class HivePortals {
      */
     public static boolean resummonDeath(ServerPlayer owner, HiveHeart heart, UnitKind kind, int team) {
         PortalNetwork network = heart.portals();
+        network.useInterval(com.projecthivemind.EvolveTask.spawnIntervalTicks(heart.evolveMask()));
         if (team < 0 || team >= network.portals().size() || !java.util.Arrays.asList(PortalNetwork.SUMMON_ORDER).contains(kind)) {
             return false;
         }
@@ -164,6 +165,7 @@ public final class HivePortals {
             return;
         }
         PortalNetwork network = heart.portals();
+        network.useInterval(com.projecthivemind.EvolveTask.spawnIntervalTicks(heart.evolveMask()));
         if (network.summoning()) {
             player.displayClientMessage(Component.translatable("message.projecthivemind.summon_busy"), true);
             return;
@@ -232,6 +234,7 @@ public final class HivePortals {
             return;
         }
         PortalNetwork network = heart.portals();
+        network.useInterval(com.projecthivemind.EvolveTask.spawnIntervalTicks(heart.evolveMask()));
         boolean changed = false;
         if (heart.tickCount % 20 == 0) {
             var iterator = network.portals().iterator();
@@ -261,7 +264,7 @@ public final class HivePortals {
                     // At the Heart, or the portal has been taken down: they come through the Heart.
                     HivemindManager.createUnitAtHeart(owner, heart, next.kind(), next.config());
                 }
-                network.setTicksToNext(PortalNetwork.SUMMON_INTERVAL_TICKS);
+                network.setTicksToNext(network.interval());
                 if (network.queue().isEmpty()) {
                     network.stopSummoning();
                 }

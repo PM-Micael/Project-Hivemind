@@ -70,6 +70,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final int jukeboxEnd;
     private final int cartographyStart;
     private final int cartographyEnd;
+    private final int anvilStart;
+    private final int anvilEnd;
     private final Slot trashSlot;
     private final boolean hasFurnace;
     private static final int STORAGE_START = 0;
@@ -89,6 +91,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_JUKEBOX = 64;
     /** The cartography table (once one has been consumed): the map, the material and the result. */
     public static final int GROUP_CARTOGRAPHY = 128;
+    /** The anvil (once one has been consumed): the item, what it is combined with, and the result. */
+    public static final int GROUP_ANVIL = 256;
 
     // Slot positions inside the panel, shared with the screen.
     public static final int ARMOR_X = 8;
@@ -244,6 +248,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
     };
     private final SimpleContainer cartographyResult = new SimpleContainer(1);
+    /** The anvil's inputs and result, the levels the result costs (sent to the screen), and the game's own anvil working it out (server side only). */
+    private final SimpleContainer anvilSlots = new SimpleContainer(2) {
+        @Override
+        public void setChanged() {
+            super.setChanged();
+            HiveMenu.this.slotsChanged(this);
+        }
+    };
+    private final SimpleContainer anvilResult = new SimpleContainer(1);
+    private final DataSlot anvilCost = DataSlot.standalone();
+    @Nullable
+    private AnvilEngine anvilEngine;
     private final net.minecraft.util.RandomSource enchantRandom = net.minecraft.util.RandomSource.create();
     private final DataSlot enchantSeed = DataSlot.standalone();
     /** The enchanting options, as in the vanilla menu: the level each costs (0 for none) and the hint shown for it. */
@@ -288,6 +304,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.jukeboxEnd = jukeboxStart + 1;
         this.cartographyStart = jukeboxEnd;
         this.cartographyEnd = cartographyStart + 3;
+        this.anvilStart = cartographyEnd;
+        this.anvilEnd = anvilStart + 3;
         this.storage = storage;
         this.data = data;
         this.view = view;
@@ -339,6 +357,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addSlot(new CartographyInputSlot(cartographySlots, 0, FURNACE_INPUT_X, FURNACE_INPUT_Y, true));
         this.addSlot(new CartographyInputSlot(cartographySlots, 1, FURNACE_FUEL_X, FURNACE_FUEL_Y, false));
         this.addSlot(new CartographyResultSlot(cartographyResult, 0, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
+        // The anvil: the item, what it is combined with (another item, or material to repair it), and the result.
+        this.addSlot(new AnvilInputSlot(anvilSlots, 0, FURNACE_INPUT_X, FURNACE_INPUT_Y));
+        this.addSlot(new AnvilInputSlot(anvilSlots, 1, FURNACE_FUEL_X, FURNACE_FUEL_Y));
+        this.addSlot(new AnvilResultSlot(anvilResult, 0, FURNACE_OUTPUT_X, FURNACE_OUTPUT_Y));
         // The trash: anything put here is deleted. Bottom left of the panel, on the Hive tab.
         this.trashSlot = new TrashSlot(new SimpleContainer(1), 0, TRASH_X, trashY(scroll.visibleRows()));
         this.addSlot(trashSlot);
@@ -351,6 +373,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.addDataSlot(DataSlot.shared(enchantLevelClue, i));
         }
         this.addDataSlot(enchantSeed).set(player.getEnchantmentSeed());
+        this.addDataSlot(anvilCost);
     }
 
     /** Server constructor: backed by the Heart's real storage, with live stats for the screen. */
@@ -613,6 +636,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             case GROUP_ENCHANT -> hasEnchanting();
             case GROUP_JUKEBOX -> hasJukebox();
             case GROUP_CARTOGRAPHY -> hasCartography();
+            case GROUP_ANVIL -> hasAnvil();
             default -> true;
         };
     }
@@ -684,6 +708,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The trash slot, so the screen can draw it. */
     public Slot trashSlot() {
         return trashSlot;
+    }
+
+    /** True once the hive has consumed an anvil: it can repair, combine and rename items, paying with the hivemind's levels. */
+    public boolean hasAnvil() {
+        return com.projecthivemind.EvolveTask.ANVIL.doneIn(evolveMask());
+    }
+
+    /** The levels the anvil's result costs (0 for none). */
+    public int anvilCost() {
+        return anvilCost.get();
     }
 
     /** True once the hive has consumed a cartography table: it can copy, zoom and lock maps. */
@@ -830,7 +864,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     @Override
     public void slotsChanged(Container container) {
-        if (container == cartographySlots) {
+        if (container == anvilSlots) {
+            updateAnvil();
+        } else if (container == cartographySlots) {
             updateCartography();
         } else if (container == enchantSlots) {
             updateEnchanting();
@@ -892,6 +928,59 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), index, result));
     }
 
+    /**
+     * The anvil, worked out by the game's own anvil (kept out of sight, with the two items put in it): repairing with material or with a second
+     * item, combining enchantments, and what it costs in levels, which are the hivemind's own. The result shows when the player has the levels.
+     */
+    private void updateAnvil() {
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+        if (anvilEngine == null) {
+            anvilEngine = new AnvilEngine(serverPlayer.getInventory());
+        }
+        anvilEngine.load(anvilSlots.getItem(0), anvilSlots.getItem(1));
+        ItemStack result = anvilEngine.result().copy();
+        anvilCost.set(result.isEmpty() ? 0 : anvilEngine.cost());
+        anvilResult.setItem(0, result);
+        int index = anvilStart + 2;
+        setRemoteSlot(index, result);
+        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), index, result));
+    }
+
+    /** The game's anvil menu used as the working: this class only opens up what it needs of it. */
+    private static final class AnvilEngine extends net.minecraft.world.inventory.AnvilMenu {
+        AnvilEngine(Inventory inventory) {
+            super(-1, inventory);
+        }
+
+        void load(ItemStack first, ItemStack second) {
+            inputSlots.setItem(0, first.copy());
+            inputSlots.setItem(1, second.copy());
+            createResult();
+        }
+
+        ItemStack result() {
+            return resultSlots.getItem(0);
+        }
+
+        int cost() {
+            return getCost();
+        }
+
+        ItemStack input(int index) {
+            return inputSlots.getItem(index);
+        }
+
+        boolean canTake(Player taker) {
+            return mayPickup(taker, true);
+        }
+
+        void take(Player taker, ItemStack stack) {
+            onTake(taker, stack);
+        }
+    }
+
     // ---- moving items ----
 
     @Override
@@ -903,6 +992,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         ItemStack stack = slot.getItem();
         ItemStack original = stack.copy();
 
+        if (index == anvilStart + 2 && (stack.isEmpty() || !slot.mayPickup(player))) {
+            return ItemStack.EMPTY;
+        }
         if (index == cartographyStart + 2) {
             // A map made at the cartography table is finished as it comes out, whichever way it is taken.
             stack.getItem().onCraftedBy(stack, player.level(), player);
@@ -925,6 +1017,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 && !(shown(enchantStart, enchantEnd) && this.moveItemStackTo(stack, enchantStart, enchantEnd, false))
                 && !(shown(jukeboxStart, jukeboxEnd) && this.moveItemStackTo(stack, jukeboxStart, jukeboxEnd, false))
                 && !(shown(cartographyStart, cartographyStart + 2) && this.moveItemStackTo(stack, cartographyStart, cartographyStart + 2, false))
+                && !(shown(anvilStart, anvilStart + 2) && this.moveItemStackTo(stack, anvilStart, anvilStart + 2, false))
                 && !(shown(foodIndex, foodIndex + 1) && this.moveItemStackTo(stack, foodIndex, foodIndex + 1, false))) {
             // From storage: gear slots first (each only takes what belongs there), then the crafting grid, then the furnace,
             // but only those the open tab is showing.
@@ -976,6 +1069,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             for (int i = 0; i < cartographySlots.getContainerSize(); i++) {
                 giveToHive(cartographySlots.removeItemNoUpdate(i));
             }
+            for (int i = 0; i < anvilSlots.getContainerSize(); i++) {
+                giveToHive(anvilSlots.removeItemNoUpdate(i));
+            }
+            anvilResult.clearContent();
             cartographyResult.clearContent();
             resultSlots.clearContent();
         }
@@ -1120,6 +1217,41 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             cartographySlots.removeItem(1, 1);
             taker.level().playSound(null, taker.blockPosition(), net.minecraft.sounds.SoundEvents.UI_CARTOGRAPHY_TABLE_TAKE_RESULT,
                     net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
+            super.onTake(taker, stack);
+        }
+    }
+
+    /** An anvil input: any item (what it can be combined with is the anvil's business, and the result slot stays empty when nothing works). */
+    private class AnvilInputSlot extends HiveSlot {
+        AnvilInputSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_ANVIL);
+        }
+    }
+
+    /** The anvil's result: nothing can be put in it; taking it needs the levels, uses up the inputs and spends them. */
+    private class AnvilResultSlot extends HiveSlot {
+        AnvilResultSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y, GROUP_ANVIL);
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player taker) {
+            return anvilEngine != null && anvilEngine.canTake(taker);
+        }
+
+        @Override
+        public void onTake(Player taker, ItemStack stack) {
+            if (anvilEngine != null) {
+                anvilEngine.take(taker, stack);
+                // What the game's anvil left in its inputs is what is left in these.
+                anvilSlots.setItem(0, anvilEngine.input(0).copy());
+                anvilSlots.setItem(1, anvilEngine.input(1).copy());
+            }
             super.onTake(taker, stack);
         }
     }

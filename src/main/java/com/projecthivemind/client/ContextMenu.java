@@ -110,7 +110,9 @@ public final class ContextMenu {
         Option chosen = row >= 0 ? OPTIONS.get(row) : null;
         close();
         if (chosen != null) {
-            chosen.action().run();
+            // Not at once: the click that chose it is still being handled, and an option that opens a screen would have that same click land on the new
+            // screen too, pressing whatever button is under the cursor. It runs at the start of the next tick instead.
+            minecraft.tell(chosen.action());
         }
     }
 

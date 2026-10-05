@@ -97,6 +97,50 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     @Nullable
     private net.minecraft.world.item.Item wallItem;
     private int nextWallScan;
+    /** The spot this worker keeps mining: whenever there is a block there it digs it (a cobblestone generator's stone, say). Saved. */
+    @Nullable
+    private BlockPos repeatDig;
+    private int nextRepeatScan;
+
+    @Nullable
+    public BlockPos repeatDig() {
+        return repeatDig;
+    }
+
+    public void setRepeatDig(@Nullable BlockPos pos) {
+        this.repeatDig = pos;
+        this.nextRepeatScan = 0;
+    }
+
+    /** One look at the spot: dig what is there, if the hive's tools can; otherwise wait for a block to form (or a tool to come). */
+    private void tickRepeatDig(HiveHeart heart) {
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) this.level();
+        nextRepeatScan = this.tickCount + 10;
+        if (!level.isLoaded(repeatDig)) {
+            nextRepeatScan = this.tickCount + 40;
+            return;
+        }
+        net.minecraft.world.level.block.state.BlockState state = level.getBlockState(repeatDig);
+        if (state.isAir() || !state.getFluidState().isEmpty() || state.getDestroySpeed(level, repeatDig) < 0.0F) {
+            return;
+        }
+        if (!com.projecthivemind.HiveActions.toolsCanHarvest(heart, state)) {
+            nextRepeatScan = this.tickCount + 40;
+            if (heart.getServer() != null && heart.ownerId() != null
+                    && this.level().getGameTime() - lastToolNotice >= 300L) {
+                lastToolNotice = this.level().getGameTime();
+                net.minecraft.server.level.ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
+                if (owner != null) {
+                    owner.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.projecthivemind.tower_needs_tool", state.getBlock().getName()), false);
+                }
+            }
+            return;
+        }
+        setAction(new UnitAction(UnitAction.Kind.DIG, repeatDig));
+        nextRepeatScan = this.tickCount + 2;
+    }
+
+    private long lastToolNotice = Long.MIN_VALUE;
     /** How many scans in a row found nothing to do for the wall, and how many it takes (about 12 seconds) before the wall is taken to be done. */
     private int wallIdleScans;
     private static final int WALL_IDLE_SCANS_TO_FINISH = 6;
@@ -187,11 +231,14 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     private com.projecthivemind.build.BridgeJob bridge;
     private int nextBridgeScan;
     private int bridgeStuck;
+    /** How far into the bridge's list of blocks everything before it is known to be done: a long job is not looked through from its start each time. */
+    private int bridgeCursor;
 
     public void setBridge(@Nullable com.projecthivemind.build.BridgeJob bridge) {
         this.bridge = bridge;
         this.nextBridgeScan = 0;
         this.bridgeStuck = 0;
+        this.bridgeCursor = 0;
     }
 
     /** The block this item places as a fence: any wooden or nether brick fence. Null for anything else. */
@@ -213,29 +260,114 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         com.projecthivemind.build.BridgeJob.Placement next = null;
         net.minecraft.world.level.block.state.BlockState state = null;
         net.minecraft.world.item.Item item = null;
-        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+        // A generator's digging is only checked until its water is in: after that the stone that forms in its cells must not be dug up as unfinished work.
+        java.util.List<net.minecraft.world.item.Item> missingBuckets = new java.util.ArrayList<>();
+        boolean fluidsStarted = false;
+        if (job.generator()) {
+            for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+                if (placement.kind() == com.projecthivemind.build.BridgeJob.Kind.WATER && level.isLoaded(placement.pos())
+                        && level.getFluidState(placement.pos()).is(net.minecraft.tags.FluidTags.WATER)) {
+                    fluidsStarted = true;
+                }
+            }
+        }
+        java.util.List<com.projecthivemind.build.BridgeJob.Placement> all = job.placements();
+        int from = Math.min(bridgeCursor, all.size());
+        boolean leading = true;
+        for (int index = from; index < all.size(); index++) {
+            com.projecthivemind.build.BridgeJob.Placement placement = all.get(index);
             if (!level.isLoaded(placement.pos())) {
+                leading = false;
                 continue;
+            }
+            if (placement.kind() == com.projecthivemind.build.BridgeJob.Kind.DIG) {
+                // A cell to be dug out: done when it is empty (or holds a fluid, or can not be dug); otherwise the worker digs it, and looks again.
+                net.minecraft.world.level.block.state.BlockState cell = level.getBlockState(placement.pos());
+                if (fluidsStarted || cell.isAir() || !cell.getFluidState().isEmpty() || cell.getDestroySpeed(level, placement.pos()) < 0.0F) {
+                    if (leading) {
+                        bridgeCursor = index + 1;
+                    }
+                    continue;
+                }
+                if (WorkerDigGoal.inDigReach(this, placement.pos())) {
+                    setAction(new UnitAction(UnitAction.Kind.DIG, placement.pos()));
+                    bridgeStuck = 0;
+                } else if (++bridgeStuck > 60) {
+                    // The walk is not getting there: be carried the last of the way.
+                    this.getNavigation().stop();
+                    this.moveTo(placement.stand().x, placement.stand().y, placement.stand().z, this.getYRot(), this.getXRot());
+                    bridgeStuck = 0;
+                } else {
+                    this.getNavigation().moveTo(placement.stand().x, placement.stand().y, placement.stand().z, 1.0D);
+                }
+                nextBridgeScan = this.tickCount + 5;
+                return;
             }
             net.minecraft.world.level.block.state.BlockState existing = level.getBlockState(placement.pos());
-            // Done once there is something there; a deck only replaces what a block can replace (air, water, plants).
-            if (!existing.canBeReplaced() || (placement.kind() != com.projecthivemind.build.BridgeJob.Kind.DECK && !existing.isAir())) {
+            // Done once there is something there; a deck (and a wall) only replaces what a block can replace (air, water, plants). The generator's
+            // lava and water count as done when that fluid is there, or when something solid has taken the place (lava made into obsidian, say).
+            com.projecthivemind.build.BridgeJob.Kind kind = placement.kind();
+            boolean done;
+            if (kind == com.projecthivemind.build.BridgeJob.Kind.LAVA || kind == com.projecthivemind.build.BridgeJob.Kind.WATER) {
+                done = level.getFluidState(placement.pos()).is(kind == com.projecthivemind.build.BridgeJob.Kind.LAVA
+                        ? net.minecraft.tags.FluidTags.LAVA : net.minecraft.tags.FluidTags.WATER)
+                        || (!existing.isAir() && !existing.canBeReplaced());
+            } else if (kind == com.projecthivemind.build.BridgeJob.Kind.DECK || kind == com.projecthivemind.build.BridgeJob.Kind.WALL
+                    || kind == com.projecthivemind.build.BridgeJob.Kind.SLAB) {
+                done = !existing.canBeReplaced();
+            } else {
+                done = !existing.canBeReplaced() || !existing.isAir();
+            }
+            if (done) {
+                if (leading) {
+                    bridgeCursor = index + 1;
+                }
                 continue;
             }
-            item = switch (placement.kind()) {
-                case DECK -> job.deck();
+            leading = false;
+            item = switch (kind) {
+                case DECK, WALL -> job.deck();
                 case FENCE -> job.fence();
                 case TORCH -> net.minecraft.world.item.Items.TORCH;
+                case LAVA -> net.minecraft.world.item.Items.LAVA_BUCKET;
+                case WATER -> net.minecraft.world.item.Items.WATER_BUCKET;
+                case SLAB -> net.minecraft.world.item.Items.COBBLESTONE_SLAB;
+                case DIG -> null;
             };
-            net.minecraft.world.level.block.Block block = placement.kind() == com.projecthivemind.build.BridgeJob.Kind.TORCH
-                    ? net.minecraft.world.level.block.Blocks.TORCH
-                    : placement.kind() == com.projecthivemind.build.BridgeJob.Kind.FENCE ? fenceBlock(item) : fillBlock(item);
+            net.minecraft.world.level.block.Block block = switch (kind) {
+                case TORCH -> net.minecraft.world.level.block.Blocks.TORCH;
+                case FENCE -> fenceBlock(item);
+                case LAVA -> net.minecraft.world.level.block.Blocks.LAVA;
+                case WATER -> net.minecraft.world.level.block.Blocks.WATER;
+                case SLAB -> net.minecraft.world.level.block.Blocks.COBBLESTONE_SLAB;
+                default -> fillBlock(item);
+            };
             if (block == null || !level.isUnobstructed(block.defaultBlockState(), placement.pos(), net.minecraft.world.phys.shapes.CollisionContext.empty())) {
+                continue;
+            }
+            if ((kind == com.projecthivemind.build.BridgeJob.Kind.WATER || kind == com.projecthivemind.build.BridgeJob.Kind.LAVA)
+                    && heart.getStorage().countItem(item) <= 0) {
+                // No bucket for this fluid right now: the other one can go in with the bucket the hive does have; this one is waited for.
+                missingBuckets.add(item);
                 continue;
             }
             state = block.defaultBlockState();
             next = placement;
             break;
+        }
+        if (next == null && !missingBuckets.isEmpty()) {
+            // Everything else is done and the only work left needs a bucket the hive does not have: tell the player which, and wait for it.
+            for (net.minecraft.world.item.Item bucket : missingBuckets) {
+                notifyMissingBlock(heart, bucket);
+            }
+            nextBridgeScan = this.tickCount + 40;
+            return;
+        }
+        if (next == null && from > 0) {
+            // Finished going by the cursor: look through all of it once more before it counts as done.
+            bridgeCursor = 0;
+            nextBridgeScan = this.tickCount + 1;
+            return;
         }
         if (next == null) {
             bridge = null;
@@ -263,6 +395,13 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             }
             heart.getStorage().removeItemType(item, 1);
             level.setBlock(next.pos(), state, net.minecraft.world.level.block.Block.UPDATE_ALL);
+            if (item == net.minecraft.world.item.Items.LAVA_BUCKET || item == net.minecraft.world.item.Items.WATER_BUCKET) {
+                // The bucket is emptied into the world and goes back to the hive.
+                net.minecraft.world.item.ItemStack empty = heart.getStorage().addItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.BUCKET));
+                if (!empty.isEmpty()) {
+                    net.minecraft.world.level.block.Block.popResource(level, next.pos(), empty);
+                }
+            }
             level.playSound(null, next.pos(), state.getSoundType().getPlaceSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 0.8F);
             this.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
             bridgeStuck = 0;
@@ -283,6 +422,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
      */
     @Nullable
     public net.minecraft.network.chat.Component taskText() {
+        if (repeatDig != null) {
+            return net.minecraft.network.chat.Component.translatable("job.projecthivemind.repeat_dig");
+        }
         if (bridge != null) {
             return net.minecraft.network.chat.Component.translatable("job.projecthivemind.bridge");
         }
@@ -466,6 +608,17 @@ public class HiveWorker extends Skeleton implements HiveUnit {
     private static final int JOB_SCAN_INTERVAL = 40;
 
     private int nextJobScan;
+    /** The plants and crops the last look round the hive found, so the next job comes from this list and not from another look at the whole area. */
+    private final java.util.ArrayList<BlockPos> harvestQueue = new java.util.ArrayList<>();
+
+    public java.util.List<BlockPos> harvestQueue() {
+        return harvestQueue;
+    }
+
+    /** A dig is done: look for the next job at once, instead of waiting out the interval. */
+    public void rescanSoon() {
+        nextJobScan = 0;
+    }
     /** True while it is cutting a rise off the ground (flatten): it looks for the next block at once, not every two seconds. */
     private boolean flattenActive;
     /** Take a set-aside job up again once the unit has nothing to do and the player has let go of it. */
@@ -543,6 +696,10 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             // The border wall, if the worker was given it: second to a staircase, before its own work.
             if (action == null && wallItem != null && heart != null && !heart.isUnitSelected(this.getId()) && this.tickCount >= nextWallScan) {
                 tickWall(heart);
+            }
+            // A spot it was set to keep mining, once any bigger task is done.
+            if (action == null && repeatDig != null && heart != null && bridge == null && wallItem == null && staircase == null && this.tickCount >= nextRepeatScan) {
+                tickRepeatDig(heart);
             }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
             if (action == null && heart != null && (this.tickCount >= nextJobScan || !fellQueue.isEmpty() || flattenActive)) {
@@ -742,6 +899,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         staircase = null;
         wallItem = null;
         fellQueue.clear();
+        repeatDig = null;
         bridge = null;
         // Whatever it was walking to for them, it stops.
         this.getNavigation().stop();
@@ -782,6 +940,9 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         if (bridge != null) {
             tag.put("Bridge", bridge.save());
         }
+        if (repeatDig != null) {
+            tag.put("RepeatDig", net.minecraft.nbt.NbtUtils.writeBlockPos(repeatDig));
+        }
         if (wallItem != null) {
             tag.putString("WallItem", net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(wallItem).toString());
         }
@@ -807,6 +968,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         staircase = tag.contains("Staircase") ? com.projecthivemind.build.StairDig.load(tag.getCompound("Staircase")) : null;
         net.minecraft.resources.ResourceLocation fillId = tag.contains("FillItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("FillItem")) : null;
         setFillItem(fillId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(fillId).orElse(null));
+        repeatDig = tag.contains("RepeatDig") ? net.minecraft.nbt.NbtUtils.readBlockPos(tag, "RepeatDig").orElse(null) : null;
         net.minecraft.resources.ResourceLocation wallId = tag.contains("WallItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("WallItem")) : null;
         setWallItem(wallId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(wallId).orElse(null));
         if (job != null && tag.getBoolean("JobActive")) {

@@ -75,6 +75,17 @@ public final class PortalNetwork {
         this.ticksToNext = ticks;
     }
 
+    /** Ticks between one unit coming through and the next: set from the Heart each time it is used, as the hive's evolutions change it. */
+    private int interval = SUMMON_INTERVAL_TICKS;
+
+    public void useInterval(int ticks) {
+        this.interval = ticks;
+    }
+
+    public int interval() {
+        return interval;
+    }
+
     /** Start a summoning: these kinds, in the order they come through, at this portal (null for the Heart). */
     public void startSummoning(@Nullable GlobalPos where, List<Pending> units) {
         queue.clear();
@@ -87,7 +98,7 @@ public final class PortalNetwork {
         }
         target = where;
         summoning = !queue.isEmpty();
-        ticksToNext = SUMMON_INTERVAL_TICKS;
+        ticksToNext = interval;
     }
 
     public void stopSummoning() {

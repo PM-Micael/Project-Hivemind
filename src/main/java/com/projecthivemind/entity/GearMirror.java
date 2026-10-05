@@ -43,7 +43,7 @@ public final class GearMirror {
             } else {
                 if (linkOf[i] != null && stack.isEmpty()) {
                     // The piece broke: the original gets whatever durability the copy still had.
-                    heart.damageLinked(linkOf[i], maxDamageOf[i] - damageOf[i]);
+                    heart.damageLinked(linkOf[i], maxDamageOf[i] - damageOf[i], false);
                 }
                 linkOf[i] = link;
                 if (link != null) {

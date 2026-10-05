@@ -58,7 +58,7 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL);
         }
     }
 
@@ -100,6 +100,18 @@ public final class ServerPayloads {
     public static void onDeletePortal(DeletePortalPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             com.projecthivemind.HivePortals.delete(player, payload.index());
+        }
+    }
+
+    public static void onBuildGenerator(BuildGeneratorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.buildGenerator(player, payload);
+        }
+    }
+
+    public static void onBuildTunnel(BuildTunnelPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.buildTunnel(player, payload);
         }
     }
 

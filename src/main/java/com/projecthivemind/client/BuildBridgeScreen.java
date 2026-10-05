@@ -36,7 +36,7 @@ public class BuildBridgeScreen extends Screen {
     private Item fence = Items.OAK_FENCE;
     private boolean fences = true;
     private boolean torches = true;
-    private int width = BridgeJob.MIN_WIDTH;
+    private int deckWidth = BridgeJob.MIN_WIDTH;
     private final Button[] widthButtons = new Button[BridgeJob.MAX_WIDTH - BridgeJob.MIN_WIDTH + 1];
     private Button deckButton;
     private Button fencesButton;
@@ -61,7 +61,7 @@ public class BuildBridgeScreen extends Screen {
         Item chosenFence = fences ? itemNamed(config.getString("Fence")) : null;
         this.fence = chosenFence != null ? chosenFence : Items.OAK_FENCE;
         this.torches = config.getBoolean("Torches");
-        this.width = Math.max(BridgeJob.MIN_WIDTH, Math.min(BridgeJob.MAX_WIDTH, config.getInt("Width")));
+        this.deckWidth = Math.max(BridgeJob.MIN_WIDTH, Math.min(BridgeJob.MAX_WIDTH, config.getInt("Width")));
     }
 
     @Nullable
@@ -93,7 +93,7 @@ public class BuildBridgeScreen extends Screen {
         for (int i = 0; i < widthButtons.length; i++) {
             int chosen = BridgeJob.MIN_WIDTH + i;
             widthButtons[i] = addRenderableWidget(Button.builder(Component.literal(String.valueOf(chosen)), button -> {
-                width = chosen;
+                deckWidth = chosen;
                 refresh();
             }).bounds(left + 12 + i * (cell + 4), top + 134, cell, 20).build());
         }
@@ -106,11 +106,11 @@ public class BuildBridgeScreen extends Screen {
                         tag.putString("Fence", BuiltInRegistries.ITEM.getKey(fence).toString());
                     }
                     tag.putBoolean("Torches", torches);
-                    tag.putInt("Width", width);
+                    tag.putInt("Width", deckWidth);
                     PacketDistributor.sendToServer(new com.projecthivemind.network.UpdateConstructionPayload(editing, tag));
                 } else {
                     PacketDistributor.sendToServer(new BuildBridgePayload(workers, dest, BuiltInRegistries.ITEM.getKey(deck).toString(),
-                            fences ? BuiltInRegistries.ITEM.getKey(fence).toString() : "", torches, width));
+                            fences ? BuiltInRegistries.ITEM.getKey(fence).toString() : "", torches, deckWidth));
                 }
                 onClose();
             }
@@ -130,7 +130,7 @@ public class BuildBridgeScreen extends Screen {
         torchesButton.setMessage(Component.translatable(torches ? "screen.projecthivemind.bridge.torches_on" : "screen.projecthivemind.bridge.torches_off"));
         buildButton.active = deck != null;
         for (int i = 0; i < widthButtons.length; i++) {
-            widthButtons[i].active = BridgeJob.MIN_WIDTH + i != width;
+            widthButtons[i].active = BridgeJob.MIN_WIDTH + i != deckWidth;
         }
     }
 

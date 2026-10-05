@@ -13,7 +13,7 @@ public final class HiveLevels {
                     UnitKind.SOLDIER, 1,
                     UnitKind.COLLECTOR, 1,
                     UnitKind.FEEDER, 1),
-                    new HiveLevel.Quest(10, 5, 0, 0, null, 0, 0, false, 0, false)),
+                    new HiveLevel.Quest(0, 5, 0, 0, null, 0, 0, false, 0, false, EvolveTask.CRAFTING_TABLE)),
             // Level 2: 20 hearts, 54 storage slots, a 15x15 hive area, 3 soldiers, 2 workers, 3 feeders.
             new HiveLevel(2, 40.0F, 54, 3, 7, 32, Map.of(
                     UnitKind.SCOUT, 1,
@@ -29,7 +29,7 @@ public final class HiveLevels {
                     UnitKind.SOLDIER, 5,
                     UnitKind.COLLECTOR, 2,
                     UnitKind.FEEDER, 3),
-                    new HiveLevel.Quest(0, 0, 0, 0, 0, 10, 24, false, 0, false)),
+                    new HiveLevel.Quest(0, 0, 0, 0, 0, 10, 9, false, 0, false)),
             // Level 4: 40 hearts, 108 storage slots (scrolled), a 61x61 hive area, 5 workers and 7 soldiers. The other units stay as they were.
             new HiveLevel(4, 80.0F, 108, 3, 30, 32, Map.of(
                     UnitKind.SCOUT, 2,

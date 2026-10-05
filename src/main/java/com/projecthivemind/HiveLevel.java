@@ -27,7 +27,11 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
      * Dragon has been defeated (while the hive was in the End).
      */
     public record Quest(int logs, int chunks, int kills, int survivalTicks, @Nullable Integer reachY, int coal, int ironIngots,
-                        boolean nether, int blazeRods, boolean dragon) {
+                        boolean nether, int blazeRods, boolean dragon, @Nullable EvolveTask evolve) {
+        public Quest(int logs, int chunks, int kills, int survivalTicks, @Nullable Integer reachY, int coal, int ironIngots,
+                boolean nether, int blazeRods, boolean dragon) {
+            this(logs, chunks, kills, survivalTicks, reachY, coal, ironIngots, nether, blazeRods, dragon, null);
+        }
     }
 
     /** How many hive portals the hive may have standing at once: none before level 2, one from then on. */

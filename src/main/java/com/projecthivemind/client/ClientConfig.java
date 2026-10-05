@@ -19,6 +19,16 @@ public final class ClientConfig {
             .translation("projecthivemind.configuration.fogOfWar")
             .define("fogOfWar", true);
 
+    /** How the hive's health is drawn: as the game's hearts, or as the hive's own bar. */
+    public enum HealthStyle {
+        HEARTS, BAR
+    }
+
+    public static final ModConfigSpec.EnumValue<HealthStyle> HEALTH_STYLE = BUILDER
+            .comment("How the hive's health is shown: HEARTS (rows of hearts, as in the game) or BAR (one red bar, cut by a line for every ten hearts).")
+            .translation("projecthivemind.configuration.healthStyle")
+            .defineEnum("healthStyle", HealthStyle.HEARTS);
+
     private static final ModConfigSpec SPEC = BUILDER.build();
 
     private ClientConfig() {
@@ -28,6 +38,10 @@ public final class ClientConfig {
     public static void register(ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, SPEC);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
+    }
+
+    public static HealthStyle healthStyle() {
+        return HEALTH_STYLE.get();
     }
 
     /** True while the fog of war is on. */

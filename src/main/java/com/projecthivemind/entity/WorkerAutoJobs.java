@@ -87,19 +87,22 @@ public final class WorkerAutoJobs {
         boolean plants = worker.behavior().clearPlants();
         net.minecraft.world.phys.AABB area = HiveArea.areaBox(level, heart);
         BlockPos origin = worker.blockPosition();
-        List<BlockPos> ready = new ArrayList<>();
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        for (int x = (int) area.minX; x < (int) area.maxX; x++) {
-            for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
-                // Reading a block in an unloaded chunk would make the game load it, so never touch those.
-                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
-                    continue;
-                }
-                for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
-                    pos.set(x, y, z);
-                    BlockState found = level.getBlockState(pos);
-                    if ((crops && isGrown(found)) || (plants && isWildPlant(found))) {
-                        ready.add(pos.immutable());
+        // The list the last look made comes first: what is still there, nearest to the worker now. Only when it runs dry is the whole area looked over again.
+        List<BlockPos> ready = worker.harvestQueue();
+        ready.removeIf(crop -> !wanted(level, crop, crops, plants));
+        if (ready.isEmpty()) {
+            BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+            for (int x = (int) area.minX; x < (int) area.maxX; x++) {
+                for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
+                    // Reading a block in an unloaded chunk would make the game load it, so never touch those.
+                    if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                        continue;
+                    }
+                    for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
+                        pos.set(x, y, z);
+                        if (wanted(level, pos, crops, plants)) {
+                            ready.add(pos.immutable());
+                        }
                     }
                 }
             }
@@ -117,6 +120,11 @@ public final class WorkerAutoJobs {
         return null;
     }
 
+
+    private static boolean wanted(ServerLevel level, BlockPos pos, boolean crops, boolean plants) {
+        BlockState found = level.getBlockState(pos);
+        return (crops && isGrown(found)) || (plants && isWildPlant(found));
+    }
 
     /** True for a crop that is fully grown and ready to harvest: wheat, carrots, potatoes, beetroot, nether wart... */
     public static boolean isGrown(BlockState state) {

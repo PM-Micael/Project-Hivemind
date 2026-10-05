@@ -33,9 +33,17 @@ import net.minecraft.world.phys.Vec3;
  * @param torches whether torches go along the way
  * @param width  how many blocks wide the deck is, {@link #MIN_WIDTH} to {@link #MAX_WIDTH}
  */
-public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width) {
+public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width, boolean generator, int tunnelSize) {
     public BridgeJob {
         width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width));
+    }
+
+    public BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width) {
+        this(start, dest, deck, fence, torches, width, false, 0);
+    }
+
+    public BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item fence, boolean torches, int width, boolean generator) {
+        this(start, dest, deck, fence, torches, width, generator, 0);
     }
 
     /** The longest bridge that can be ordered, in blocks along the ground. */
@@ -44,7 +52,7 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
     private static final int TORCH_EVERY = 6;
 
     public enum Kind {
-        DECK, FENCE, TORCH
+        DECK, FENCE, TORCH, WALL, LAVA, WATER, DIG, SLAB
     }
 
     /**
@@ -91,6 +99,16 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
 
     /** Every block of the bridge in the order it is built: step by step along it, the deck first, then fences, then torches. */
     public List<Placement> placements() {
+        return PLACEMENT_CACHE.computeIfAbsent(this, BridgeJob::computePlacements);
+    }
+
+    private List<Placement> computePlacements() {
+        if (generator) {
+            return generatorPlacements();
+        }
+        if (tunnelSize > 0) {
+            return tunnelPlacements();
+        }
         List<int[]> line = line();
         int steps = line.size();
         // The deck is a square brush swept along the line: from this far behind to this far ahead of the line, on both axes. An even
@@ -179,6 +197,138 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         return new Vec3(line.get(back)[0] + 0.5D, deckY(back) + 1.0D, line.get(back)[1] + 0.5D);
     }
 
+    // ---- the cobblestone generator ----
+
+    /**
+     * A small cobblestone generator, as a recipe in the same form as a bridge (so it is built by the same workers, one block at a time). It is a row
+     * of four cells dug into the ground from {@code floor}, running one way (the direction of {@code dest}); the top stays open. The first holds a
+     * water source and the fourth a lava source. Under the second there is one more cell dug out, a pit: the water from the first spills into the second
+     * and falls into the pit instead of flowing on to the lava, which would turn it to obsidian. Lava runs into the third cell, meets the water, and
+     * stone forms there: that is the spot to mine, and it forms again. All the cells are walled in (ground that is already solid is left as it is,
+     * anything else is filled with the wall block) and floored. The water and lava go in last, with the buckets.
+     */
+    public static BridgeJob generator(BlockPos floor, Item wall, net.minecraft.core.Direction direction) {
+        return new BridgeJob(floor, floor.relative(direction, 3), wall, null, false, MIN_WIDTH, true);
+    }
+
+    /** The way the row of cells runs. */
+    private net.minecraft.core.Direction generatorDirection() {
+        return net.minecraft.core.Direction.fromDelta(Integer.signum(dest.getX() - start.getX()), 0, Integer.signum(dest.getZ() - start.getZ()));
+    }
+
+    private List<Placement> generatorPlacements() {
+        net.minecraft.core.Direction along = generatorDirection() == null ? net.minecraft.core.Direction.EAST : generatorDirection();
+        net.minecraft.core.Direction side = along.getClockWise();
+        BlockPos[] cells = new BlockPos[4];
+        for (int i = 0; i < 4; i++) {
+            cells[i] = start.relative(along, i);
+        }
+        BlockPos pit = cells[1].below();
+        // Where a worker stands to build it: beside the middle of the row, on the ground.
+        Vec3 stand = Vec3.atBottomCenterOf(cells[1].relative(side, 2).above());
+        List<Placement> result = new ArrayList<>();
+        // 1. Dig out the four cells and the pit.
+        for (BlockPos cell : cells) {
+            result.add(new Placement(cell, Kind.DIG, stand));
+        }
+        result.add(new Placement(pit, Kind.DIG, stand));
+        // 2. Floor under the cells and under the pit.
+        for (int i : new int[] {0, 2, 3}) {
+            result.add(new Placement(cells[i].below(), Kind.WALL, stand));
+        }
+        result.add(new Placement(pit.below(), Kind.WALL, stand));
+        // 3. The pit's sides (its other two sides are the floors of the cells next to it).
+        result.add(new Placement(pit.relative(side), Kind.WALL, stand));
+        result.add(new Placement(pit.relative(side.getOpposite()), Kind.WALL, stand));
+        // 4. The sides of the cells, and the two ends of the row.
+        for (BlockPos cell : cells) {
+            result.add(new Placement(cell.relative(side), Kind.WALL, stand));
+            result.add(new Placement(cell.relative(side.getOpposite()), Kind.WALL, stand));
+        }
+        result.add(new Placement(cells[0].relative(along.getOpposite()), Kind.WALL, stand));
+        result.add(new Placement(cells[3].relative(along), Kind.WALL, stand));
+        // 5. A slab over the water cell, the cell next to it and the lava cell: not over the third cell, which is where the stone is mined.
+        for (int i : new int[] {0, 1, 3}) {
+            result.add(new Placement(cells[i].above(), Kind.SLAB, stand));
+        }
+        // 6. Only now the water (first cell) and the lava (fourth cell).
+        result.add(new Placement(cells[0], Kind.WATER, stand));
+        result.add(new Placement(cells[3], Kind.LAVA, stand));
+        return result;
+    }
+
+    /** The spot in a generator where the stone forms: the third cell. */
+    public BlockPos generatorSpot() {
+        return start.relative(generatorDirection() == null ? net.minecraft.core.Direction.EAST : generatorDirection(), 2);
+    }
+
+    // ---- the tunnel ----
+
+    /** The tunnel sizes, as (width, height) in blocks: 1x2 (one wide, two high), 2x2, 3x3 and 5x5. Indexed by the size number minus one. */
+    private static final int[][] TUNNEL_SIZES = {{1, 2}, {2, 2}, {3, 3}, {5, 5}};
+    public static final int TUNNEL_SIZE_COUNT = TUNNEL_SIZES.length;
+    public static final int TUNNEL_MIN_LENGTH = 2;
+    public static final int TUNNEL_MAX_LENGTH = 96;
+
+    /**
+     * A tunnel dug from {@code start} in a direction for {@code length} blocks: {@code size} (1 to 4, see {@link #TUNNEL_SIZES}) is the cross-section.
+     * It is a recipe like the bridge's: the block at the start is the first one dug out, the floor is one block under the bottom of the tunnel, and
+     * wherever that floor is missing the chosen block is placed to make a path.
+     */
+    public static BridgeJob tunnel(BlockPos start, net.minecraft.core.Direction direction, int length, Item block, int size) {
+        int clamped = Math.max(TUNNEL_MIN_LENGTH, Math.min(TUNNEL_MAX_LENGTH, length));
+        return new BridgeJob(start, start.relative(direction, clamped - 1), block, null, false, MIN_WIDTH, false, Math.max(1, Math.min(TUNNEL_SIZE_COUNT, size)));
+    }
+
+    public boolean isTunnel() {
+        return tunnelSize > 0;
+    }
+
+    /** The way a tunnel runs. */
+    public net.minecraft.core.Direction tunnelDirection() {
+        net.minecraft.core.Direction direction = net.minecraft.core.Direction.fromDelta(Integer.signum(dest.getX() - start.getX()), 0, Integer.signum(dest.getZ() - start.getZ()));
+        return direction == null ? net.minecraft.core.Direction.EAST : direction;
+    }
+
+    /** How many blocks long a tunnel is. */
+    public int tunnelLength() {
+        return Math.max(Math.abs(dest.getX() - start.getX()), Math.abs(dest.getZ() - start.getZ())) + 1;
+    }
+
+    private List<Placement> tunnelPlacements() {
+        net.minecraft.core.Direction along = tunnelDirection();
+        net.minecraft.core.Direction side = along.getClockWise();
+        int tunnelWidth = TUNNEL_SIZES[tunnelSize - 1][0];
+        int tunnelHeight = TUNNEL_SIZES[tunnelSize - 1][1];
+        int low = -((tunnelWidth - 1) / 2);
+        int high = tunnelWidth / 2;
+        List<Placement> result = new ArrayList<>();
+        for (int step = 0; step < tunnelLength(); step++) {
+            BlockPos base = start.relative(along, step);
+            // A worker builds a step from the one behind it, which is already dug and floored (the first from outside the start).
+            Vec3 stand = Vec3.atBottomCenterOf(start.relative(along, step - 1));
+            for (int offset = low; offset <= high; offset++) {
+                for (int up = 0; up < tunnelHeight; up++) {
+                    result.add(new Placement(base.relative(side, offset).above(up), Kind.DIG, stand));
+                }
+            }
+            for (int offset = low; offset <= high; offset++) {
+                result.add(new Placement(base.relative(side, offset).below(), Kind.WALL, stand));
+            }
+        }
+        return result;
+    }
+
+    /** The placements of the biggest recipes are worked out once, not every time a worker looks: the last few jobs are kept. */
+    private static final java.util.Map<BridgeJob, List<Placement>> PLACEMENT_CACHE = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<BridgeJob, List<Placement>>(16, 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<BridgeJob, List<Placement>> eldest) {
+                    return size() > 16;
+                }
+            });
+
+
     // ---- saving ----
 
     public CompoundTag save() {
@@ -191,6 +341,8 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         }
         tag.putBoolean("Torches", torches);
         tag.putInt("Width", width);
+        tag.putBoolean("Generator", generator);
+        tag.putInt("TunnelSize", tunnelSize);
         return tag;
     }
 
@@ -202,6 +354,6 @@ public record BridgeJob(BlockPos start, BlockPos dest, Item deck, @Nullable Item
         Item deck = deckId == null ? null : BuiltInRegistries.ITEM.getOptional(deckId).orElse(null);
         ResourceLocation fenceId = tag.contains("Fence") ? ResourceLocation.tryParse(tag.getString("Fence")) : null;
         Item fence = fenceId == null ? null : BuiltInRegistries.ITEM.getOptional(fenceId).orElse(null);
-        return start == null || dest == null || deck == null ? null : new BridgeJob(start, dest, deck, fence, tag.getBoolean("Torches"), tag.contains("Width") ? tag.getInt("Width") : 3);
+        return start == null || dest == null || deck == null ? null : new BridgeJob(start, dest, deck, fence, tag.getBoolean("Torches"), tag.contains("Width") ? tag.getInt("Width") : 3, tag.getBoolean("Generator"), tag.getInt("TunnelSize"));
     }
 }

@@ -207,6 +207,12 @@ public final class Construction {
         switch (kind) {
             case BRIDGE -> {
                 tag.putString("Deck", BuiltInRegistries.ITEM.getKey(bridge.deck()).toString());
+                tag.putBoolean("Generator", bridge.generator());
+                if (bridge.isTunnel()) {
+                    tag.putInt("TunnelSize", bridge.tunnelSize());
+                    tag.putInt("Length", bridge.tunnelLength());
+                    tag.putInt("Direction", bridge.tunnelDirection().get2DDataValue());
+                }
                 if (bridge.fence() != null) {
                     tag.putString("Fence", BuiltInRegistries.ITEM.getKey(bridge.fence()).toString());
                 }
@@ -244,6 +250,21 @@ public final class Construction {
                 Item fence = tag.contains("Fence") ? item(tag.getString("Fence")) : null;
                 if (deck == null || HiveWorker.fillBlock(deck) == null || (tag.contains("Fence") && (fence == null || HiveWorker.fenceBlock(fence) == null))) {
                     return Optional.of("message.projecthivemind.construction_bad_options");
+                }
+                if (bridge.generator()) {
+                    return Optional.of("message.projecthivemind.construction_bad_options");
+                }
+                if (bridge.isTunnel()) {
+                    int length = tag.getInt("Length");
+                    int size = tag.getInt("TunnelSize");
+                    if (length < BridgeJob.TUNNEL_MIN_LENGTH || length > BridgeJob.TUNNEL_MAX_LENGTH || size < 1 || size > BridgeJob.TUNNEL_SIZE_COUNT) {
+                        return Optional.of("message.projecthivemind.construction_bad_options");
+                    }
+                    Direction way = Direction.from2DDataValue(tag.getInt("Direction") & 3);
+                    bridge = BridgeJob.tunnel(bridge.start(), way, length, deck, size);
+                    footprint = null;
+                    done = false;
+                    break;
                 }
                 bridge = new BridgeJob(bridge.start(), bridge.dest(), deck, fence, tag.getBoolean("Torches"), tag.getInt("Width"));
             }

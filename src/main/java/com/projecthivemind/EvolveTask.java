@@ -26,7 +26,7 @@ public enum EvolveTask {
     GOLD(Items.GOLD_BLOCK, 2, Reward.STACK_SIZE),
     DIAMOND(Items.DIAMOND_BLOCK, 3, Reward.STACK_SIZE),
     NETHERITE(Items.NETHERITE_BLOCK, 4, Reward.STACK_SIZE),
-    ENDER_PEARL(Items.ENDER_PEARL, 19, Reward.PORTAL),
+    ENDER_PEARL(Items.ENDER_PEARL, 19, Reward.RESPAWN),
     LAPIS(Items.LAPIS_BLOCK, 17, Reward.STACK_SIZE),
     REDSTONE(Items.REDSTONE_BLOCK, 18, Reward.STACK_SIZE),
     SHULKER_BOX(Items.SHULKER_BOX, 8, Reward.SHULKER_TURRET),
@@ -43,11 +43,12 @@ public enum EvolveTask {
     GOLDEN_HORSE_ARMOR(Items.GOLDEN_HORSE_ARMOR, 22, Reward.DEFENCE),
     DIAMOND_HORSE_ARMOR(Items.DIAMOND_HORSE_ARMOR, 23, Reward.DEFENCE),
     WOLF_ARMOR(Items.WOLF_ARMOR, 24, Reward.DEFENCE),
-    CARTOGRAPHY_TABLE(Items.CARTOGRAPHY_TABLE, 25, Reward.CARTOGRAPHY);
+    CARTOGRAPHY_TABLE(Items.CARTOGRAPHY_TABLE, 25, Reward.CARTOGRAPHY),
+    ANVIL(Items.ANVIL, 26, Reward.ANVIL);
 
     /** What a task gives. */
     public enum Reward {
-        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, PORTAL, CARTOGRAPHY
+        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, RESPAWN, CARTOGRAPHY, ANVIL
     }
 
     private final Item item;
@@ -64,6 +65,9 @@ public enum EvolveTask {
     public boolean accepts(ItemStack stack) {
         if (this == SHULKER_BOX) {
             return stack.getItem() instanceof net.minecraft.world.item.BlockItem block && block.getBlock() instanceof net.minecraft.world.level.block.ShulkerBoxBlock;
+        }
+        if (this == ANVIL) {
+            return stack.is(net.minecraft.tags.ItemTags.ANVIL);
         }
         return stack.is(item);
     }
@@ -106,6 +110,11 @@ public enum EvolveTask {
             }
         }
         return bonus;
+    }
+
+    /** Ticks between the Heart's unit spawnings and between the units of a summoning: 10 seconds, or 5 with the ender pearl task done. */
+    public static int spawnIntervalTicks(int doneMask) {
+        return ENDER_PEARL.doneIn(doneMask) ? 100 : 200;
     }
 
     /** How many full stacks a storage slot holds, with these tasks done: 1 to begin with, and one more for each task that gives stack size. */

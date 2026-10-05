@@ -6,5 +6,7 @@ public enum BlockAction {
     DIG,
     INTERACT,
     /** Stop every unit that is doing something to that block. */
-    CANCEL
+    CANCEL,
+    /** Selected workers keep mining that block: whenever there is a block there, they dig it (for a cobblestone generator). */
+    REPEAT_DIG
 }

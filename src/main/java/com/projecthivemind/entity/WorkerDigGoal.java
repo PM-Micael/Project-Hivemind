@@ -194,6 +194,9 @@ public class WorkerDigGoal extends Goal {
         heart.clearDigProgress(pos);
         clearCracks();
         unit.setAction(null);
+        if (worker instanceof HiveWorker hiveWorker) {
+            hiveWorker.rescanSoon();
+        }
     }
 
     private void clearCracks() {

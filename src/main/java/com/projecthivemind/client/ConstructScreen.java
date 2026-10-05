@@ -31,7 +31,12 @@ public class ConstructScreen extends Screen {
         this.choices = List.of(
                 new Choice("staircase", () -> new DigStaircaseScreen(builders, site)),
                 new Choice("tower", () -> new BuildTowerScreen(builders, site)),
-                new Choice("bridge", () -> new BuildBridgeScreen(builders, site)));
+                new Choice("bridge", () -> new BuildBridgeScreen(builders, site)),
+                new Choice("tunnel", () -> new BuildTunnelScreen(builders, site)),
+                new Choice("generator", () -> {
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.projecthivemind.network.BuildGeneratorPayload(builders, site));
+                    return null;
+                }));
     }
 
     private int panelHeight() {

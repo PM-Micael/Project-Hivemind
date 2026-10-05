@@ -81,6 +81,7 @@ public final class HiveActions {
             case DIG -> dig(player, level, heart, request.unitIds(), pos, request.confirmed());
             case INTERACT -> interact(player, level, request.unitIds(), pos);
             case CANCEL -> cancelBlock(player, level, heart, pos);
+            case REPEAT_DIG -> repeatDig(player, level, request.unitIds(), pos);
         }
         syncActions(player, heart);
     }
@@ -213,6 +214,119 @@ public final class HiveActions {
         HiveConstructions.place(level, heart, construction);
         HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(dest), construction.maxWorkers()));
         player.displayClientMessage(Component.translatable("message.projecthivemind.bridge_started"), true);
+    }
+
+    /**
+     * Workers build a small cobblestone generator on top of the block clicked: a lava source over a spot of stone, a water source beside it, walled in
+     * with cobblestone (see BridgeJob#generator). The site must be solid ground with room for it; the lava, water and cobblestone come from the hive.
+     */
+    public static void buildGenerator(ServerPlayer player, com.projecthivemind.network.BuildGeneratorPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos site = request.site();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || !level.isInWorldBounds(site) || !level.isLoaded(site)) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        // The row of four cells runs from the block clicked in the first direction where it fits.
+        Direction along = null;
+        for (Direction candidate : Direction.Plane.HORIZONTAL) {
+            if (generatorFits(level, site, candidate)) {
+                along = candidate;
+                break;
+            }
+        }
+        if (along == null) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.generator_bad_site"), true);
+            return;
+        }
+        if (heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
+        }
+        com.projecthivemind.build.BridgeJob job = com.projecthivemind.build.BridgeJob.generator(site.immutable(), net.minecraft.world.item.Items.COBBLESTONE, along);
+        java.util.Set<Long> reserved = new java.util.HashSet<>();
+        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+            reserved.add(HiveConstructions.columnKey(placement.pos().getX(), placement.pos().getZ()));
+        }
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, site.getX() + 5, site.getZ() + 4, reserved);
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofBridge(level.dimension(), anchor, job);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(site), construction.maxWorkers()));
+        player.displayClientMessage(Component.translatable("message.projecthivemind.generator_started"), true);
+    }
+
+    /**
+     * Workers dig a tunnel from the block clicked, in the direction and of the size ordered, for its length; where the floor is missing along the
+     * way, the chosen block is laid. Checked here: the block is plain and full (it comes from the hive), the size and length are in range, and the
+     * start is loaded.
+     */
+    public static void buildTunnel(ServerPlayer player, com.projecthivemind.network.BuildTunnelPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        BlockPos site = request.site();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || !level.isInWorldBounds(site) || !level.isLoaded(site)
+                || request.size() < 1 || request.size() > com.projecthivemind.build.BridgeJob.TUNNEL_SIZE_COUNT
+                || request.length() < com.projecthivemind.build.BridgeJob.TUNNEL_MIN_LENGTH || request.length() > com.projecthivemind.build.BridgeJob.TUNNEL_MAX_LENGTH) {
+            return;
+        }
+        List<Mob> workers = commandable(player, level, request.unitIds(), UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        net.minecraft.world.item.Item block = itemOf(request.block());
+        if (block == null || HiveWorker.fillBlock(block) == null) {
+            return;
+        }
+        if (heart.constructions().all().size() >= com.projecthivemind.build.Constructions.MAX) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.construction_limit", com.projecthivemind.build.Constructions.MAX), true);
+            return;
+        }
+        Direction along = Direction.from2DDataValue(request.direction() & 3);
+        BlockPos end = site.relative(along, request.length() - 1);
+        if (!level.isInWorldBounds(end)) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.tunnel_out_of_world"), true);
+            return;
+        }
+        com.projecthivemind.build.BridgeJob job = com.projecthivemind.build.BridgeJob.tunnel(site.immutable(), along, request.length(), block, request.size());
+        java.util.Set<Long> reserved = new java.util.HashSet<>();
+        for (com.projecthivemind.build.BridgeJob.Placement placement : job.placements()) {
+            reserved.add(HiveConstructions.columnKey(placement.pos().getX(), placement.pos().getZ()));
+        }
+        // The construction block goes behind where the tunnel starts, off its path.
+        BlockPos behind = site.relative(along.getOpposite(), 3);
+        BlockPos anchor = HiveConstructions.findAnchor(level, heart, behind.getX(), behind.getZ(), reserved);
+        com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofBridge(level.dimension(), anchor, job);
+        HiveConstructions.place(level, heart, construction);
+        HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(site), construction.maxWorkers()));
+        player.displayClientMessage(Component.translatable("message.projecthivemind.tunnel_started"), true);
+    }
+
+    /** True if a generator's row of four cells can go from this block in this direction: each is solid and diggable, with free air above and solid ground under it. */
+    private static boolean generatorFits(ServerLevel level, BlockPos site, Direction along) {
+        for (int i = 0; i < 4; i++) {
+            BlockPos cell = site.relative(along, i);
+            if (!level.isLoaded(cell) || !level.isInWorldBounds(cell.below(2)) || !level.isInWorldBounds(cell.above(2))) {
+                return false;
+            }
+            net.minecraft.world.level.block.state.BlockState state = level.getBlockState(cell);
+            if (!state.isSolid() || state.getDestroySpeed(level, cell) < 0.0F || !state.getFluidState().isEmpty()
+                    || !level.getBlockState(cell.above()).canBeReplaced() || !level.getBlockState(cell.below()).isSolid()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** The workers nearest to the point, no more than the limit. */
@@ -431,6 +545,9 @@ public final class HiveActions {
     /** Stop every one of the player's units that is doing something to this block, selected or not. */
     private static void cancelBlock(ServerPlayer player, ServerLevel level, HiveHeart heart, BlockPos pos) {
         for (UUID id : HivemindManager.get(player).allUnits()) {
+            if (level.getEntity(id) instanceof HiveWorker repeater && pos.equals(repeater.repeatDig())) {
+                repeater.setRepeatDig(null);
+            }
             if (level.getEntity(id) instanceof Mob mob && mob instanceof HiveUnit unit
                     && unit.action() != null && pos.equals(unit.action().pos())) {
                 unit.setAction(null);
@@ -438,6 +555,21 @@ public final class HiveActions {
             }
         }
         heart.clearDigProgress(pos);
+    }
+
+    /** Selected workers are set to keep mining this block: each time there is a block there they dig it, and carry on after anything else they are told. */
+    private static void repeatDig(ServerPlayer player, ServerLevel level, List<Integer> ids, BlockPos pos) {
+        List<Mob> workers = commandable(player, level, ids, UnitKind.WORKER);
+        if (workers.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_workers"), true);
+            return;
+        }
+        for (Mob worker : workers) {
+            if (worker instanceof HiveWorker hiveWorker) {
+                hiveWorker.setRepeatDig(pos.immutable());
+            }
+        }
+        player.displayClientMessage(Component.translatable("message.projecthivemind.repeat_dig_started"), true);
     }
 
     // ---- constructions ----

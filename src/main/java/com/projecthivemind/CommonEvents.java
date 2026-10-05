@@ -112,6 +112,8 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
         registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
+        registrar.playToServer(com.projecthivemind.network.BuildGeneratorPayload.TYPE, com.projecthivemind.network.BuildGeneratorPayload.STREAM_CODEC, ServerPayloads::onBuildGenerator);
+        registrar.playToServer(com.projecthivemind.network.BuildTunnelPayload.TYPE, com.projecthivemind.network.BuildTunnelPayload.STREAM_CODEC, ServerPayloads::onBuildTunnel);
         registrar.playToServer(com.projecthivemind.network.TogglePortalResummonPayload.TYPE, com.projecthivemind.network.TogglePortalResummonPayload.STREAM_CODEC, ServerPayloads::onTogglePortalResummon);
         registrar.playToClient(com.projecthivemind.network.SyncTeamPayload.TYPE, com.projecthivemind.network.SyncTeamPayload.STREAM_CODEC, ClientPayloads::onSyncTeam);
         registrar.playToServer(com.projecthivemind.network.SetTeamRadiusPayload.TYPE, com.projecthivemind.network.SetTeamRadiusPayload.STREAM_CODEC, ServerPayloads::onSetTeamRadius);
@@ -197,9 +199,12 @@ public final class CommonEvents {
 
 
 
+    /** How long after the hive hits an enderman it may fight back (a mob's revenge time in the game is about this long). */
+    private static final int PROVOKED_TICKS = 200;
+
     /**
-     * Once the hive has consumed a carved pumpkin (an evolution task), endermen do not take its units or its Heart as targets, as they do not take
-     * a player wearing one: not when the units look at them, and not when the units fight them.
+     * Once the hive has consumed a carved pumpkin (an evolution task), endermen do not take its units or its Heart as targets on their own, as they do
+     * not take a player wearing one: not when the units look at them. An enderman the hive has hit first does fight back.
      */
     @SubscribeEvent
     static void onEndermanTarget(net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent event) {
@@ -211,7 +216,10 @@ public final class CommonEvents {
         java.util.UUID owner = target instanceof HiveUnit unit ? unit.ownerId() : target instanceof HiveHeart own ? own.ownerId() : null;
         net.minecraft.server.level.ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
         HiveHeart heart = player == null ? null : HivemindManager.findHeart(player);
-        if (heart != null && com.projecthivemind.EvolveTask.CARVED_PUMPKIN.doneIn(heart.evolveMask())) {
+        // An enderman the hive has hit is another matter: it may take its attacker as a target, as any mob would.
+        net.minecraft.world.entity.monster.EnderMan enderman = (net.minecraft.world.entity.monster.EnderMan) event.getEntity();
+        boolean provoked = enderman.getLastHurtByMob() == target && enderman.tickCount - enderman.getLastHurtByMobTimestamp() < PROVOKED_TICKS;
+        if (heart != null && !provoked && com.projecthivemind.EvolveTask.CARVED_PUMPKIN.doneIn(heart.evolveMask())) {
             event.setCanceled(true);
         }
     }
@@ -245,6 +253,9 @@ public final class CommonEvents {
         }
         if (event.getNewDamage() > 0.0F && event.getEntity() instanceof Mob hurt && hurt instanceof HiveUnit) {
             HivemindManager.onUnitHurt(hurt);
+        }
+        if (event.getNewDamage() > 0.0F && event.getEntity() instanceof HiveHeart attackedHeart) {
+            com.projecthivemind.entity.HeartAlerts.attacked(attackedHeart, event.getSource());
         }
     }
     @SubscribeEvent

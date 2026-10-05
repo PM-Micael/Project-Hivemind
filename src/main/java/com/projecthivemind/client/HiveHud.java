@@ -33,9 +33,6 @@ public final class HiveHud {
     }
 
     public static void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
-        HiveHudLayers.endFrame();
-        boolean heartsByLayer = HiveHudLayers.takeHeartsByLayer();
-        boolean armorByLayer = HiveHudLayers.takeArmorByLayer();
         Minecraft minecraft = Minecraft.getInstance();
         if (!ClientState.hiveMode() || minecraft.options.hideGui || minecraft.player == null) {
             return;
@@ -54,7 +51,12 @@ public final class HiveHud {
 
         int left = graphics.guiWidth() / 2 - 91;
         int bottom = graphics.guiHeight() - 39;
-        for (int i = 0; i < (heartsByLayer ? 0 : hearts); i++) {
+        boolean bar = ClientConfig.healthStyle() == ClientConfig.HealthStyle.BAR;
+        if (bar) {
+            drawHealthBar(graphics, left, bottom, health, maxHealth);
+            rows = 1;
+        }
+        for (int i = 0; i < (bar ? 0 : hearts); i++) {
             int x = left + (i % HEARTS_PER_ROW) * 8;
             int y = bottom - (i / HEARTS_PER_ROW) * rowHeight;
             graphics.blitSprite(CONTAINER, x, y, 9, 9);
@@ -80,15 +82,40 @@ public final class HiveHud {
 
         // The armor, in a row above the hearts, only when there is any (as in vanilla).
         int armor = ClientState.heartArmor();
-        if (armor > 0 && !armorByLayer) {
-            // (When the game drew the hearts it has made them as tall as it, or a mod, wants: the armor goes above one row of them.)
-            int armorY = bottom - (heartsByLayer ? 0 : (rows - 1) * rowHeight) - 10;
+        if (armor > 0) {
+            int armorY = bottom - (rows - 1) * rowHeight - 10;
             for (int i = 0; i < 10; i++) {
                 int x = left + i * 8;
                 int point = i * 2 + 1;
                 ResourceLocation sprite = point < armor ? ARMOR_FULL : point == armor ? ARMOR_HALF : ARMOR_EMPTY;
                 graphics.blitSprite(sprite, x, armorY, 9, 9);
             }
+        }
+    }
+
+    private static final int BAR_WIDTH = HEARTS_PER_ROW * 8 + 1;
+    private static final int BAR_HEIGHT = 9;
+    private static final int BAR_RED = 0xFFD01818;
+    private static final int BAR_EMPTY = 0xFF2A0707;
+    private static final int BAR_FRAME = 0xFF000000;
+    /** The health one segment of the bar stands for, in health points: ten hearts. */
+    private static final int SEGMENT_POINTS = 20;
+
+    /**
+     * The health as one red bar, as wide as a row of hearts. It is cut by a dark line for every ten hearts of maximum health, so that each
+     * segment stands for ten hearts' worth: with twenty hearts one line in the middle, with thirty two lines in thirds, and so on.
+     */
+    private static void drawHealthBar(GuiGraphics graphics, int left, int bottom, int health, float maxHealth) {
+        int inner = BAR_WIDTH - 2;
+        graphics.fill(left, bottom, left + BAR_WIDTH, bottom + BAR_HEIGHT, BAR_FRAME);
+        graphics.fill(left + 1, bottom + 1, left + 1 + inner, bottom + BAR_HEIGHT - 1, BAR_EMPTY);
+        int filled = Math.round(inner * Math.max(0.0F, Math.min(1.0F, health / maxHealth)));
+        if (filled > 0) {
+            graphics.fill(left + 1, bottom + 1, left + 1 + filled, bottom + BAR_HEIGHT - 1, BAR_RED);
+        }
+        for (int line = 1; line * SEGMENT_POINTS < maxHealth - 0.01F; line++) {
+            int x = left + 1 + Math.round(inner * line * SEGMENT_POINTS / maxHealth);
+            graphics.fill(x, bottom, x + 1, bottom + BAR_HEIGHT, BAR_FRAME);
         }
     }
 
