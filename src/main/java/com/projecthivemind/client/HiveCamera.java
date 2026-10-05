@@ -81,7 +81,7 @@ public final class HiveCamera {
     @SubscribeEvent
     static void onKey(InputEvent.Key event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (controlling(minecraft) && isRotateKey(event.getKey())) {
+        if (controlling(minecraft) && !ClientControl.active() && isRotateKey(event.getKey())) {
             if (event.getAction() == GLFW.GLFW_PRESS) {
                 startRotating(minecraft);
             } else if (event.getAction() == GLFW.GLFW_RELEASE && !isRotateHeld(minecraft)) {
@@ -89,7 +89,7 @@ public final class HiveCamera {
             }
             return;
         }
-        if (event.getAction() != GLFW.GLFW_PRESS || event.getKey() != GLFW.GLFW_KEY_Q || !controlling(minecraft)
+        if (event.getAction() != GLFW.GLFW_PRESS || event.getKey() != GLFW.GLFW_KEY_Q || !controlling(minecraft) || ClientControl.active()
                 || minecraft.level == null) {
             return;
         }
@@ -107,9 +107,12 @@ public final class HiveCamera {
     private HiveCamera() {
     }
 
-    /** True while the RTS view is in control: hive stage, in a world, and no menu open. */
+    /**
+     * True while the RTS view is in control: hive stage, in a world, and no menu open. Over the view of a scout the player controls, only while the
+     * rotate control is held (the cursor is out): then clicks are commands, as in the strategy view.
+     */
     static boolean controlling(Minecraft minecraft) {
-        return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null && !ClientControl.active();
+        return ClientState.hiveMode() && minecraft.player != null && minecraft.screen == null && (!ClientControl.active() || ClientControl.cursorMode());
     }
 
     /** The two controls that rotate the view (Controls: "Rotate camera" and the second one beside it). */
@@ -137,7 +140,7 @@ public final class HiveCamera {
     }
 
     /** True while the control set to rotate the view is held, whether it is a mouse button or a key. */
-    private static boolean isRotateHeld(Minecraft minecraft) {
+    static boolean isRotateHeld(Minecraft minecraft) {
         long window = minecraft.getWindow().getWindow();
         for (net.minecraft.client.KeyMapping control : ROTATE_CONTROLS) {
             com.mojang.blaze3d.platform.InputConstants.Key key = control.getKey();
@@ -225,7 +228,7 @@ public final class HiveCamera {
             return;
         }
         event.setCanceled(true);
-        if (isRotateMouse(event.getButton())) {
+        if (!ClientControl.active() && isRotateMouse(event.getButton())) {
             if (event.getAction() == GLFW.GLFW_PRESS) {
                 startRotating(minecraft);
             } else if (event.getAction() == GLFW.GLFW_RELEASE && !isRotateHeld(minecraft)) {
@@ -237,7 +240,7 @@ public final class HiveCamera {
     @SubscribeEvent
     static void onScroll(InputEvent.MouseScrollingEvent event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (!controlling(minecraft)) {
+        if (!controlling(minecraft) || ClientControl.active()) {
             return;
         }
         event.setCanceled(true);
@@ -255,7 +258,7 @@ public final class HiveCamera {
         lastFrameNanos = now;
 
         Minecraft minecraft = Minecraft.getInstance();
-        if (!controlling(minecraft)) {
+        if (!controlling(minecraft) || ClientControl.active()) {
             return;
         }
         LocalPlayer player = minecraft.player;

@@ -52,6 +52,9 @@ public final class ClientControl {
     private static int selected;
     private static boolean wasActive;
     private static boolean ignoreAttack;
+    /** True while the cursor is out over a controlled scout's view (the rotate control swaps it on and off): clicks are commands, as in the strategy view. */
+    private static boolean cursorMode;
+    private static boolean wasRotateHeld;
     private static final int DOUBLE_TAP_TICKS = 7;
     private static boolean sprinting;
     private static boolean wasForward;
@@ -70,6 +73,11 @@ public final class ClientControl {
     public static HiveScout scout() {
         Minecraft minecraft = Minecraft.getInstance();
         return minecraft.player != null && minecraft.getCameraEntity() instanceof HiveScout scout && scout.isAlive() ? scout : null;
+    }
+
+    /** True while the cursor is out over the scout's view (toggled with the rotate control): the player is commanding units, not playing the scout. */
+    public static boolean cursorMode() {
+        return cursorMode && active();
     }
 
     public static boolean active() {
@@ -114,8 +122,24 @@ public final class ClientControl {
         if (!active) {
             return;
         }
+        // One press of the rotate control swaps between playing the scout and the cursor (and back).
+        boolean rotateHeld = HiveCamera.isRotateHeld(minecraft);
+        if (rotateHeld && !wasRotateHeld && minecraft.screen == null) {
+            cursorMode = !cursorMode;
+            if (cursorMode) {
+                minecraft.mouseHandler.releaseMouse();
+            } else {
+                minecraft.mouseHandler.grabMouse();
+            }
+        }
+        wasRotateHeld = rotateHeld;
+        // A menu closing makes the game take the mouse back: in cursor mode it is let go of again.
+        if (cursorMode && minecraft.screen == null && minecraft.mouseHandler.isMouseGrabbed()) {
+            minecraft.mouseHandler.releaseMouse();
+        }
         Options options = minecraft.options;
         boolean playing = minecraft.screen == null && minecraft.isWindowActive();
+        boolean acting = playing && !cursorMode;
         if (minecraft.screen == null) {
             for (int i = 0; i < options.keyHotbarSlots.length; i++) {
                 while (options.keyHotbarSlots[i].consumeClick()) {
@@ -157,8 +181,8 @@ public final class ClientControl {
             flags |= options.keyJump.isDown() ? ControlInputPayload.JUMP : 0;
             flags |= options.keyShift.isDown() ? ControlInputPayload.SNEAK : 0;
             flags |= sprinting ? ControlInputPayload.SPRINT : 0;
-            flags |= options.keyAttack.isDown() && !ignoreAttack ? ControlInputPayload.ATTACK : 0;
-            flags |= options.keyUse.isDown() ? ControlInputPayload.USE : 0;
+            flags |= acting && options.keyAttack.isDown() && !ignoreAttack ? ControlInputPayload.ATTACK : 0;
+            flags |= acting && options.keyUse.isDown() ? ControlInputPayload.USE : 0;
         }
         PacketDistributor.sendToServer(new ControlInputPayload(forward, strafe, flags, player.getYRot(), player.getXRot()));
     }
@@ -169,9 +193,7 @@ public final class ClientControl {
         player.setXRot(scout.getXRot());
         player.yRotO = player.getYRot();
         player.xRotO = player.getXRot();
-        java.util.Arrays.fill(STACKS, ItemStack.EMPTY);
-        java.util.Arrays.fill(COUNTS, 0);
-        selected = 0;
+        // (The hotbar is not cleared here: the server sends it with the camera, and it may well have arrived already.)
         ignoreAttack = true;
         if (minecraft.screen == null) {
             minecraft.mouseHandler.grabMouse();
@@ -183,6 +205,7 @@ public final class ClientControl {
     private static void end(Minecraft minecraft) {
         java.util.Arrays.fill(STACKS, ItemStack.EMPTY);
         java.util.Arrays.fill(COUNTS, 0);
+        cursorMode = false;
         // The RTS camera takes the mouse back (HiveCamera releases it again on the next tick).
     }
 
@@ -255,6 +278,7 @@ public final class ClientControl {
     @SubscribeEvent
     static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         wasActive = false;
+        cursorMode = false;
         java.util.Arrays.fill(STACKS, ItemStack.EMPTY);
         java.util.Arrays.fill(COUNTS, 0);
     }
@@ -268,7 +292,9 @@ public final class ClientControl {
         if (scout == null || minecraft.options.hideGui) {
             return;
         }
-        drawCrosshair(graphics);
+        if (!cursorMode) {
+            drawCrosshair(graphics);
+        }
         drawHotbar(graphics, minecraft);
         drawScoutHealth(graphics, minecraft, scout);
     }
