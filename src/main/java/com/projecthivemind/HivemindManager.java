@@ -1284,6 +1284,14 @@ public final class HivemindManager {
      * A living thing died. If a hive unit killed it, and it was not one of the hive's own, the unit's hive gets the
      * kill for its quest.
      */
+    /** Mobs killed by a unit of the hive, whose experience goes to the hive's bar and so is not to drop as orbs as well. */
+    private static final Set<UUID> NO_XP_ORBS = new HashSet<>();
+
+    /** True (once) for a mob that a hive unit killed: it drops no experience orbs, the hive got the experience. */
+    public static boolean takeNoXpOrbs(UUID victim) {
+        return NO_XP_ORBS.remove(victim);
+    }
+
     public static void onKill(LivingEntity victim, DamageSource source) {
         Entity killer = source.getEntity();
         if (killer instanceof HiveUnit unit && victim instanceof Mob && !(victim instanceof HiveUnit) && !(victim instanceof HiveHeart)) {
@@ -1295,6 +1303,10 @@ public final class HivemindManager {
             if (victim.level() instanceof ServerLevel victimLevel && unit.ownerId() != null) {
                 ServerPlayer owner = victimLevel.getServer().getPlayerList().getPlayer(unit.ownerId());
                 if (owner != null && get(owner).stage() == HivemindStage.HIVE) {
+                    // Some of what a mob drops it only drops for a player (blaze rods, and the like): the unit's kill counts as the owner's, as far as
+                    // the loot goes. Its experience is not dropped as orbs, since it goes to the hive's bar below.
+                    victim.setLastHurtByPlayer(owner);
+                    NO_XP_ORBS.add(victim.getUUID());
                     int xp = ((Mob) victim).getExperienceReward(victimLevel, killer);
                     if (xp > 0) {
                         giveHiveExperience(owner, heart, xp);

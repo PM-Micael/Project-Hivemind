@@ -230,7 +230,9 @@ public class HiveHeart extends Mob {
     @Nullable
     private HiveScout teamScout(Mob member) {
         int team = teams.teamOf(member.getUUID());
-        if (team < 0 || !(this.level() instanceof ServerLevel level)) {
+        // The scout is looked for where the member is, which is not always where the Heart is: a team that has gone through a portal is in the
+        // Nether with its scout, and follows it there (a scout in another dimension than its team is not followed).
+        if (team < 0 || !(member.level() instanceof ServerLevel level)) {
             return null;
         }
         for (UUID id : teams.members(team)) {

@@ -278,6 +278,14 @@ public final class CommonEvents {
             com.projecthivemind.entity.HeartAlerts.attacked(attackedHeart, event.getSource());
         }
     }
+    /** A mob a hive unit killed gave its experience to the hive's bar already: no orbs of it as well. */
+    @SubscribeEvent
+    static void onExperienceDrop(net.neoforged.neoforge.event.entity.living.LivingExperienceDropEvent event) {
+        if (HivemindManager.takeNoXpOrbs(event.getEntity().getUUID())) {
+            event.setCanceled(true);
+        }
+    }
+
     @SubscribeEvent
     static void onLivingDeath(LivingDeathEvent event) {
         HivemindManager.onKill(event.getEntity(), event.getSource());
