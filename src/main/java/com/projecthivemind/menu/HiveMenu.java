@@ -288,6 +288,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final DataSlot anvilCost = DataSlot.standalone();
     /** What the player was last told about the enchantments (server side), so that it is sent again only when it changes. */
     private String lastEnchantSignature;
+    /** The same for the recently crafted recipes. */
+    private String lastRecipeSignature;
     @Nullable
     private AnvilEngine anvilEngine;
 
@@ -708,6 +710,14 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 HivemindManager.sendEnchants(owner, heart);
             }
         }
+        // What the crafting grid last made is remembered (with the Crafter), and the screen is told when the list changes.
+        if (heart != null && player instanceof net.minecraft.server.level.ServerPlayer owner && hasCrafter()) {
+            String signature = String.join(",", heart.recentRecipes());
+            if (!signature.equals(lastRecipeSignature)) {
+                lastRecipeSignature = signature;
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncRecipesPayload(java.util.List.copyOf(heart.recentRecipes())));
+            }
+        }
         super.broadcastChanges();
     }
 
@@ -829,6 +839,96 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** True once the hive has consumed a jukebox: it can play music discs. */
     public boolean hasJukebox() {
         return com.projecthivemind.EvolveTask.JUKEBOX.doneIn(evolveMask());
+    }
+
+    /** True once the hive has consumed a crafter: the crafting grid remembers the last things crafted, to set their recipes in the grid again. */
+    public boolean hasCrafter() {
+        return com.projecthivemind.EvolveTask.CRAFTER.doneIn(evolveMask());
+    }
+
+    /**
+     * One of the recently crafted recipes was clicked: the grid is emptied back into the hive, and the recipe is set in it with what the hive's
+     * storage has (an item of each kind of ingredient it can find, one in each place; where there is nothing, the place is left empty).
+     */
+    public void placeRecipe(String id) {
+        if (heart == null || !hasCrafter() || !(player.level() instanceof net.minecraft.server.level.ServerLevel level)
+                || !(player instanceof ServerPlayer owner) || !heart.recentRecipes().contains(id)) {
+            return;
+        }
+        ResourceLocation location = ResourceLocation.tryParse(id);
+        Optional<RecipeHolder<?>> found = location == null ? Optional.empty() : level.getServer().getRecipeManager().byKey(location);
+        if (found.isEmpty() || !(found.get().value() instanceof CraftingRecipe recipe)) {
+            return;
+        }
+        // Where each ingredient goes in the grid: a shaped recipe keeps its shape, anything else fills the places there are.
+        int reach = hasCrafting() ? GRID_SIZE : 2;
+        java.util.List<net.minecraft.world.item.crafting.Ingredient> ingredients = recipe.getIngredients();
+        int[] places = new int[ingredients.size()];
+        if (recipe instanceof net.minecraft.world.item.crafting.ShapedRecipe shaped) {
+            if (shaped.getWidth() > reach || shaped.getHeight() > reach) {
+                owner.displayClientMessage(Component.translatable("message.projecthivemind.crafter.no_fit"), true);
+                return;
+            }
+            for (int i = 0; i < places.length; i++) {
+                places[i] = i / shaped.getWidth() * GRID_SIZE + i % shaped.getWidth();
+            }
+        } else {
+            int count = 0;
+            for (net.minecraft.world.item.crafting.Ingredient ingredient : ingredients) {
+                count += ingredient.isEmpty() ? 0 : 1;
+            }
+            if (count > reach * reach) {
+                owner.displayClientMessage(Component.translatable("message.projecthivemind.crafter.no_fit"), true);
+                return;
+            }
+            int next = 0;
+            for (int i = 0; i < places.length; i++) {
+                places[i] = next / reach * GRID_SIZE + next % reach;
+                next += ingredients.get(i).isEmpty() ? 0 : 1;
+            }
+        }
+        for (int i = 0; i < craftSlots.getContainerSize(); i++) {
+            giveToHive(craftSlots.removeItemNoUpdate(i));
+        }
+        int placed = 0;
+        for (int i = 0; i < places.length; i++) {
+            net.minecraft.world.item.crafting.Ingredient ingredient = ingredients.get(i);
+            if (ingredient.isEmpty()) {
+                continue;
+            }
+            ItemStack one = takeIngredient(ingredient);
+            if (!one.isEmpty()) {
+                craftSlots.setItem(places[i], one);
+                placed++;
+            }
+        }
+        if (placed == 0) {
+            owner.displayClientMessage(Component.translatable("message.projecthivemind.crafter.nothing"), true);
+        }
+        slotsChanged(craftSlots);
+    }
+
+    /** One item that fits the ingredient, out of the hive's storage: of a kind already in the grid when there is one (so a recipe is made of one wood, say), else the first there is. */
+    private ItemStack takeIngredient(net.minecraft.world.item.crafting.Ingredient ingredient) {
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < storage.getContainerSize(); i++) {
+                ItemStack stack = storage.getItem(i);
+                if (stack.isEmpty() || !ingredient.test(stack)) {
+                    continue;
+                }
+                boolean inGrid = false;
+                for (int g = 0; g < craftSlots.getContainerSize() && !inGrid; g++) {
+                    inGrid = ItemStack.isSameItemSameComponents(craftSlots.getItem(g), stack);
+                }
+                if (pass == 1 || inGrid) {
+                    ItemStack one = stack.copyWithCount(1);
+                    stack.shrink(1);
+                    storage.setItem(i, stack.isEmpty() ? ItemStack.EMPTY : stack);
+                    return one;
+                }
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     /** True once the hive has consumed an enchanting table: it can enchant. */
@@ -1288,6 +1388,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         HiveResultSlot(Player player, CraftingContainer craftSlots, Container container, int index, int x, int y) {
             super(player, craftSlots, container, index, x, y);
             this.baseY = y;
+        }
+
+        @Override
+        public void onTake(Player taker, ItemStack stack) {
+            // With the Crafter the hive remembers what was made (a recipe with no fixed ingredients cannot be set again, so it is not kept).
+            RecipeHolder<?> made = resultSlots.getRecipeUsed();
+            if (heart != null && made != null && !taker.level().isClientSide && hasCrafter() && !made.value().getIngredients().isEmpty()) {
+                heart.rememberRecipe(made.id().toString());
+            }
+            super.onTake(taker, stack);
         }
 
         @Override

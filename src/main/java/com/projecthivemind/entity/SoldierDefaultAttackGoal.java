@@ -34,6 +34,8 @@ import net.minecraft.world.phys.AABB;
 public class SoldierDefaultAttackGoal extends Goal {
     private static final int SCAN_INTERVAL = 10;
     private static final int RECHECK_INTERVAL = 10;
+    /** How often a soldier in a team that is out with its scout looks for mobs to fight: twice a quarter second. */
+    private static final int TEAM_SCAN_INTERVAL = 5;
     /** How far around a team member to look for mobs that are after it. */
     private static final double TEAM_SCAN_RADIUS = 24.0D;
 
@@ -60,7 +62,8 @@ public class SoldierDefaultAttackGoal extends Goal {
             return false;
         }
         // Not tickCount % N: goals are only evaluated on some ticks, so a modulo check can silently never line up.
-        nextScanTick = soldier.tickCount + SCAN_INTERVAL;
+        // Quicker for a soldier on guard round a scout, where a hostile mob appearing in the ring has to be met at once.
+        nextScanTick = soldier.tickCount + (heart.teamLeader(soldier) != null ? TEAM_SCAN_INTERVAL : SCAN_INTERVAL);
         target = findTarget(heart);
         return target != null;
     }
@@ -146,6 +149,15 @@ public class SoldierDefaultAttackGoal extends Goal {
                     mob -> isOutsider(mob) && mob.getTarget() != null && teamIds.contains(mob.getTarget().getUUID())));
         }
 
+        // A soldier following a scout outside the border goes after every hostile mob inside the team's attack area (the yellow ring) at once,
+        // not only those that have already turned on the team: the ring is what it guards.
+        Mob scout = heart.teamLeader(soldier);
+        if (scout != null) {
+            double radius = heart.teams().attackRadius(heart.teams().teamOf(soldier.getUUID()));
+            candidates.addAll(level.getEntitiesOfClass(Mob.class, scout.getBoundingBox().inflate(radius, MAX_HEIGHT_DIFFERENCE + soldier.getBbHeight(), radius),
+                    mob -> isOutsider(mob) && mob instanceof Enemy));
+        }
+
         // The settings: mobs inside the border, if they are on for this soldier.
         if (settingsApply(heart)) {
             AABB area = HiveArea.areaBox(level, heart);
@@ -219,6 +231,10 @@ public class SoldierDefaultAttackGoal extends Goal {
             return false;
         }
         if (settingsApply(heart) && matchesSettings(heart, mob)) {
+            return true;
+        }
+        // A hostile mob inside the attack area counts for a soldier on guard round a scout (see candidates).
+        if (mob instanceof Enemy && heart.teamLeader(soldier) != null) {
             return true;
         }
         // Still after a unit of the team?

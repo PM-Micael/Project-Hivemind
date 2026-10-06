@@ -23,6 +23,8 @@ import net.minecraft.world.phys.Vec3;
 public class StayInsideGoal extends Goal {
     private static final double SPEED = 1.1D;
     private static final int REPATH_INTERVAL = 10;
+    /** How far past the border a block may be for a worker to go and dig it without leaving: 2 blocks (flattening reaches 1 past it, and the arm reaches 5). */
+    private static final int DIG_PAST_BORDER = 2;
 
     private final Mob mob;
     private final HiveUnit unit;
@@ -86,6 +88,13 @@ public class StayInsideGoal extends Goal {
         UnitAction action = unit.action();
         if (action == null) {
             return false;
+        }
+        if (action.pos() != null && action.kind() == UnitAction.Kind.DIG) {
+            // A block to dig just past the border (flattening works one block past it) is dug from inside: the arm reaches over the edge, so
+            // holding still here is what kept the worker from ever getting close enough, and the job was stuck for good.
+            double x = action.pos().getX() + 0.5D;
+            double z = action.pos().getZ() + 0.5D;
+            return !HiveArea.containsXZ(heart, x, z, DIG_PAST_BORDER);
         }
         if (action.pos() != null) {
             return !HiveArea.containsXZ(heart, action.pos().getX() + 0.5D, action.pos().getZ() + 0.5D);

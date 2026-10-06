@@ -81,10 +81,19 @@ public final class HiveFood {
 
     /** The hive pays for a new unit. */
     public void payForUnit() {
-        exhaust(SUMMON_SATURATION * 4.0F);
+        addExhaustion(SUMMON_SATURATION * 4.0F);
     }
 
+    /** What the units' actions cost as a share of the usual: halved once the hive has done the cake task (set every tick from the Heart). */
+    private float costScale = 1.0F;
+
+    /** Charge an action: its cost, scaled by what the hive has evolved. */
     public void exhaust(float amount) {
+        addExhaustion(amount * costScale);
+    }
+
+    /** Charge exactly this much: for what is not a unit's action (healing, and paying for a new unit). */
+    private void addExhaustion(float amount) {
         exhaustion = Math.min(exhaustion + amount, 40.0F);
     }
 
@@ -97,6 +106,7 @@ public final class HiveFood {
     /** One tick, from the Heart. */
     public void tick(HiveHeart heart, ServerLevel level) {
         Difficulty difficulty = level.getDifficulty();
+        costScale = com.projecthivemind.EvolveTask.CAKE.doneIn(heart.evolveMask()) ? 0.5F : 1.0F;
         List<LivingEntity> hurtMembers = new ArrayList<>();
         ServerPlayer owner = heart.ownerId() == null || heart.getServer() == null ? null
                 : heart.getServer().getPlayerList().getPlayer(heart.ownerId());
@@ -126,7 +136,7 @@ public final class HiveFood {
                 float used = Math.min(saturation, 6.0F);
                 for (LivingEntity member : hurtMembers) {
                     member.heal(used / 6.0F);
-                    exhaust(used);
+                    addExhaustion(used);
                 }
                 tickTimer = 0;
             }
@@ -134,7 +144,7 @@ public final class HiveFood {
             if (++tickTimer >= 80) {
                 for (LivingEntity member : hurtMembers) {
                     member.heal(1.0F);
-                    exhaust(6.0F);
+                    addExhaustion(6.0F);
                 }
                 tickTimer = 0;
             }

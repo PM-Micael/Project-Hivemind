@@ -810,7 +810,7 @@ public final class HivemindManager {
     }
 
     /**
-     * The settings a unit made at the Heart starts with, for those of its kind that have them: wander inside the border, attack hostile mobs in the
+     * The settings a unit made at the Heart starts with, for those of its kind that have them: attack hostile mobs in the
      * hive area, clear grass, flatten the area (with dirt), fell trees, pick up items inside the border, and channel on
      * crops and saplings. Scouts, workers and soldiers all stay inside the border. (Workers do not run from hostile mobs unless the player turns that on.)
      */
@@ -818,15 +818,15 @@ public final class HivemindManager {
         switch (kind) {
             case SCOUT -> {
                 com.projecthivemind.ScoutBehavior scout = new com.projecthivemind.ScoutBehavior(false, com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true,
-                        com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true, true, false);
+                        com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true, false, false);
                 return new SlotConfigs.Config(scout.flags(), scout.radii(), "", "");
             }
             case WORKER -> {
-                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, true, true, false, true, false, 16);
+                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, false, true, false, true, false, 16);
                 return new SlotConfigs.Config(worker.flags(), worker.radii(), itemName(net.minecraft.world.item.Items.DIRT), "");
             }
             case SOLDIER -> {
-                com.projecthivemind.SoldierBehavior soldier = new com.projecthivemind.SoldierBehavior(false, true, true, true);
+                com.projecthivemind.SoldierBehavior soldier = new com.projecthivemind.SoldierBehavior(false, true, true, false);
                 return new SlotConfigs.Config(soldier.flags(), soldier.radii(), "", "");
             }
             case COLLECTOR -> {
@@ -977,14 +977,14 @@ public final class HivemindManager {
     private static BlockPos respawnSpot(ServerLevel level, BlockPos heart) {
         for (Direction side : Direction.Plane.HORIZONTAL) {
             for (int dy = 3; dy >= -3; dy--) {
-                BlockPos spot = heart.relative(side, 4).above(dy);
+                BlockPos spot = heart.relative(side, 6).above(dy);
                 if (level.hasChunkAt(spot) && level.noCollision(new net.minecraft.world.phys.AABB(spot).inflate(-0.1D).expandTowards(0.0D, 1.0D, 0.0D))
                         && !level.getBlockState(spot.below()).isAir()) {
                     return spot;
                 }
             }
         }
-        return heart.above(HiveHeart.heightAt(5));
+        return heart.above(HiveHeart.heightAt(HiveHeart.MAX_VISUAL_LEVEL));
     }
 
     /** While the player is the hive, dying (or /kill) brings them back beside the Heart, with no bed needed. */
@@ -1420,16 +1420,22 @@ public final class HivemindManager {
 
     /** The quest is done: the hive moves up one level and gets everything the new level has. */
     private static void levelUp(HiveHeart heart, ServerPlayer owner) {
+        setLevel(heart, owner, heart.hiveLevel() + 1);
+        owner.sendSystemMessage(Component.translatable("message.projecthivemind.level_up", heart.hiveLevel()));
+    }
+
+    /** Put the hive at this level (up or down), with everything that goes with it: its stats, its area and its lights. */
+    public static void setLevel(HiveHeart heart, ServerPlayer owner, int newLevel) {
         ServerLevel level = (ServerLevel) heart.level();
-        heart.setHiveLevel(heart.hiveLevel() + 1);
+        boolean up = newLevel >= heart.hiveLevel();
+        heart.setHiveLevel(newLevel);
         // The hive area is bigger: the lights over it are looked at again at once.
         heart.refreshGlowLights();
         // The storage is a new, bigger container now: a menu that is still open would be looking at the old one.
         if (owner.containerMenu != owner.inventoryMenu) {
             owner.closeContainer();
         }
-        level.playSound(null, heart.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 0.8F);
-        owner.sendSystemMessage(Component.translatable("message.projecthivemind.level_up", heart.hiveLevel()));
+        level.playSound(null, heart.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, up ? 0.8F : 0.5F);
     }
 
     /**

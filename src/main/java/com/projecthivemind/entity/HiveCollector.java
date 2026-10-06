@@ -127,6 +127,8 @@ public class HiveCollector extends Silverfish implements HiveUnit {
         // Planting comes before collecting: a collector with something to plant plants it first, but one that is already carrying an item
         // to the Heart finishes that trip first (see CollectorPlantGoal#canUse).
         this.goalSelector.addGoal(1, new CollectorPlantGoal(this));
+        // Idle inside the border: stand in the Heart.
+        this.goalSelector.addGoal(6, new GatherAtHeartGoal(this, () -> true));
     }
 
     @Override

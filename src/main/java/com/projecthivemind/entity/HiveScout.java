@@ -366,6 +366,8 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
         this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
+        // After that, when idle inside the border and not wandering: stand in the Heart.
+        this.goalSelector.addGoal(6, new GatherAtHeartGoal(this, () -> !behavior.wander()));
         // Running away comes before collecting items, so it can interrupt a trip to an item.
         this.goalSelector.addGoal(1, new ScoutFleeGoal(this));
         this.goalSelector.addGoal(1, new ScoutInteractGoal(this));

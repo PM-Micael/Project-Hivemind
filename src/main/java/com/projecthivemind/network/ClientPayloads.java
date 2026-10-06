@@ -83,6 +83,10 @@ public final class ClientPayloads {
         com.projecthivemind.client.ClientEnchants.update(payload.unlocked(), payload.ready());
     }
 
+    public static void onSyncRecipes(com.projecthivemind.network.SyncRecipesPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientRecipes.update(payload.recipes());
+    }
+
     public static void onSyncPortals(SyncPortalsPayload payload, IPayloadContext context) {
         com.projecthivemind.client.ClientPortals.update(payload);
     }

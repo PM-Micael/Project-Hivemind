@@ -652,14 +652,17 @@ public class HiveHeart extends Mob {
         }
     }
 
-    /** How wide the Heart is at a level, in blocks: 1, then 3 from level 3, then 5 from level 5. */
+    /** The level at which the Heart is as big as it gets. */
+    public static final int MAX_VISUAL_LEVEL = 6;
+
+    /** How wide the Heart is at a level, in blocks: 1 at levels 1 and 2, then 3, 5, 7 and 9 from level 3 (a cube from there). */
     public static int widthAt(int level) {
-        return level >= 5 ? 5 : level >= 3 ? 3 : 1;
+        return level >= 3 ? 2 * Math.min(level, MAX_VISUAL_LEVEL) - 3 : 1;
     }
 
-    /** How tall the Heart is at a level, in blocks: 1, 2 from level 2, 3 from level 4. */
+    /** How tall the Heart is at a level, in blocks: 1, 2 at level 2, then as tall as it is wide. */
     public static int heightAt(int level) {
-        return level >= 4 ? 3 : level >= 2 ? 2 : 1;
+        return level >= 3 ? widthAt(level) : Math.max(1, level);
     }
 
     /** The level the Heart looks like (kept in step on the client by the synced data). */
@@ -690,6 +693,14 @@ public class HiveHeart extends Mob {
         return false;
     }
 
+    /**
+     * The game's crowding rule hurts a mob with too many (24) others inside its body, and the Heart's body is big enough now for a whole
+     * hive of units to stand in: it is not crowded, whoever is in it.
+     */
+    @Override
+    protected void pushEntities() {
+    }
+
     public HiveHeart(EntityType<? extends HiveHeart> type, Level level) {
         super(type, level);
         // The armor it wears is the hive's: it is dropped with the rest of the hive's things (see HivemindManager), not here too.
@@ -703,7 +714,7 @@ public class HiveHeart extends Mob {
         super.tick();
         if (this.level().isClientSide) {
             // Until it is as big as it gets, small particles mark the space the full-size Heart will take.
-            if (visualLevel() < 5 && this.tickCount % 3 == 0) {
+            if (visualLevel() < MAX_VISUAL_LEVEL && this.tickCount % 3 == 0) {
                 spawnGrowthMarkers();
             }
             return;
@@ -716,6 +727,10 @@ public class HiveHeart extends Mob {
         }
         if (this.tickCount % 1200 == 0 && com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask)) {
             giveBottleExperience();
+        }
+        if (this.tickCount % 6000 == 0 && com.projecthivemind.EvolveTask.COPPER.doneIn(evolveMask)) {
+            // Absorption hearts: 5 points (2.5 hearts) each time, building up to 20 (10 hearts).
+            this.setAbsorptionAmount(Math.min(20.0F, this.getAbsorptionAmount() + 5.0F));
         }
         // The Heart gives off light: a light block (invisible, inside its body) at its own place, kept there once a second.
         if (this.tickCount % 20 == 0) {
@@ -1029,13 +1044,13 @@ public class HiveHeart extends Mob {
         return exploredChunks.size();
     }
 
-    /** Client side: a few spores drifting in the cube the Heart will fill at level 5 (5 wide, 3 tall). */
+    /** Client side: a few spores drifting in the cube the Heart will fill at the top level (9 wide, 9 tall). */
     private void spawnGrowthMarkers() {
-        double half = widthAt(5) / 2.0D;
+        double half = widthAt(MAX_VISUAL_LEVEL) / 2.0D;
         for (int i = 0; i < 2; i++) {
             this.level().addParticle(net.minecraft.core.particles.ParticleTypes.CRIMSON_SPORE,
                     this.getX() + (this.random.nextDouble() * 2.0D - 1.0D) * half,
-                    this.getY() + this.random.nextDouble() * heightAt(5),
+                    this.getY() + this.random.nextDouble() * heightAt(MAX_VISUAL_LEVEL),
                     this.getZ() + (this.random.nextDouble() * 2.0D - 1.0D) * half, 0.0D, 0.01D, 0.0D);
         }
     }
@@ -1053,6 +1068,23 @@ public class HiveHeart extends Mob {
 
     public void unlockEnchant(String key) {
         unlockedEnchants.add(key);
+    }
+
+    /** The last recipes crafted at the hive's crafting grid (their ids), the newest first: what the Crafter evolution remembers. Saved. */
+    public static final int RECENT_RECIPES = 5;
+    private final java.util.List<String> recentRecipes = new java.util.ArrayList<>();
+
+    public java.util.List<String> recentRecipes() {
+        return java.util.Collections.unmodifiableList(recentRecipes);
+    }
+
+    /** A recipe was crafted: it goes to the front of the list (once), and the oldest falls off the end. */
+    public void rememberRecipe(String id) {
+        recentRecipes.remove(id);
+        recentRecipes.add(0, id);
+        while (recentRecipes.size() > RECENT_RECIPES) {
+            recentRecipes.remove(recentRecipes.size() - 1);
+        }
     }
 
     /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
@@ -1269,6 +1301,11 @@ public class HiveHeart extends Mob {
             enchants.add(net.minecraft.nbt.StringTag.valueOf(id));
         }
         tag.put("UnlockedEnchants", enchants);
+        net.minecraft.nbt.ListTag recipes = new net.minecraft.nbt.ListTag();
+        for (String id : recentRecipes) {
+            recipes.add(net.minecraft.nbt.StringTag.valueOf(id));
+        }
+        tag.put("RecentRecipes", recipes);
         if (glowCenter != null && glowDimension != null) {
             tag.putIntArray("GlowCenter", new int[] {glowCenter.getX(), glowCenter.getY(), glowCenter.getZ()});
             tag.putString("GlowDimension", glowDimension);
@@ -1381,6 +1418,13 @@ public class HiveHeart extends Mob {
             String saved = savedEnchants.getString(i);
             if (!saved.isEmpty()) {
                 unlockedEnchants.add(saved);
+            }
+        }
+        recentRecipes.clear();
+        net.minecraft.nbt.ListTag savedRecipes = tag.getList("RecentRecipes", net.minecraft.nbt.Tag.TAG_STRING);
+        for (int i = 0; i < savedRecipes.size() && recentRecipes.size() < RECENT_RECIPES; i++) {
+            if (!savedRecipes.getString(i).isEmpty()) {
+                recentRecipes.add(savedRecipes.getString(i));
             }
         }
         int[] glow = tag.getIntArray("GlowCenter");

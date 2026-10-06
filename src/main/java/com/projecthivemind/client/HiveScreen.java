@@ -1356,6 +1356,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         if (tab == Tab.HIVE) {
             renderUnitIcons(graphics, mouseX, mouseY);
+            renderRecentRecipes(graphics, mouseX, mouseY);
             net.minecraft.world.inventory.Slot trash = menu.trashSlot();
             if (trash.isActive() && !trash.hasItem() && mouseX >= leftPos + trash.x && mouseX < leftPos + trash.x + 16 && mouseY >= topPos + trash.y && mouseY < topPos + trash.y + 16) {
                 graphics.renderTooltip(font, Component.translatable("screen.projecthivemind.hive.trash.about"), mouseX, mouseY);
@@ -1366,6 +1367,70 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             renderEvolveEnchantTooltip(graphics, mouseX, mouseY);
         }
         this.renderTooltip(graphics, mouseX, mouseY);
+    }
+
+    // ---- the Crafter: the recipes made last, under the crafting grid ----
+
+    private static final int RECENT_X = HiveMenu.GRID_X;
+    private static final int RECENT_Y = HiveMenu.RESULT_Y + 36;
+    private static final int RECENT_STEP = 20;
+
+    private boolean recentVisible() {
+        return stationInView(Station.CRAFT) && menu.hasCrafter();
+    }
+
+    /** What the recipe makes, for its icon (empty if the recipe is not known any more). */
+    private ItemStack recentResult(String id) {
+        Minecraft minecraft = Minecraft.getInstance();
+        ResourceLocation location = ResourceLocation.tryParse(id);
+        if (minecraft.level == null || location == null) {
+            return ItemStack.EMPTY;
+        }
+        return minecraft.level.getRecipeManager().byKey(location)
+                .map(holder -> holder.value().getResultItem(minecraft.level.registryAccess())).orElse(ItemStack.EMPTY);
+    }
+
+    /** The recipe whose box is at this screen position, or -1. */
+    private int recentAt(double mouseX, double mouseY) {
+        if (!recentVisible()) {
+            return -1;
+        }
+        int count = ClientRecipes.recent().size();
+        for (int i = 0; i < count; i++) {
+            int x = leftPos + RECENT_X + i * RECENT_STEP;
+            int y = topPos + RECENT_Y;
+            if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void renderRecentRecipes(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!recentVisible()) {
+            return;
+        }
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.crafter.recent"), leftPos + RECENT_X, topPos + RECENT_Y - 12, 0xA0A0A0, false);
+        int hovered = recentAt(mouseX, mouseY);
+        for (int i = 0; i < com.projecthivemind.entity.HiveHeart.RECENT_RECIPES; i++) {
+            int x = leftPos + RECENT_X + i * RECENT_STEP;
+            int y = topPos + RECENT_Y;
+            graphics.fill(x - 1, y - 1, x + 17, y + 17, SLOT_EDGE);
+            graphics.fill(x, y, x + 16, y + 16, i == hovered ? 0xFF5A5A5A : SLOT_FILL);
+            if (i < ClientRecipes.recent().size()) {
+                ItemStack result = recentResult(ClientRecipes.recent().get(i));
+                graphics.renderItem(result, x, y);
+                graphics.renderItemDecorations(font, result, x, y);
+            }
+        }
+        if (hovered >= 0) {
+            ItemStack result = recentResult(ClientRecipes.recent().get(hovered));
+            if (!result.isEmpty()) {
+                List<Component> lines = new java.util.ArrayList<>(net.minecraft.client.gui.screens.Screen.getTooltipFromItem(Minecraft.getInstance(), result));
+                lines.add(Component.translatable("screen.projecthivemind.crafter.click").withStyle(net.minecraft.ChatFormatting.GREEN));
+                graphics.renderComponentTooltip(font, lines, mouseX, mouseY);
+            }
+        }
     }
 
     /**
@@ -1855,6 +1920,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** Clicking a task the hive can do consumes its item from the hive's storage. */
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (tab == Tab.HIVE && button == 0) {
+            int recent = recentAt(mouseX, mouseY);
+            if (recent >= 0) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.PlaceRecipePayload(menu.containerId, ClientRecipes.recent().get(recent)));
+                return true;
+            }
+        }
         if (tab == Tab.EVOLVE && button == 0) {
             EnchantEntry clicked = evolveEnchantAt(mouseX, mouseY);
             if (clicked != null) {

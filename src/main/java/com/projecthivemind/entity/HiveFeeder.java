@@ -83,8 +83,8 @@ public class HiveFeeder extends Bee implements HiveUnit {
         this.goalSelector.addGoal(1, new FeederTillGoal(this));
         this.goalSelector.addGoal(2, new FeederChannelGoal(this));
         this.goalSelector.addGoal(2, new FeederCompostGoal(this));
-        // The last thing it does: drift along the border.
-        this.goalSelector.addGoal(5, new FeederPatrolGoal(this));
+        // The last thing it does, when idle: hover in the Heart.
+        this.goalSelector.addGoal(6, new GatherAtHeartGoal(this, () -> true));
     }
 
     @Override

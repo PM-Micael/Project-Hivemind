@@ -85,7 +85,9 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.ConsumeEvolvePayload.TYPE, com.projecthivemind.network.ConsumeEvolvePayload.STREAM_CODEC, ServerPayloads::onConsumeEvolve);
         registrar.playToServer(com.projecthivemind.network.ApplyEnchantPayload.TYPE, com.projecthivemind.network.ApplyEnchantPayload.STREAM_CODEC, ServerPayloads::onApplyEnchant);
         registrar.playToServer(com.projecthivemind.network.ConsumeEnchantPayload.TYPE, com.projecthivemind.network.ConsumeEnchantPayload.STREAM_CODEC, ServerPayloads::onConsumeEnchant);
+        registrar.playToServer(com.projecthivemind.network.PlaceRecipePayload.TYPE, com.projecthivemind.network.PlaceRecipePayload.STREAM_CODEC, ServerPayloads::onPlaceRecipe);
         registrar.playToClient(com.projecthivemind.network.SyncEnchantsPayload.TYPE, com.projecthivemind.network.SyncEnchantsPayload.STREAM_CODEC, ClientPayloads::onSyncEnchants);
+        registrar.playToClient(com.projecthivemind.network.SyncRecipesPayload.TYPE, com.projecthivemind.network.SyncRecipesPayload.STREAM_CODEC, ClientPayloads::onSyncRecipes);
         registrar.playToServer(com.projecthivemind.network.AssignConstructionPayload.TYPE, com.projecthivemind.network.AssignConstructionPayload.STREAM_CODEC, ServerPayloads::onAssignConstruction);
         registrar.playToServer(com.projecthivemind.network.UpdateConstructionPayload.TYPE, com.projecthivemind.network.UpdateConstructionPayload.STREAM_CODEC, ServerPayloads::onUpdateConstruction);
         registrar.playToServer(com.projecthivemind.network.FinishConstructionPayload.TYPE, com.projecthivemind.network.FinishConstructionPayload.STREAM_CODEC, ServerPayloads::onFinishConstruction);

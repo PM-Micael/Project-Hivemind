@@ -1,7 +1,7 @@
 package com.projecthivemind;
 
 /**
- * What one feeder does with its time. A feeder never has orders: it flies about the hive border and does what its settings say. Each
+ * What one feeder does with its time. A feeder never has orders: it waits in the Heart and does what its settings say. Each
  * feeder has its own settings, edited from its page of the hive menu, and none are on to begin with.
  *
  * @param channelCrops    fly to crops that are not fully grown and channel on them, making them grow 300 times as fast. A crop that

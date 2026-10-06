@@ -355,6 +355,13 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onPlaceRecipe(com.projecthivemind.network.PlaceRecipePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.placeRecipe(payload.recipe());
+        }
+    }
+
     public static void onConsumeEvolve(ConsumeEvolvePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
                 && menu.containerId == payload.containerId()) {

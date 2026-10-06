@@ -37,6 +37,13 @@ public final class HiveArea {
         return x >= center.getX() - radius && x < center.getX() + radius + 1 && z >= center.getZ() - radius && z < center.getZ() + radius + 1;
     }
 
+    /** Like {@link #containsXZ(HiveHeart, double, double)}, but with the area this many blocks bigger on every side. */
+    public static boolean containsXZ(HiveHeart heart, double x, double z, int margin) {
+        int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius() + margin;
+        BlockPos center = heart.blockPosition();
+        return x >= center.getX() - radius && x < center.getX() + radius + 1 && z >= center.getZ() - radius && z < center.getZ() + radius + 1;
+    }
+
     /** True if this point is inside this Heart's area as a cube: sideways as for {@link #containsXZ}, as far up as sideways, and down no further than the block the Heart sits on. */
     public static boolean containsCube(HiveHeart heart, double x, double y, double z) {
         int radius = HiveLevels.get(heart.hiveLevel()).infectionRadius();
