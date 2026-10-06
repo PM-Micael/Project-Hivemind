@@ -79,6 +79,10 @@ public final class ClientPayloads {
         com.projecthivemind.client.ClientMusic.set(payload.disc());
     }
 
+    public static void onSyncEnchants(com.projecthivemind.network.SyncEnchantsPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientEnchants.update(payload.unlocked());
+    }
+
     public static void onSyncPortals(SyncPortalsPayload payload, IPayloadContext context) {
         com.projecthivemind.client.ClientPortals.update(payload);
     }

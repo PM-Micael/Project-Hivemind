@@ -46,6 +46,10 @@ public class WorkerDigGoal extends Goal {
     private final HiveUnit unit;
     private int repathCooldown;
     private int stuckTicks;
+    /** The nearest the worker has been to the block it is walking to, for telling a long walk from being stuck. */
+    private double nearest = Double.MAX_VALUE;
+    @Nullable
+    private BlockPos nearestFor;
     private int swingCooldown;
     /** The block and block type the worker's tool was last chosen for, so a different target gets a fresh choice. */
     @Nullable
@@ -149,6 +153,13 @@ public class WorkerDigGoal extends Goal {
 
         Vec3 center = Vec3.atCenterOf(pos);
         if (!inDigReach(worker, pos)) {
+            // A long walk across the area is not stuck: the count starts again whenever the worker has got a few blocks nearer.
+            double distance = worker.position().distanceTo(center);
+            if (!pos.equals(nearestFor) || distance < nearest - 2.0D) {
+                nearestFor = pos;
+                nearest = distance;
+                stuckTicks = 0;
+            }
             if (++stuckTicks > GIVE_UP_TICKS) {
                 unit.setAction(null);
             } else if (--repathCooldown <= 0) {

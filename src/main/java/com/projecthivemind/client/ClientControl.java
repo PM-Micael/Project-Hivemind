@@ -277,6 +277,7 @@ public final class ClientControl {
 
     @SubscribeEvent
     static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        ClientEnchants.clear();
         wasActive = false;
         cursorMode = false;
         java.util.Arrays.fill(STACKS, ItemStack.EMPTY);

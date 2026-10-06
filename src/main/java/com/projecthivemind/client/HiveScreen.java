@@ -116,8 +116,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button teamTab;
     private Button portalsTab;
     private Button evolveTab;
-    /** The three enchanting options, which sit with the enchanting station in the list. */
-    private final Button[] enchantOptions = new Button[3];
+    /** The enchanting station's list of what the hive can enchant with: a search box, and rows that the mouse wheel scrolls. */
+    private static final int ENCHANT_ROWS = 5;
+    private EditBox enchantSearch;
+    private final Button[] enchantRows = new Button[ENCHANT_ROWS];
+    private int enchantScroll;
+    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> enchantShown = List.of();
+    /** The Evolve tab's Enchantments section: a search box, and how many rows of its grid are scrolled off the top. */
+    private EditBox evolveEnchantSearch;
+    private int evolveEnchantScroll;
     /** What the empty food slot shows an outline of. */
     private final ItemStack foodOutline = new ItemStack(Items.COOKED_BEEF);
     /** The search box over the hive storage: only what has this text in its name is shown. */
@@ -232,14 +239,34 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             kindTabs.put(kind, addRenderableWidget(button));
         }
 
-        // The three enchanting options, to the right of the item and lapis slots.
-        for (int i = 0; i < 3; i++) {
-            int option = i;
-            enchantOptions[i] = addRenderableWidget(Button.builder(Component.empty(),
-                    button -> PacketDistributor.sendToServer(new com.projecthivemind.network.EnchantPayload(menu.containerId, option)))
-                    .bounds(leftPos + HiveMenu.ENCHANT_ITEM_X + 26, topPos + HiveMenu.ENCHANT_ITEM_Y - 8 + i * 22, 78, 20).build());
-            enchantOptions[i].visible = false;
+        // The enchanting station's list, to the right of the item and lapis slots: a search box over rows of the enchantments the hive can use.
+        enchantSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.ENCHANT_ITEM_X + 26, topPos + HiveMenu.ENCHANT_ITEM_Y - 14, 78, 12,
+                Component.translatable("screen.projecthivemind.hive.search")));
+        enchantSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
+        enchantSearch.setMaxLength(32);
+        enchantSearch.setBordered(true);
+        enchantSearch.setResponder(text -> enchantScroll = 0);
+        enchantSearch.visible = false;
+        for (int i = 0; i < ENCHANT_ROWS; i++) {
+            int row = i;
+            enchantRows[i] = addRenderableWidget(Button.builder(Component.empty(), button -> {
+                int index = enchantScroll + row;
+                if (index < enchantShown.size()) {
+                    PacketDistributor.sendToServer(new com.projecthivemind.network.ApplyEnchantPayload(menu.containerId,
+                            enchantShown.get(index).key().location().toString()));
+                }
+            }).bounds(leftPos + HiveMenu.ENCHANT_ITEM_X + 26, topPos + HiveMenu.ENCHANT_ITEM_Y + i * 18, 78, 17).build());
+            enchantRows[i].visible = false;
         }
+        // The Evolve tab's search over its Enchantments section.
+        evolveEnchantSearch = addRenderableWidget(new EditBox(font, leftPos + imageWidth - 12 - 110, topPos + EVOLVE_TOP, 110, 12,
+                Component.translatable("screen.projecthivemind.hive.search")));
+        evolveEnchantSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
+        evolveEnchantSearch.setMaxLength(32);
+        evolveEnchantSearch.setBordered(true);
+        evolveEnchantSearch.setResponder(text -> evolveEnchantScroll = 0);
+        evolveEnchantSearch.visible = false;
+
 
         // Search the storage: what is typed here filters the storage grid to the items whose name has it in it.
         createStationButtons();
@@ -521,50 +548,82 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
 
-    /**
-     * The three enchanting options: there while the enchanting station is open. Each shows the level it asks for; its popup gives the hint of what
-     * it may enchant with (as at an enchanting table), and what it costs, in red where the hive is short.
-     */
-    private void updateEnchantButtons() {
-        boolean shown = enchantVisible();
+    /** Every enchantment of the game, vanilla and modded, in order of name. Worked out again only when the game's registries change. */
+    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> allEnchantments;
+    private Object allEnchantmentsFor;
+
+    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> allEnchantments() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.level == null) {
+        if (minecraft.level == null) {
+            return List.of();
+        }
+        net.minecraft.core.Registry<net.minecraft.world.item.enchantment.Enchantment> registry =
+                minecraft.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT);
+        if (allEnchantments == null || allEnchantmentsFor != registry) {
+            allEnchantments = registry.holders().sorted(java.util.Comparator.comparing((net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder) ->
+                    holder.value().description().getString().toLowerCase(Locale.ROOT))).toList();
+            allEnchantmentsFor = registry;
+        }
+        return allEnchantments;
+    }
+
+    /** The name of an enchantment without a level: "Sharpness". */
+    private static String enchantName(net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder) {
+        return holder.value().description().getString();
+    }
+
+    /**
+     * The enchanting station's list: the enchantments the hive has made available, filtered by what is typed in the search box, as rows the mouse
+     * wheel scrolls. A row is dimmed when its enchantment cannot go on the item in the station, or the hive cannot pay for it; its popup says why,
+     * and what it costs in lapis lazuli and levels (red where the hive is short).
+     */
+    private void updateEnchantList() {
+        boolean shown = enchantVisible();
+        enchantSearch.visible = shown;
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!shown || minecraft.player == null) {
+            enchantShown = List.of();
+            for (Button row : enchantRows) {
+                row.visible = false;
+            }
             return;
         }
-        net.minecraft.core.IdMap<net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment>> ids =
-                minecraft.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).asHolderIdMap();
+        String filter = enchantSearch.getValue().toLowerCase(Locale.ROOT).trim();
+        enchantShown = allEnchantments().stream()
+                .filter(holder -> ClientEnchants.isUnlocked(holder.key().location().toString()))
+                .filter(holder -> filter.isEmpty() || enchantName(holder).toLowerCase(Locale.ROOT).contains(filter))
+                .toList();
+        enchantScroll = Math.max(0, Math.min(enchantScroll, enchantShown.size() - ENCHANT_ROWS));
+        ItemStack item = menu.enchantItem();
         boolean free = minecraft.player.hasInfiniteMaterials();
-        for (int i = 0; i < 3; i++) {
-            Button button = enchantOptions[i];
-            button.visible = shown;
-            int cost = menu.enchantCosts[i];
-            if (cost <= 0) {
-                button.setMessage(Component.literal("-"));
-                button.active = false;
-                button.setTooltip(null);
+        for (int i = 0; i < ENCHANT_ROWS; i++) {
+            Button button = enchantRows[i];
+            int index = enchantScroll + i;
+            if (index >= enchantShown.size()) {
+                button.visible = false;
                 continue;
             }
-            boolean lapisOk = free || menu.enchantLapis() >= i + 1;
-            boolean levelsOk = free || minecraft.player.experienceLevel >= Math.max(i + 1, cost);
-            button.setMessage(Component.translatable("screen.projecthivemind.enchant.option", cost));
-            button.active = lapisOk && levelsOk;
-            net.minecraft.network.chat.MutableComponent text = Component.empty();
-            net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> clue = menu.enchantClue[i] >= 0 ? ids.byId(menu.enchantClue[i]) : null;
-            if (clue != null) {
-                text.append(net.minecraft.world.item.enchantment.Enchantment.getFullname(clue, menu.enchantLevelClue[i])).append(Component.literal(" ...?")).append("\n");
+            net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantShown.get(index);
+            int lapisCost = com.projecthivemind.HiveEnchanting.lapisCost(holder);
+            int levelCost = com.projecthivemind.HiveEnchanting.levelCost(holder);
+            boolean lapisOk = free || menu.enchantLapis() >= lapisCost;
+            boolean levelsOk = free || minecraft.player.experienceLevel >= levelCost;
+            String problem = com.projecthivemind.HiveEnchanting.problem(item, holder);
+            button.visible = true;
+            button.setMessage(net.minecraft.world.item.enchantment.Enchantment.getFullname(holder, com.projecthivemind.HiveEnchanting.levelOf(holder)));
+            button.active = problem == null && lapisOk && levelsOk;
+            net.minecraft.network.chat.MutableComponent text = Component.empty().append(net.minecraft.world.item.enchantment.Enchantment.getFullname(holder,
+                    com.projecthivemind.HiveEnchanting.levelOf(holder)));
+            if (problem != null) {
+                text.append("\n").append(Component.translatable("screen.projecthivemind.enchant.problem." + problem).withStyle(net.minecraft.ChatFormatting.RED));
             }
-            text.append(Component.translatable(i == 0 ? "container.enchant.lapis.one" : "container.enchant.lapis.many", i + 1)
-                    .withStyle(lapisOk ? net.minecraft.ChatFormatting.GRAY : net.minecraft.ChatFormatting.RED)).append("\n");
-            text.append(Component.translatable(i == 0 ? "container.enchant.level.one" : "container.enchant.level.many", i + 1)
+            text.append("\n").append(Component.translatable(lapisCost == 1 ? "container.enchant.lapis.one" : "container.enchant.lapis.many", lapisCost)
+                    .withStyle(lapisOk ? net.minecraft.ChatFormatting.GRAY : net.minecraft.ChatFormatting.RED));
+            text.append("\n").append(Component.translatable(levelCost == 1 ? "container.enchant.level.one" : "container.enchant.level.many", levelCost)
                     .withStyle(levelsOk ? net.minecraft.ChatFormatting.GRAY : net.minecraft.ChatFormatting.RED));
-            if (cost > i + 1) {
-                text.append("\n").append(Component.translatable("container.enchant.level.requirement", cost)
-                        .withStyle(levelsOk ? net.minecraft.ChatFormatting.GRAY : net.minecraft.ChatFormatting.RED));
-            }
             button.setTooltip(Tooltip.create(text));
         }
     }
-
 
     /** Switch tab. Each tab shows its own slots, and the Units tab shows the page of one kind of unit. */
     private void showTab(Tab newTab, UnitKind kind) {
@@ -805,7 +864,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // The portal network and the evolve slot come with a level of the hive; their tabs are there once the hive has it.
         updateTabButtons();
         layoutStations();
-        updateEnchantButtons();
+        updateEnchantList();
+        updateEvolveEnchantUi();
         if (tab == Tab.EVOLVE && !evolveTab.visible) {
             showTab(Tab.HIVE, unitPage);
         }
@@ -1250,6 +1310,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         mouseXNow = mouseX;
         mouseYNow = mouseY;
         super.render(graphics, mouseX, mouseY, partialTick);
+        drawTotemStatus(graphics, mouseX, mouseY);
         // The head being dragged to another team follows the cursor.
         SyncUnitsPayload.Entry dragged = dragUnit >= 0 && tab == Tab.TEAM ? ClientUnits.entry(dragUnit) : null;
         if (dragged != null) {
@@ -1272,6 +1333,36 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             renderEvolveTooltips(graphics, mouseX, mouseY);
         }
         this.renderTooltip(graphics, mouseX, mouseY);
+    }
+
+    /**
+     * With the totem task done, a totem of undying at the top right of the menu: bright when the Heart's effect is ready, dimmed with the time
+     * until it is ready again under it when it has been used.
+     */
+    private void drawTotemStatus(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (!com.projecthivemind.EvolveTask.TOTEM.doneIn(menu.evolveMask())) {
+            return;
+        }
+        int x = leftPos + imageWidth - 8 - 16;
+        int y = topPos + 6;
+        int ticks = menu.totemCooldownTicks();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 300.0F);
+        graphics.renderItem(new ItemStack(Items.TOTEM_OF_UNDYING), x, y);
+        Component text;
+        if (ticks > 0) {
+            graphics.fill(x, y, x + 16, y + 16, 0xB0000000);
+            int seconds = (ticks + 19) / 20;
+            String time = String.format("%d:%02d", seconds / 60, seconds % 60);
+            graphics.drawString(font, time, x + 8 - font.width(time) / 2, y + 18, 0xFFFFFF, true);
+            text = Component.translatable("screen.projecthivemind.totem.cooldown", time);
+        } else {
+            text = Component.translatable("screen.projecthivemind.totem.ready");
+        }
+        graphics.pose().popPose();
+        if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+            graphics.renderTooltip(font, text, mouseX, mouseY);
+        }
     }
 
     @Override
@@ -1353,7 +1444,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
      */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        for (EditBox box : new EditBox[] {storageSearch, scoutSearch}) {
+        for (EditBox box : new EditBox[] {storageSearch, scoutSearch, enchantSearch, evolveEnchantSearch}) {
             if (box != null && box.visible && box.isFocused() && keyCode != org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) {
                 return box.keyPressed(keyCode, scanCode, modifiers) || box.canConsumeInput();
             }
@@ -1637,8 +1728,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
      */
     private List<EvolveIcon> evolveIcons() {
         List<EvolveIcon> icons = new ArrayList<>();
-        int mask = menu.evolveMask();
-        int readyMask = menu.evolveReady();
+        long mask = menu.evolveMask();
+        long readyMask = menu.evolveReady();
         int todo = 0;
         int done = 0;
         for (boolean readyFirst : new boolean[] {true, false}) {

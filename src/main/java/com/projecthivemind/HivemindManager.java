@@ -656,6 +656,12 @@ public final class HivemindManager {
         }
     }
 
+    /** Tell the owner which enchantments the hive has made available (for the enchanting station and the Evolve tab). */
+    public static void sendEnchants(ServerPlayer owner, HiveHeart heart) {
+        PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncEnchantsPayload(
+                heart.unlockedEnchants().stream().map(net.minecraft.resources.ResourceLocation::toString).toList()));
+    }
+
     public static void openMenu(ServerPlayer player) {
         if (get(player).stage() != HivemindStage.HIVE) {
             return;
@@ -669,12 +675,10 @@ public final class HivemindManager {
                 (containerId, inventory, ignored) -> HiveMenu.create(containerId, inventory, heart, player),
                 Component.translatable("screen.projecthivemind.hive.title")), buf -> {
             buf.writeVarInt(heart.getStorage().getContainerSize());
-            // The built-in furnace comes with level 3.
-            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.FURNACE_LEVEL);
-            buf.writeBoolean(heart.hiveLevel() >= HiveLevels.BREWING_LEVEL);
         });
         sendUnits(player);
         HivePortals.sync(player, heart);
+        sendEnchants(player, heart);
     }
 
     // ---- units ----
@@ -807,18 +811,18 @@ public final class HivemindManager {
 
     /**
      * The settings a unit made at the Heart starts with, for those of its kind that have them: wander inside the border, attack hostile mobs in the
-     * hive area, run from hostile mobs, clear grass, flatten the area (with dirt), fell trees, pick up items inside the border, and channel on
-     * crops and saplings. Soldiers also stay inside the border.
+     * hive area, clear grass, flatten the area (with dirt), fell trees, pick up items inside the border, and channel on
+     * crops and saplings. Scouts, workers and soldiers all stay inside the border. (Workers do not run from hostile mobs unless the player turns that on.)
      */
     public static SlotConfigs.Config heartDefaults(UnitKind kind) {
         switch (kind) {
             case SCOUT -> {
                 com.projecthivemind.ScoutBehavior scout = new com.projecthivemind.ScoutBehavior(false, com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true,
-                        com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, false, true, false);
+                        com.projecthivemind.ScoutBehavior.DEFAULT_RADIUS, true, true, false);
                 return new SlotConfigs.Config(scout.flags(), scout.radii(), "", "");
             }
             case WORKER -> {
-                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, false, false, true, true, true, false, true, true, 16);
+                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, true, true, false, true, false, 16);
                 return new SlotConfigs.Config(worker.flags(), worker.radii(), itemName(net.minecraft.world.item.Items.DIRT), "");
             }
             case SOLDIER -> {
@@ -1418,6 +1422,8 @@ public final class HivemindManager {
     private static void levelUp(HiveHeart heart, ServerPlayer owner) {
         ServerLevel level = (ServerLevel) heart.level();
         heart.setHiveLevel(heart.hiveLevel() + 1);
+        // The hive area is bigger: the lights over it are looked at again at once.
+        heart.refreshGlowLights();
         // The storage is a new, bigger container now: a menu that is still open would be looking at the old one.
         if (owner.containerMenu != owner.inventoryMenu) {
             owner.closeContainer();

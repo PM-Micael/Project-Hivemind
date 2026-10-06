@@ -44,11 +44,17 @@ public enum EvolveTask {
     DIAMOND_HORSE_ARMOR(Items.DIAMOND_HORSE_ARMOR, 23, Reward.DEFENCE),
     WOLF_ARMOR(Items.WOLF_ARMOR, 24, Reward.DEFENCE),
     CARTOGRAPHY_TABLE(Items.CARTOGRAPHY_TABLE, 25, Reward.CARTOGRAPHY),
-    ANVIL(Items.ANVIL, 26, Reward.ANVIL);
+    ANVIL(Items.ANVIL, 26, Reward.ANVIL),
+    GLOWSTONE(Items.GLOWSTONE, 27, Reward.LIGHT),
+    RABBIT_FOOT(Items.RABBIT_FOOT, 28, Reward.SWIFT_SOLDIERS),
+    COBWEB(Items.COBWEB, 29, Reward.SLOW_ENEMIES),
+    TOTEM(Items.TOTEM_OF_UNDYING, 30, Reward.UNDYING),
+    EXPERIENCE_BOTTLE(Items.EXPERIENCE_BOTTLE, 31, Reward.XP_TRICKLE),
+    SEA_LANTERN(Items.SEA_LANTERN, 32, Reward.GUARDIAN_BEAM);
 
     /** What a task gives. */
     public enum Reward {
-        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, RESPAWN, CARTOGRAPHY, ANVIL
+        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, RESPAWN, CARTOGRAPHY, ANVIL, LIGHT, SWIFT_SOLDIERS, SLOW_ENEMIES, UNDYING, XP_TRICKLE, GUARDIAN_BEAM
     }
 
     private final Item item;
@@ -82,17 +88,17 @@ public enum EvolveTask {
     }
 
     /** This task's bit in the mask of tasks done. */
-    public int bit() {
-        return 1 << bitIndex;
+    public long bit() {
+        return 1L << bitIndex;
     }
 
-    public boolean doneIn(int mask) {
+    public boolean doneIn(long mask) {
         return (mask & bit()) != 0;
     }
 
     /** The task this item is for, if that task is not done yet; otherwise null (the item is not valid to consume). */
     @Nullable
-    public static EvolveTask forItem(ItemStack stack, int doneMask) {
+    public static EvolveTask forItem(ItemStack stack, long doneMask) {
         for (EvolveTask task : values()) {
             if (!task.doneIn(doneMask) && task.accepts(stack)) {
                 return task;
@@ -102,7 +108,7 @@ public enum EvolveTask {
     }
 
     /** The base defence the hive and its units get with these tasks done: 2 for each task that gives defence. */
-    public static double defenceBonus(int doneMask) {
+    public static double defenceBonus(long doneMask) {
         double bonus = 0.0D;
         for (EvolveTask task : values()) {
             if (task.reward == Reward.DEFENCE && task.doneIn(doneMask)) {
@@ -113,12 +119,12 @@ public enum EvolveTask {
     }
 
     /** Ticks between the Heart's unit spawnings and between the units of a summoning: 10 seconds, or 5 with the ender pearl task done. */
-    public static int spawnIntervalTicks(int doneMask) {
+    public static int spawnIntervalTicks(long doneMask) {
         return ENDER_PEARL.doneIn(doneMask) ? 100 : 200;
     }
 
     /** How many full stacks a storage slot holds, with these tasks done: 1 to begin with, and one more for each task that gives stack size. */
-    public static int stackMultiplier(int doneMask) {
+    public static int stackMultiplier(long doneMask) {
         int multiplier = 1;
         for (EvolveTask task : values()) {
             if (task.reward == Reward.STACK_SIZE && task.doneIn(doneMask)) {

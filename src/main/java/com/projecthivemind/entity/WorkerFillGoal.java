@@ -50,6 +50,8 @@ public class WorkerFillGoal extends Goal {
     private int repathCooldown;
     private int placeCooldown;
     private int stuckTicks;
+    /** The nearest the worker has been to the gap it is walking to, for telling a long walk from being stuck. */
+    private double nearest = Double.MAX_VALUE;
     private final Map<BlockPos, Integer> ignored = new HashMap<>();
 
     public WorkerFillGoal(HiveWorker worker) {
@@ -91,6 +93,7 @@ public class WorkerFillGoal extends Goal {
 
     @Override
     public void start() {
+        nearest = Double.MAX_VALUE;
         repathCooldown = 0;
         stuckTicks = 0;
         placeCooldown = 0;
@@ -111,6 +114,12 @@ public class WorkerFillGoal extends Goal {
             return;
         }
         if (!WorkerDigGoal.inDigReach(worker, target)) {
+            // A long walk across the area is not stuck: the count starts again whenever the worker has got a few blocks nearer.
+            double distance = worker.position().distanceTo(Vec3.atCenterOf(target));
+            if (distance < nearest - 2.0D) {
+                nearest = distance;
+                stuckTicks = 0;
+            }
             if (++stuckTicks > GIVE_UP_TICKS) {
                 ignored.put(target, worker.tickCount + IGNORE_TICKS);
                 target = null;
@@ -201,6 +210,19 @@ public class WorkerFillGoal extends Goal {
                     if (!level.hasChunkAt(pos.set(x, floorTop, z))) {
                         continue;
                     }
+                    // The hive area is levelled one layer only, the Heart's floor: a block goes in a column that has none there, if there is something
+                    // to put it against (ground under it, or the floor beside it, so a platform in the air is extended from its edge).
+                    if (region.circle() == null) {
+                        BlockPos layerGap = hiveFloorGap(level, x, floorTop, z);
+                        if (layerGap != null && !ignored.containsKey(layerGap) && stillGap(layerGap)) {
+                            double layerDistance = layerGap.distSqr(origin);
+                            if (layerDistance < bestDistance) {
+                                bestDistance = layerDistance;
+                                best = layerGap;
+                            }
+                        }
+                        continue;
+                    }
                     int groundTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
                     if (groundTop >= floorTop || floorTop - groundTop > (region.circle() == null ? HIVE_AREA_MAX_DEPTH : MAX_DEPTH)) {
                         continue;
@@ -237,11 +259,38 @@ public class WorkerFillGoal extends Goal {
         return best;
     }
 
-    private boolean reachable(BlockPos pos) {
-        if (WorkerDigGoal.inDigReach(worker, pos)) {
-            return true;
+    /**
+     * The spot at the Heart's floor layer in this column, if a block belongs there: nothing solid is at or above the layer in the column (no floor
+     * yet, no hill, no roof), and the block can be put against something: solid ground right under it, or the floor of the next column over (its
+     * top exactly at this layer), so a platform with nothing under it is extended sideways from its edge.
+     */
+    @Nullable
+    private BlockPos hiveFloorGap(ServerLevel level, int x, int floorTop, int z) {
+        if (level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) > floorTop) {
+            return null;
         }
-        net.minecraft.world.level.pathfinder.Path path = worker.getNavigation().createPath(pos, 1);
-        return path != null && path.canReach();
+        BlockPos spot = new BlockPos(x, floorTop, z);
+        BlockPos below = spot.below();
+        BlockState belowState = level.getBlockState(below);
+        if (belowState.getFluidState().isEmpty() && belowState.isFaceSturdy(level, below, Direction.UP)) {
+            return spot;
+        }
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            int nx = x + side.getStepX();
+            int nz = z + side.getStepZ();
+            if (!level.hasChunkAt(new BlockPos(nx, floorTop, nz)) || level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, nx, nz) - 1 != floorTop) {
+                continue;
+            }
+            BlockPos neighbor = new BlockPos(nx, floorTop, nz);
+            BlockState neighborState = level.getBlockState(neighbor);
+            if (neighborState.getFluidState().isEmpty() && neighborState.isFaceSturdy(level, neighbor, side.getOpposite())) {
+                return spot;
+            }
+        }
+        return null;
+    }
+
+    private boolean reachable(BlockPos pos) {
+        return WorkerAutoJobs.canWalkToward(worker, pos);
     }
 }

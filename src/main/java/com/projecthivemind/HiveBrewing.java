@@ -11,7 +11,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionBrewing;
 
 /**
- * The brewing stand built into a level 5 Hive Heart. It brews the way a brewing stand block does (same recipes, same
+ * The brewing stand built into the Hive Heart, once the hive has consumed a brewing stand on the Evolve tab. It brews the way a brewing stand block does (same recipes, same
  * blaze powder fuel, same 20 seconds) but is not a block: it is five slots and two counters that live on the Heart, and it
  * keeps working while the menu is closed.
  */

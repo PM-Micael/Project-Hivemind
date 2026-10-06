@@ -205,7 +205,9 @@ public class HiveSoldier extends Zombie implements HiveUnit {
             }
             // While it is after something it runs at the scout's pace; the rest of the time at its own walking speed.
             net.minecraft.world.entity.ai.attributes.AttributeInstance speed = this.getAttribute(Attributes.MOVEMENT_SPEED);
-            double wanted = this.isAggressive() ? AGGRESSION_SPEED : NORMAL_SPEED;
+            // (With the rabbit's foot task done, the pace while it is after something is 25% more.)
+            boolean swift = heart != null && com.projecthivemind.EvolveTask.RABBIT_FOOT.doneIn(heart.evolveMask());
+            double wanted = this.isAggressive() ? AGGRESSION_SPEED * (swift ? 1.25D : 1.0D) : NORMAL_SPEED;
             if (speed != null && speed.getBaseValue() != wanted) {
                 speed.setBaseValue(wanted);
             }

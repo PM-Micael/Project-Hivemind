@@ -267,7 +267,7 @@ public final class WorkerAutoJobs {
             if (checked++ >= MAX_CANDIDATES) {
                 break;
             }
-            if (reachable(worker, candidate)) {
+            if (canWalkToward(worker, candidate)) {
                 return new UnitAction(UnitAction.Kind.DIG, candidate);
             }
         }
@@ -322,6 +322,30 @@ public final class WorkerAutoJobs {
 
     private static boolean isWanted(WorkerBehavior behavior, BlockState state, double distanceSqr) {
         return behavior.mineOre() && state.is(Tags.Blocks.ORES) && distanceSqr <= (double) behavior.oreRadius() * behavior.oreRadius();
+    }
+
+    /**
+     * True if the worker is in reach of the block, or a path toward it exists that brings it nearer. A path only looks so far (the follow range), so
+     * a block on the far side of the hive area has no complete path from here, but the worker walks toward it in legs and looks again from each place
+     * it gets to (the goals that walk repath every half second). Flattening the ground uses this so a worker works the whole area, not only what is near.
+     */
+    public static boolean canWalkToward(HiveWorker worker, BlockPos pos) {
+        if (WorkerDigGoal.inDigReach(worker, pos)) {
+            return true;
+        }
+        Path path = worker.getNavigation().createPath(pos, 1);
+        if (path == null) {
+            return false;
+        }
+        if (path.canReach()) {
+            return true;
+        }
+        net.minecraft.world.level.pathfinder.Node end = path.getEndNode();
+        if (end == null) {
+            return false;
+        }
+        Vec3 target = Vec3.atCenterOf(pos);
+        return Math.sqrt(Vec3.atBottomCenterOf(end.asBlockPos()).distanceToSqr(target)) < Math.sqrt(worker.position().distanceToSqr(target)) - 3.0D;
     }
 
     /** True if the worker is already within digging reach, or can walk to within a block or two of the target. */

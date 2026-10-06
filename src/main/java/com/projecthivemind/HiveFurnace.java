@@ -15,7 +15,7 @@ import net.minecraft.world.item.crafting.SingleRecipeInput;
 import net.minecraft.world.item.crafting.SmeltingRecipe;
 
 /**
- * The furnace built into a level 3 Hive Heart. It smelts the way a furnace block does (same recipes, same fuel, same
+ * The furnace built into the Hive Heart, once the hive has consumed a furnace on the Evolve tab. It smelts the way a furnace block does (same recipes, same fuel, same
  * times) but is not a block: it is three slots and some counters that live on the Heart, and it keeps working while
  * the menu is closed. It gives no experience.
  */

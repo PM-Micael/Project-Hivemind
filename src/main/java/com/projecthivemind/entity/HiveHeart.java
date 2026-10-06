@@ -124,9 +124,9 @@ public class HiveHeart extends Mob {
     private float syncedHealth = -1.0F;
     private int syncedArmor = -1;
     private int syncedFood = -1;
-    /** The furnace built into the Heart from level 3. Exists at every level so the menu code stays simple. */
+    /** The furnace built into the Heart, usable once a furnace has been consumed on the Evolve tab. It always exists so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
-    /** The brewing stand built into the Heart from level 5. */
+    /** The brewing stand built into the Heart, usable once a brewing stand has been consumed on the Evolve tab. */
     private final HiveBrewing brewing = new HiveBrewing();
     /** The portals standing and the summoning going on (from level 2). */
     private final PortalNetwork portals = new PortalNetwork();
@@ -380,6 +380,8 @@ public class HiveHeart extends Mob {
         // A destroyed Heart takes its light away with it.
         if (reason.shouldDestroy() && !this.level().isClientSide) {
             removeLight();
+            removeGlowLights();
+            releaseSlowed();
         }
         // A destroyed Heart no longer holds its chunks loaded (one that is merely unloading keeps them).
         if (reason.shouldDestroy()) {
@@ -414,6 +416,211 @@ public class HiveHeart extends Mob {
             this.level().setBlock(lightPos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
         }
         lightPos = null;
+    }
+    /**
+     * How far apart the glowstone task's light blocks are, in blocks. Light 15 loses 1 for every block it travels, and monsters only spawn where the
+     * block light is 0: lights 8 apart and 5 above the ground leave every point of the ground at light 2 or more (4 + 4 sideways and 5 up is 13).
+     */
+    private static final int GLOW_SPACING = 8;
+    /** How far above the Heart's own block the lights hang: 4, which is 5 above the ground the Heart stands on. */
+    private static final int GLOW_HEIGHT = 4;
+    /** If the spot is not air (a hill, a tree), the light goes up to this many blocks higher instead. */
+    private static final int GLOW_RISE = 3;
+
+    /**
+     * Where the glowstone task's lights were last put: the centre of their grid, its dimension and the hive's radius then. Saved with the Heart, so
+     * that after a restart, or when a new Heart takes the hive up somewhere else, the lights left at the old place are found and taken away.
+     */
+    @Nullable
+    private BlockPos glowCenter;
+    @Nullable
+    private String glowDimension;
+    private int glowRadius;
+
+    /** The columns where the lights go, for a grid centred on this place: a square over the hive area, and a little past its edge so that the edge is covered. */
+    private static java.util.List<BlockPos> glowColumns(BlockPos center, int radius) {
+        int steps = (radius + GLOW_SPACING - 1) / GLOW_SPACING;
+        java.util.List<BlockPos> columns = new java.util.ArrayList<>();
+        for (int i = -steps; i <= steps; i++) {
+            for (int j = -steps; j <= steps; j++) {
+                columns.add(center.offset(i * GLOW_SPACING, 0, j * GLOW_SPACING));
+            }
+        }
+        return columns;
+    }
+
+    /** Take every light block away where a grid with this centre and radius would hang one. */
+    private void clearGlowGrid(BlockPos center, int radius) {
+        for (BlockPos column : glowColumns(center, radius)) {
+            if (!this.level().hasChunkAt(column)) {
+                continue;
+            }
+            for (int rise = 0; rise <= GLOW_RISE; rise++) {
+                BlockPos spot = column.above(rise);
+                if (this.level().getBlockState(spot).is(net.minecraft.world.level.block.Blocks.LIGHT)) {
+                    this.level().setBlock(spot, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+                }
+            }
+        }
+    }
+
+    /**
+     * With the glowstone task done, light blocks hang over the hive area in a grid, bright enough that nothing hostile can spawn inside it. They
+     * only go where there is air (or a little above where there is not), and the ones that are there are left alone. Called once a second, and at
+     * once when the task is done or the hive levels up, so that it follows the Heart: lights at an old place (the Heart is somewhere else now) are
+     * taken away, and the grid grows with the hive area.
+     */
+    private void keepGlowLights() {
+        if (!com.projecthivemind.EvolveTask.GLOWSTONE.doneIn(evolveMask) || this.level().isClientSide) {
+            return;
+        }
+        BlockPos center = this.blockPosition().above(GLOW_HEIGHT);
+        int radius = com.projecthivemind.HiveLevels.get(hiveLevel).infectionRadius();
+        String dimension = this.level().dimension().location().toString();
+        // The lights of an earlier place: only in this dimension can they be reached from here.
+        if (glowCenter != null && (!glowCenter.equals(center) || !dimension.equals(glowDimension)) && dimension.equals(glowDimension)) {
+            clearGlowGrid(glowCenter, glowRadius);
+        }
+        glowCenter = center;
+        glowDimension = dimension;
+        glowRadius = radius;
+        net.minecraft.world.level.block.state.BlockState light = net.minecraft.world.level.block.Blocks.LIGHT.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.LightBlock.LEVEL, 15);
+        for (BlockPos column : glowColumns(center, radius)) {
+            if (!this.level().hasChunkAt(column)) {
+                continue;
+            }
+            for (int rise = 0; rise <= GLOW_RISE; rise++) {
+                BlockPos spot = column.above(rise);
+                net.minecraft.world.level.block.state.BlockState state = this.level().getBlockState(spot);
+                if (state.is(net.minecraft.world.level.block.Blocks.LIGHT)) {
+                    break;
+                }
+                if (state.isAir()) {
+                    this.level().setBlock(spot, light, 2);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** The hive grew or changed (a level-up): look at the glowstone task's lights again at once. */
+    public void refreshGlowLights() {
+        keepGlowLights();
+    }
+
+    /** The Heart is destroyed: its lights go with it, wherever it last put them. */
+    private void removeGlowLights() {
+        if (glowCenter != null && this.level().dimension().location().toString().equals(glowDimension)) {
+            clearGlowGrid(glowCenter, glowRadius);
+        }
+        glowCenter = null;
+        glowDimension = null;
+    }
+
+
+
+    // ---- the totem of undying and the cobweb evolutions ----
+
+    /** 5 minutes: how long the totem effect takes to come back after it has saved the Heart. */
+    public static final int TOTEM_COOLDOWN_TICKS = 6000;
+    /** Ticks left until the totem effect is ready again; 0 when it is ready. Saved, so a restart does not give it back. */
+    private int totemCooldown;
+
+    public int totemCooldown() {
+        return totemCooldown;
+    }
+
+    /**
+     * Called when the Heart is about to die. With the totem task done and the effect ready it is as if the Heart held a totem of undying: it does not
+     * die, it is left with 1 health, its effects are cleared and it gets Regeneration, Absorption and Fire Resistance as the totem gives, and the effect
+     * is not ready again for {@value #TOTEM_COOLDOWN_TICKS} ticks. Like the item it does not save the Heart from what gets past all protection (the void,
+     * /kill). True if it saved the Heart.
+     */
+    public boolean tryUndying(net.minecraft.world.damagesource.DamageSource source) {
+        if (!com.projecthivemind.EvolveTask.TOTEM.doneIn(evolveMask) || totemCooldown > 0 || this.level().isClientSide
+                || source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            return false;
+        }
+        this.setHealth(1.0F);
+        this.removeAllEffects();
+        this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.REGENERATION, 900, 1));
+        this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.ABSORPTION, 100, 1));
+        this.addEffect(new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE, 800, 0));
+        // The totem's own particles and sound, as a mob that pops one gives them.
+        this.level().broadcastEntityEvent(this, (byte) 35);
+        totemCooldown = TOTEM_COOLDOWN_TICKS;
+        return true;
+    }
+
+    private static final net.minecraft.resources.ResourceLocation COBWEB_SLOW = com.projecthivemind.ProjectHivemind.id("cobweb_slow");
+    /** How much slower enemies in the hive area are with the cobweb task done: 25%. */
+    private static final double COBWEB_SLOWNESS = -0.25D;
+    /** The enemies slowed right now, so that one that has left the hive area (or the task being gone) is let go. Not saved: the slow does not save either. */
+    private final java.util.Set<UUID> slowed = new HashSet<>();
+
+    private static void slow(net.minecraft.world.entity.LivingEntity mob, boolean slow) {
+        for (net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute : java.util.List.of(
+                net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED, net.minecraft.world.entity.ai.attributes.Attributes.FLYING_SPEED)) {
+            net.minecraft.world.entity.ai.attributes.AttributeInstance instance = mob.getAttribute(attribute);
+            if (instance == null) {
+                continue;
+            }
+            if (slow && !instance.hasModifier(COBWEB_SLOW)) {
+                instance.addTransientModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(COBWEB_SLOW, COBWEB_SLOWNESS,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+            } else if (!slow) {
+                instance.removeModifier(COBWEB_SLOW);
+            }
+        }
+    }
+
+    /** With the cobweb task done, every enemy inside the hive area is 25% slower (checked a few times a second); the ones that left are let go. */
+    private void keepCobweb() {
+        if (!(this.level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        java.util.Set<UUID> now = new HashSet<>();
+        if (com.projecthivemind.EvolveTask.COBWEB.doneIn(evolveMask)) {
+            for (Mob mob : serverLevel.getEntitiesOfClass(Mob.class, com.projecthivemind.HiveArea.areaBox(serverLevel, this),
+                    candidate -> candidate instanceof net.minecraft.world.entity.monster.Enemy && candidate.isAlive() && !HiveAttacks.spares(candidate))) {
+                slow(mob, true);
+                now.add(mob.getUUID());
+            }
+        }
+        for (UUID id : slowed) {
+            if (!now.contains(id) && serverLevel.getEntity(id) instanceof Mob mob) {
+                slow(mob, false);
+            }
+        }
+        slowed.clear();
+        slowed.addAll(now);
+    }
+
+    /**
+     * With the experience bottle task done, the hive gets a bottle o' enchanting's worth of experience (3 to 11 points, as the bottle gives) every
+     * minute, on the owner's experience bar.
+     */
+    private void giveBottleExperience() {
+        if (this.ownerId == null || this.getServer() == null) {
+            return;
+        }
+        net.minecraft.server.level.ServerPlayer owner = this.getServer().getPlayerList().getPlayer(this.ownerId);
+        if (owner != null) {
+            HivemindManager.giveHiveExperience(owner, this, 3 + this.random.nextInt(5) + this.random.nextInt(5));
+        }
+    }
+
+    /** The Heart is gone: no enemy stays slowed for it. */
+    private void releaseSlowed() {
+        if (this.level() instanceof ServerLevel serverLevel) {
+            for (UUID id : slowed) {
+                if (serverLevel.getEntity(id) instanceof Mob mob) {
+                    slow(mob, false);
+                }
+            }
+        }
+        slowed.clear();
     }
 
     /** 10 seconds. */
@@ -501,9 +708,19 @@ public class HiveHeart extends Mob {
             }
             return;
         }
+        if (totemCooldown > 0) {
+            totemCooldown--;
+        }
+        if (this.tickCount % 10 == 0) {
+            keepCobweb();
+        }
+        if (this.tickCount % 1200 == 0 && com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask)) {
+            giveBottleExperience();
+        }
         // The Heart gives off light: a light block (invisible, inside its body) at its own place, kept there once a second.
         if (this.tickCount % 20 == 0) {
             keepLight();
+            keepGlowLights();
         }
         // The Heart makes its own units: every interval it tops up what is below the cap and refreshes out-of-date gear.
         if (++spawnTimer >= com.projecthivemind.EvolveTask.spawnIntervalTicks(evolveMask)) {
@@ -550,6 +767,7 @@ public class HiveHeart extends Mob {
         HeartTurret.tick(this);
         HeartThorns.tick(this);
         HeartSonicBoom.tick(this);
+        HeartBeam.tick(this);
         HeartAura.tick(this);
         HiveMusic.tick(this);
         com.projecthivemind.HiveConstructions.tick(this);
@@ -826,18 +1044,29 @@ public class HiveHeart extends Mob {
         return hiveLevel;
     }
 
-    /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
-    private int evolveMask;
+    /** The enchantments the hive has made available in its enchanting station, by consuming a book with each. Saved. */
+    private final java.util.Set<net.minecraft.resources.ResourceLocation> unlockedEnchants = new java.util.LinkedHashSet<>();
 
-    public int evolveMask() {
+    public java.util.Set<net.minecraft.resources.ResourceLocation> unlockedEnchants() {
+        return java.util.Collections.unmodifiableSet(unlockedEnchants);
+    }
+
+    public void unlockEnchant(net.minecraft.resources.ResourceLocation id) {
+        unlockedEnchants.add(id);
+    }
+
+    /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
+    private long evolveMask;
+
+    public long evolveMask() {
         return evolveMask;
     }
 
     /**
      * The tasks still to do that the hive can do now: those whose item is somewhere in its storage, as a mask of bits.
      */
-    public int evolveReadyMask() {
-        int ready = 0;
+    public long evolveReadyMask() {
+        long ready = 0L;
         for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
             if (!task.doneIn(evolveMask) && storageHasFor(task) >= 0) {
                 ready |= task.bit();
@@ -859,6 +1088,9 @@ public class HiveHeart extends Mob {
     /** Mark a task as done: its reward is in effect from now on. */
     public void completeEvolve(com.projecthivemind.EvolveTask task) {
         evolveMask |= task.bit();
+        if (task == com.projecthivemind.EvolveTask.GLOWSTONE) {
+            keepGlowLights();
+        }
     }
 
     /** How many full stacks a slot of the hive's storage holds: one more for each task done. */
@@ -1030,7 +1262,18 @@ public class HiveHeart extends Mob {
         tag.put(TRASH_TAG, trash.save(registryAccess()));
         tag.putLongArray(EXPLORED_TAG, exploredChunks.stream().mapToLong(Long::longValue).toArray());
         tag.put(STORAGE_TAG, storage.save(registryAccess()));
-        tag.putInt(EVOLVE_TAG, evolveMask);
+        tag.putLong(EVOLVE_TAG, evolveMask);
+        tag.putInt("TotemCooldown", totemCooldown);
+        net.minecraft.nbt.ListTag enchants = new net.minecraft.nbt.ListTag();
+        for (net.minecraft.resources.ResourceLocation id : unlockedEnchants) {
+            enchants.add(net.minecraft.nbt.StringTag.valueOf(id.toString()));
+        }
+        tag.put("UnlockedEnchants", enchants);
+        if (glowCenter != null && glowDimension != null) {
+            tag.putIntArray("GlowCenter", new int[] {glowCenter.getX(), glowCenter.getY(), glowCenter.getZ()});
+            tag.putString("GlowDimension", glowDimension);
+            tag.putInt("GlowRadius", glowRadius);
+        }
         tag.put(ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), armorSlots.getItems(), registryAccess()));
         tag.put(SCOUT_ARMOR_TAG, ContainerHelper.saveAllItems(new CompoundTag(), scoutArmor.getItems(), registryAccess()));
         tag.put(TOOLS_TAG, ContainerHelper.saveAllItems(new CompoundTag(), toolSlots.getItems(), registryAccess()));
@@ -1130,7 +1373,20 @@ public class HiveHeart extends Mob {
         for (long chunk : tag.getLongArray(EXPLORED_TAG)) {
             exploredChunks.add(chunk);
         }
-        evolveMask = tag.getInt(EVOLVE_TAG);
+        evolveMask = tag.getLong(EVOLVE_TAG);
+        totemCooldown = tag.getInt("TotemCooldown");
+        unlockedEnchants.clear();
+        net.minecraft.nbt.ListTag savedEnchants = tag.getList("UnlockedEnchants", net.minecraft.nbt.Tag.TAG_STRING);
+        for (int i = 0; i < savedEnchants.size(); i++) {
+            net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(savedEnchants.getString(i));
+            if (id != null) {
+                unlockedEnchants.add(id);
+            }
+        }
+        int[] glow = tag.getIntArray("GlowCenter");
+        glowCenter = glow.length == 3 ? new BlockPos(glow[0], glow[1], glow[2]) : null;
+        glowDimension = glowCenter != null ? tag.getString("GlowDimension") : null;
+        glowRadius = tag.getInt("GlowRadius");
         storage = new HiveStorage(HiveLevels.get(hiveLevel).storageSlots(), this::stackMultiplier);
         if (tag.contains(STORAGE_TAG)) {
             storage.load(tag.getCompound(STORAGE_TAG), registryAccess());

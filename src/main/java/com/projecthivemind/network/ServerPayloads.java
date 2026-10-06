@@ -341,10 +341,17 @@ public final class ServerPayloads {
         }
     }
 
-    public static void onEnchant(EnchantPayload payload, IPayloadContext context) {
+    public static void onApplyEnchant(com.projecthivemind.network.ApplyEnchantPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.enchant(payload.option());
+            menu.applyEnchant(payload.enchantment());
+        }
+    }
+
+    public static void onConsumeEnchant(com.projecthivemind.network.ConsumeEnchantPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.consumeEnchantBook(payload.enchantment());
         }
     }
 

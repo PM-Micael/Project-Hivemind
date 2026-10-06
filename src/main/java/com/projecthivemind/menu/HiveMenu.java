@@ -5,6 +5,7 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 
 import com.mojang.datafixers.util.Pair;
+import com.projecthivemind.HiveEnchanting;
 import com.projecthivemind.HiveEquipment;
 import com.projecthivemind.HiveBrewing;
 import com.projecthivemind.HiveFurnace;
@@ -15,6 +16,7 @@ import com.projecthivemind.UnitKind;
 import com.projecthivemind.entity.HiveHeart;
 import com.projecthivemind.entity.HiveUnit;
 
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -155,14 +157,14 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public int storageRows() {
         return storageRows(storageSlots);
     }
-    /** The built-in furnace (level 3): input, fuel and output. It takes the crafting grid's place when its tab is open. */
+    /** The built-in furnace (from the Evolve tab): input, fuel and output. It takes the crafting grid's place when its tab is open. */
     public static final int FURNACE_INPUT_X = 246;
     public static final int FURNACE_INPUT_Y = 86;
     public static final int FURNACE_FUEL_X = 246;
     public static final int FURNACE_FUEL_Y = 122;
     public static final int FURNACE_OUTPUT_X = 300;
     public static final int FURNACE_OUTPUT_Y = 104;
-    /** The built-in brewing stand (level 5): fuel and ingredient on top, the three bottles below. It takes the crafting grid's place too. */
+    /** The built-in brewing stand (from the Evolve tab): fuel and ingredient on top, the three bottles below. It takes the crafting grid's place too. */
     public static final int BREW_FUEL_X = 246;
     public static final int BREW_FUEL_Y = 86;
     public static final int BREW_INGREDIENT_X = 282;
@@ -225,7 +227,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The top half of the two masks above: a menu value is sent as 16 bits, and there are more tasks than that. */
     private static final int DATA_EVOLVE_HIGH = DATA_QUEST_DRAGON + 1;
     private static final int DATA_EVOLVE_READY_HIGH = DATA_EVOLVE_HIGH + 1;
-    public static final int DATA_COUNT = DATA_EVOLVE_READY_HIGH + 1;
+    /** Ticks until the Heart's totem effect is ready again (0 when it is ready). */
+    private static final int DATA_TOTEM = DATA_EVOLVE_READY_HIGH + 1;
+    /** The bits 32 to 47 of the two masks (there are more than 32 tasks now). */
+    private static final int DATA_EVOLVE_TOP = DATA_TOTEM + 1;
+    private static final int DATA_EVOLVE_READY_TOP = DATA_EVOLVE_TOP + 1;
+    public static final int DATA_COUNT = DATA_EVOLVE_READY_TOP + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -281,18 +288,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private final DataSlot anvilCost = DataSlot.standalone();
     @Nullable
     private AnvilEngine anvilEngine;
-    private final net.minecraft.util.RandomSource enchantRandom = net.minecraft.util.RandomSource.create();
-    private final DataSlot enchantSeed = DataSlot.standalone();
-    /** The enchanting options, as in the vanilla menu: the level each costs (0 for none) and the hint shown for it. */
-    public final int[] enchantCosts = new int[3];
-    public final int[] enchantClue = new int[] {-1, -1, -1};
-    public final int[] enchantLevelClue = new int[] {-1, -1, -1};
 
     /** Client-side only: the screen shows the Quests tab, so the slots are hidden. */
     public int visibleGroups = GROUP_STORAGE | GROUP_GEAR | GROUP_CRAFT;
 
     /** Client constructor: the real contents arrive from the server. */
-    public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots, boolean hasFurnace, boolean hasBrewing) {
+    public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots) {
         this(containerId, inventory, null, new StorageScroll(null, totalStorageSlots), new StorageScroll(null, totalStorageSlots, SCOUT_INV_SLOTS),
                 new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), new SimpleContainer(HiveEquipment.TOOL_SLOTS),
                 new SimpleContainer(3), new SimpleContainer(5), new SimpleContainer(HiveHeart.SCOUT_HOTBAR_SLOTS), new SimpleContainer(1), new SimpleContainer(1), new com.projecthivemind.entity.HiveStorage(1, () -> TRASH_STACK_MULTIPLIER), new SimpleContainer(HiveEquipment.ARMOR_SLOTS.length), true, true, new SimpleContainerData(DATA_COUNT),
@@ -411,12 +412,6 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addDataSlot(scroll.matchCount());
         this.addDataSlot(scoutScroll.position());
         this.addDataSlot(scoutScroll.matchCount());
-        for (int i = 0; i < 3; i++) {
-            this.addDataSlot(DataSlot.shared(enchantCosts, i));
-            this.addDataSlot(DataSlot.shared(enchantClue, i));
-            this.addDataSlot(DataSlot.shared(enchantLevelClue, i));
-        }
-        this.addDataSlot(enchantSeed).set(player.getEnchantmentSeed());
         this.addDataSlot(anvilCost);
     }
 
@@ -484,16 +479,25 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                     return heart.dragonDefeated() ? 1 : 0;
                 }
                 if (index == DATA_EVOLVE_READY) {
-                    return heart.evolveReadyMask() & 0xFFFF;
+                    return (int) (heart.evolveReadyMask() & 0xFFFFL);
                 }
                 if (index == DATA_EVOLVE_READY_HIGH) {
-                    return heart.evolveReadyMask() >>> 16;
+                    return (int) ((heart.evolveReadyMask() >>> 16) & 0xFFFFL);
                 }
                 if (index == DATA_EVOLVE) {
-                    return heart.evolveMask() & 0xFFFF;
+                    return (int) (heart.evolveMask() & 0xFFFFL);
                 }
                 if (index == DATA_EVOLVE_HIGH) {
-                    return heart.evolveMask() >>> 16;
+                    return (int) ((heart.evolveMask() >>> 16) & 0xFFFFL);
+                }
+                if (index == DATA_EVOLVE_TOP) {
+                    return (int) ((heart.evolveMask() >>> 32) & 0xFFFFL);
+                }
+                if (index == DATA_EVOLVE_READY_TOP) {
+                    return (int) ((heart.evolveReadyMask() >>> 32) & 0xFFFFL);
+                }
+                if (index == DATA_TOTEM) {
+                    return heart.totemCooldown();
                 }
                 if (index == DATA_BREW_TIME) {
                     return heart.brewing().brewTime();
@@ -629,13 +633,13 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     /** The evolution tasks done, as a mask of EvolveTask bits. */
-    public int evolveMask() {
-        return (data.get(DATA_EVOLVE) & 0xFFFF) | (data.get(DATA_EVOLVE_HIGH) << 16);
+    public long evolveMask() {
+        return (data.get(DATA_EVOLVE) & 0xFFFFL) | ((data.get(DATA_EVOLVE_HIGH) & 0xFFFFL) << 16) | ((data.get(DATA_EVOLVE_TOP) & 0xFFFFL) << 32);
     }
 
     /** The tasks the hive can do right now, as a mask of EvolveTask bits: those still to do whose item is in its storage. */
-    public int evolveReady() {
-        return (data.get(DATA_EVOLVE_READY) & 0xFFFF) | (data.get(DATA_EVOLVE_READY_HIGH) << 16);
+    public long evolveReady() {
+        return (data.get(DATA_EVOLVE_READY) & 0xFFFFL) | ((data.get(DATA_EVOLVE_READY_HIGH) & 0xFFFFL) << 16) | ((data.get(DATA_EVOLVE_READY_TOP) & 0xFFFFL) << 32);
     }
 
     /**
@@ -748,6 +752,11 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
 
 
+    /** Ticks until the Heart's totem effect is ready again; 0 when it is ready (or the task is not done). */
+    public int totemCooldownTicks() {
+        return data.get(DATA_TOTEM);
+    }
+
     /** Whole seconds until the next spawning interval, rounded up so it never shows 0 before it fires. */
     public int secondsUntilSpawn() {
         return (data.get(DATA_TIMER) + 19) / 20;
@@ -822,120 +831,82 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return stack.isEmpty() ? 0 : stack.getCount();
     }
 
-    /**
-     * The bookshelves of the hive: everything inside the hive area that adds enchanting power (bookshelves) counts, as it would if it stood round
-     * an enchanting table, up to the most the game counts (15).
-     */
-    private float hivePower(net.minecraft.server.level.ServerLevel level) {
-        if (heart == null) {
-            return 0.0F;
-        }
-        net.minecraft.world.phys.AABB area = com.projecthivemind.HiveArea.areaBox(level, heart);
-        float power = 0.0F;
-        net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
-        for (int x = (int) area.minX; x < (int) area.maxX && power < 15.0F; x++) {
-            for (int z = (int) area.minZ; z < (int) area.maxZ && power < 15.0F; z++) {
-                if (!level.hasChunkAt(pos.set(x, heart.getBlockY(), z))) {
-                    continue;
-                }
-                for (int y = (int) area.minY; y < (int) area.maxY; y++) {
-                    pos.set(x, y, z);
-                    net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
-                    if (!state.isAir()) {
-                        power += state.getEnchantPowerBonus(level, pos);
-                    }
-                }
-            }
-        }
-        return Math.min(power, 15.0F);
+    /** The item in the enchanting station's item slot (empty if none), for the screen to say what each enchantment would do to it. */
+    public ItemStack enchantItem() {
+        return enchantSlots.getItem(0);
     }
 
-    /** Work out the three options for the item in the enchanting slot (the same as the vanilla enchanting table, with the hive's bookshelves). */
-    private void updateEnchanting() {
-        ItemStack stack = enchantSlots.getItem(0);
-        if (stack.isEmpty() || !stack.isEnchantable()) {
-            for (int i = 0; i < 3; i++) {
-                enchantCosts[i] = 0;
-                enchantClue[i] = -1;
-                enchantLevelClue[i] = -1;
-            }
+    private static net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> enchantmentById(net.minecraft.core.RegistryAccess registries, String text) {
+        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(text);
+        if (id == null) {
+            return null;
+        }
+        return registries.registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+                .getHolder(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.ENCHANTMENT, id)).orElse(null);
+    }
+
+    /**
+     * Server side: the player clicked an enchantment on the Evolve tab. If it is not available yet and an enchanted book with it is in the hive's
+     * storage, one of the book is taken from there and the enchantment becomes available in the enchanting station.
+     */
+    public void consumeEnchantBook(String idText) {
+        if (heart == null || !hasEnchanting() || !(player instanceof net.minecraft.server.level.ServerPlayer owner)) {
             return;
         }
-        if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level) || heart == null) {
-            return; // the client shows what the server says
+        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantmentById(player.level().registryAccess(), idText);
+        if (holder == null || heart.unlockedEnchants().contains(holder.key().location())) {
+            return;
         }
-        net.minecraft.core.IdMap<net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment>> ids =
-                level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).asHolderIdMap();
-        int power = (int) hivePower(level);
-        enchantRandom.setSeed(enchantSeed.get());
-        for (int i = 0; i < 3; i++) {
-            enchantCosts[i] = net.minecraft.world.item.enchantment.EnchantmentHelper.getEnchantmentCost(enchantRandom, i, power, stack);
-            enchantClue[i] = -1;
-            enchantLevelClue[i] = -1;
-            if (enchantCosts[i] < i + 1) {
-                enchantCosts[i] = 0;
+        for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
+            ItemStack stack = heart.getStorage().getItem(i);
+            if (stack.is(net.minecraft.world.item.Items.ENCHANTED_BOOK) && stack.getOrDefault(net.minecraft.core.component.DataComponents.STORED_ENCHANTMENTS,
+                    net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY).getLevel(holder) > 0) {
+                heart.getStorage().removeItem(i, 1);
+                heart.unlockEnchant(holder.key().location());
+                HivemindManager.sendEnchants(owner, heart);
+                broadcastChanges();
+                return;
             }
         }
-        for (int i = 0; i < 3; i++) {
-            if (enchantCosts[i] > 0) {
-                java.util.List<net.minecraft.world.item.enchantment.EnchantmentInstance> list = enchantmentList(level.registryAccess(), stack, i, enchantCosts[i]);
-                if (!list.isEmpty()) {
-                    net.minecraft.world.item.enchantment.EnchantmentInstance clue = list.get(enchantRandom.nextInt(list.size()));
-                    enchantClue[i] = ids.getId(clue.enchantment);
-                    enchantLevelClue[i] = clue.level;
-                }
-            }
-        }
-        broadcastChanges();
+        owner.displayClientMessage(Component.translatable("message.projecthivemind.no_enchant_book"), true);
     }
 
-    private java.util.List<net.minecraft.world.item.enchantment.EnchantmentInstance> enchantmentList(net.minecraft.core.RegistryAccess registries, ItemStack stack, int slot, int cost) {
-        enchantRandom.setSeed(enchantSeed.get() + slot);
-        java.util.Optional<net.minecraft.core.HolderSet.Named<net.minecraft.world.item.enchantment.Enchantment>> tag =
-                registries.registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).getTag(net.minecraft.tags.EnchantmentTags.IN_ENCHANTING_TABLE);
-        if (tag.isEmpty()) {
-            return java.util.List.of();
+    /**
+     * Server side: the player picked an available enchantment for the item in the station. It goes on at its highest level, and costs what
+     * {@link HiveEnchanting} says in lapis lazuli (from the lapis slot) and levels (from the hivemind's own experience bar).
+     */
+    public void applyEnchant(String idText) {
+        if (heart == null || !hasEnchanting() || !(player.level() instanceof net.minecraft.server.level.ServerLevel level)) {
+            return;
+        }
+        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantmentById(level.registryAccess(), idText);
+        if (holder == null || !heart.unlockedEnchants().contains(holder.key().location())) {
+            return;
+        }
+        ItemStack stack = enchantSlots.getItem(0);
+        if (HiveEnchanting.problem(stack, holder) != null) {
+            return;
+        }
+        int lapisCost = HiveEnchanting.lapisCost(holder);
+        int levelCost = HiveEnchanting.levelCost(holder);
+        boolean free = player.hasInfiniteMaterials();
+        ItemStack lapis = enchantSlots.getItem(1);
+        if (!free && (lapis.isEmpty() || lapis.getCount() < lapisCost || player.experienceLevel < levelCost)) {
+            return;
         }
         java.util.List<net.minecraft.world.item.enchantment.EnchantmentInstance> list =
-                net.minecraft.world.item.enchantment.EnchantmentHelper.selectEnchantment(enchantRandom, stack, cost, tag.get().stream());
-        if (stack.is(net.minecraft.world.item.Items.BOOK) && list.size() > 1) {
-            list.remove(enchantRandom.nextInt(list.size()));
-        }
-        return list;
-    }
-
-    /**
-     * Server side: the player chose one of the three options. It costs what it does at an enchanting table: the option's number in lapis
-     * lazuli, and levels (the option's number, and at least what it asks) from the hivemind's own experience bar.
-     */
-    public void enchant(int option) {
-        if (heart == null || !hasEnchanting() || option < 0 || option >= 3 || !(player.level() instanceof net.minecraft.server.level.ServerLevel level)) {
-            return;
-        }
-        ItemStack stack = enchantSlots.getItem(0);
-        ItemStack lapis = enchantSlots.getItem(1);
-        int cost = option + 1;
-        boolean free = player.hasInfiniteMaterials();
-        if (!free && (lapis.isEmpty() || lapis.getCount() < cost)) {
-            return;
-        }
-        if (enchantCosts[option] <= 0 || stack.isEmpty() || (!free && (player.experienceLevel < cost || player.experienceLevel < enchantCosts[option]))) {
-            return;
-        }
-        java.util.List<net.minecraft.world.item.enchantment.EnchantmentInstance> list = enchantmentList(level.registryAccess(), stack, option, enchantCosts[option]);
-        if (list.isEmpty()) {
-            return;
-        }
-        player.onEnchantmentPerformed(stack, cost);
+                java.util.List.of(new net.minecraft.world.item.enchantment.EnchantmentInstance(holder, HiveEnchanting.levelOf(holder)));
+        player.onEnchantmentPerformed(stack, levelCost);
         ItemStack enchanted = stack.getItem().applyEnchantments(stack, list);
         enchantSlots.setItem(0, enchanted);
         net.neoforged.neoforge.common.CommonHooks.onPlayerEnchantItem(player, enchanted, list);
-        lapis.consume(cost, player);
-        if (lapis.isEmpty()) {
-            enchantSlots.setItem(1, ItemStack.EMPTY);
+        if (!free) {
+            lapis.consume(lapisCost, player);
+            if (lapis.isEmpty()) {
+                enchantSlots.setItem(1, ItemStack.EMPTY);
+            }
         }
         enchantSlots.setChanged();
-        enchantSeed.set(player.getEnchantmentSeed());
         slotsChanged(enchantSlots);
         level.playSound(null, heart.blockPosition(), net.minecraft.sounds.SoundEvents.ENCHANTMENT_TABLE_USE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F,
                 level.random.nextFloat() * 0.1F + 0.9F);
@@ -950,7 +921,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         } else if (container == cartographySlots) {
             updateCartography();
         } else if (container == enchantSlots) {
-            updateEnchanting();
+            // (Nothing to work out: what the station does is chosen from its list.)
         } else {
             updateResult(player.level());
         }
