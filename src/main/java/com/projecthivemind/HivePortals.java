@@ -88,6 +88,23 @@ public final class HivePortals {
         sync(player, heart);
     }
 
+    /** The player asked for the camera at a portal (an index of the list): it goes above and behind the portal, in whatever dimension it is. */
+    public static void goTo(ServerPlayer player, int index) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        PortalNetwork network = heart.portals();
+        if (index < 0 || index >= network.portals().size()) {
+            return;
+        }
+        net.minecraft.core.GlobalPos portal = network.portals().get(index);
+        net.minecraft.server.level.ServerLevel level = player.server.getLevel(portal.dimension());
+        if (level != null) {
+            HivemindManager.snapCamera(player, level, portal.pos());
+        }
+    }
+
     /** The player switched "resummon team units" on or off for the portal at this index of the list. */
     public static void toggleResummon(ServerPlayer player, int index) {
         HiveHeart heart = HivemindManager.findHeart(player);

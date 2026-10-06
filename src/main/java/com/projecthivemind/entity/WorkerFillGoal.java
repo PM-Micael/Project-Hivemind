@@ -210,6 +210,11 @@ public class WorkerFillGoal extends Goal {
                     // On solid ground, or on the surface of water: over water it fills from the surface up, one block at a time from the shore, so
                     // a lake becomes a causeway of blocks at the floor's level. Not on lava, and not on something a block cannot stand on.
                     boolean onWater = groundState.getFluidState().is(net.minecraft.tags.FluidTags.WATER);
+                    // The hive area is only filled on solid ground one block under the Heart's floor: a pond or river there is a pit, not a gap, and the
+                    // water's surface being at that level does not make it ground. (Only the team area bridges water.)
+                    if (onWater && region.circle() == null) {
+                        continue;
+                    }
                     if (!onWater && (!groundState.getFluidState().isEmpty() || !groundState.isFaceSturdy(level, ground, Direction.UP))) {
                         continue;
                     }

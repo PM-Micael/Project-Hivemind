@@ -112,6 +112,7 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
         registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
+        registrar.playToServer(com.projecthivemind.network.GoToPortalPayload.TYPE, com.projecthivemind.network.GoToPortalPayload.STREAM_CODEC, ServerPayloads::onGoToPortal);
         registrar.playToServer(com.projecthivemind.network.BuildGeneratorPayload.TYPE, com.projecthivemind.network.BuildGeneratorPayload.STREAM_CODEC, ServerPayloads::onBuildGenerator);
         registrar.playToServer(com.projecthivemind.network.BuildNetherPortalPayload.TYPE, com.projecthivemind.network.BuildNetherPortalPayload.STREAM_CODEC, ServerPayloads::onBuildNetherPortal);
         registrar.playToServer(com.projecthivemind.network.BuildTunnelPayload.TYPE, com.projecthivemind.network.BuildTunnelPayload.STREAM_CODEC, ServerPayloads::onBuildTunnel);

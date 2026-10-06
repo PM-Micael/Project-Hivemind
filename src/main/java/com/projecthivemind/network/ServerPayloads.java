@@ -142,6 +142,12 @@ public final class ServerPayloads {
             HiveActions.placePortal(player, payload);
         }
     }
+    public static void onGoToPortal(com.projecthivemind.network.GoToPortalPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HivePortals.goTo(player, payload.index());
+        }
+    }
+
     public static void onDeletePortal(DeletePortalPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             com.projecthivemind.HivePortals.delete(player, payload.index());

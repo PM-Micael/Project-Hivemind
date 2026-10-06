@@ -263,12 +263,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         scoutSearch.setResponder(text -> PacketDistributor.sendToServer(new com.projecthivemind.network.SetScoutSearchPayload(menu.containerId, text)));
         scoutSearch.visible = false;
 
-        // Fly the camera back to the Hive Heart.
-        addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.hive.to_heart"), button -> {
-            PacketDistributor.sendToServer(new ReturnToHeartPayload());
-            onClose();
-        }).bounds(leftPos + imageWidth - 8 - 70, topPos + 5, 70, 16).build());
-
         // Creative players can drop out of the hive to the normal inventory, e.g. to spawn items in for testing.
         if (ClientState.canSwapInventory()) {
             addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.swap.to_normal"), button -> {
@@ -1743,6 +1737,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** The Portals tab is on the list of portals (as opposed to the page for choosing units to summon to one). */
     private static final int PORTAL_LIST = -2;
     private static final int PORTAL_TOP = 98;
+    /** The widths of a portal's name button and of the Go to button beside it (the Delete button comes after). */
+    private static final int PORTAL_LABEL_WIDTH = 200;
+    private static final int PORTAL_GO_WIDTH = 40;
     /** Room kept under the grid for the Back and Summon buttons. */
     private static final int PORTAL_BUTTONS_HEIGHT = 36;
 
@@ -1805,19 +1802,33 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (portalTarget == PORTAL_LIST) {
             int y = topPos + PORTAL_TOP;
             Button heart = Button.builder(Component.translatable("screen.projecthivemind.portals.heart").withStyle(net.minecraft.ChatFormatting.GOLD, net.minecraft.ChatFormatting.BOLD),
-                    button -> openSummonPage(-1)).bounds(x, y, 220, 24).build();
+                    button -> openSummonPage(-1)).bounds(x, y, PORTAL_LABEL_WIDTH, 24).build();
             heart.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.heart.tooltip")));
             unitButtons.add(addRenderableWidget(heart));
+            // To the right of the Hive Heart: fly the camera there.
+            Button goHeart = Button.builder(Component.translatable("screen.projecthivemind.portals.go"), button -> {
+                PacketDistributor.sendToServer(new ReturnToHeartPayload());
+                onClose();
+            }).bounds(x + PORTAL_LABEL_WIDTH + 2, y, PORTAL_GO_WIDTH, 24).build();
+            goHeart.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.go.heart")));
+            unitButtons.add(addRenderableWidget(goHeart));
             y += 30;
             for (int i = 0; i < ClientPortals.portals().size() && y + 22 <= topPos + imageHeight - 10; i++) {
                 int index = i;
                 SyncPortalsPayload.Portal portal = ClientPortals.portals().get(i);
                 Component label = Component.translatable("screen.projecthivemind.portals.entry", i + 1, dimensionName(portal.dimension()),
                         portal.pos().getX(), portal.pos().getY(), portal.pos().getZ());
-                unitButtons.add(addRenderableWidget(Button.builder(label, button -> openSummonPage(index)).bounds(x, y, 220, 20).build()));
+                unitButtons.add(addRenderableWidget(Button.builder(label, button -> openSummonPage(index)).bounds(x, y, PORTAL_LABEL_WIDTH, 20).build()));
+                // Then: fly the camera to the portal.
+                Button go = Button.builder(Component.translatable("screen.projecthivemind.portals.go"), button -> {
+                    PacketDistributor.sendToServer(new com.projecthivemind.network.GoToPortalPayload(index));
+                    onClose();
+                }).bounds(x + PORTAL_LABEL_WIDTH + 2, y, PORTAL_GO_WIDTH, 20).build();
+                go.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.go.portal")));
+                unitButtons.add(addRenderableWidget(go));
                 // To the right of the portal: delete it (after asking).
                 Button delete = Button.builder(Component.translatable("screen.projecthivemind.portals.delete").withStyle(net.minecraft.ChatFormatting.RED),
-                        button -> askToDeletePortal(index)).bounds(x + 224, y, 50, 20).build();
+                        button -> askToDeletePortal(index)).bounds(x + PORTAL_LABEL_WIDTH + PORTAL_GO_WIDTH + 6, y, 48, 20).build();
                 delete.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.delete.tooltip")));
                 unitButtons.add(addRenderableWidget(delete));
                 y += 24;
