@@ -1,4 +1,11 @@
 {
   "replace": false,
-  "values": [ "projecthivemind:creep_block", "projecthivemind:creep_stone" ]
+  "values": [
+    "projecthivemind:creep_block",
+    "projecthivemind:creep_stone",
+    "projecthivemind:hive_relay_hostile",
+    "projecthivemind:hive_relay_any",
+    "projecthivemind:hive_relay_health",
+    "projecthivemind:hive_relay_recall"
+  ]
 }

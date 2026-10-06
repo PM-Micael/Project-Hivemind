@@ -26,7 +26,6 @@ import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHeartHealthPayload;
 import com.projecthivemind.network.SyncHivemindPayload;
 import com.projecthivemind.network.SyncUnitsPayload;
-import com.projecthivemind.network.SyncSightPayload;
 
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.minecraft.Util;
@@ -822,7 +821,7 @@ public final class HivemindManager {
                 return new SlotConfigs.Config(scout.flags(), scout.radii(), "", "");
             }
             case WORKER -> {
-                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, false, true, false, true, false, 16);
+                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, false, false, false, true, false, 16);
                 return new SlotConfigs.Config(worker.flags(), worker.radii(), itemName(net.minecraft.world.item.Items.DIRT), "");
             }
             case SOLDIER -> {
@@ -942,12 +941,6 @@ public final class HivemindManager {
             PacketDistributor.sendToPlayer(owner, new SyncEyesPayload(points));
         }
         heart.setSyncedEyes(eyes);
-
-        Set<Integer> visible = HiveSight.visibleMobs(level, eyes);
-        if (!visible.equals(heart.syncedSight())) {
-            heart.setSyncedSight(visible);
-            PacketDistributor.sendToPlayer(owner, new SyncSightPayload(List.copyOf(visible)));
-        }
     }
 
     // ---- finding the hive again, and respawning at it ----
@@ -1231,6 +1224,10 @@ public final class HivemindManager {
                             || (category.isPersistent() && !persistent)) {
                         continue;
                     }
+                    // Hostile mobs cannot spawn inside a border: a chunk wholly inside one is not tried for them.
+                    if (!category.isFriendly() && HiveSpawnGuard.enabled && chunkInsideBorder(level, chunk)) {
+                        continue;
+                    }
                     int cap = category.getMaxInstancesPerChunk() * chunks.size() / SPAWN_CAP_DIVISOR;
                     if (counts.getInt(category) >= cap) {
                         continue;
@@ -1244,6 +1241,13 @@ public final class HivemindManager {
         } finally {
             owner.gameMode.gameModeForPlayer = realMode;
         }
+    }
+
+    /** True if all of a chunk is inside a hive border (so nothing hostile can spawn in it). */
+    private static boolean chunkInsideBorder(ServerLevel level, LevelChunk chunk) {
+        ChunkPos pos = chunk.getPos();
+        return HiveHeart.insideAnyBorder(level.dimension(), pos.getMinBlockX(), pos.getMinBlockZ()) && HiveHeart.insideAnyBorder(level.dimension(), pos.getMaxBlockX() + 1.0D, pos.getMinBlockZ())
+                && HiveHeart.insideAnyBorder(level.dimension(), pos.getMinBlockX(), pos.getMaxBlockZ() + 1.0D) && HiveHeart.insideAnyBorder(level.dimension(), pos.getMaxBlockX() + 1.0D, pos.getMaxBlockZ() + 1.0D);
     }
 
     // ---- the level-up quest ----
@@ -1457,13 +1461,15 @@ public final class HivemindManager {
         float health = heart.getHealth();
         int armor = heart.getArmorValue();
         int foodLevel = heart.food().foodLevel();
-        if (health != heart.syncedHealth() || armor != heart.syncedArmor() || foodLevel != heart.syncedFood() || heart.tickCount % 20 == 0) {
+        float absorption = heart.getAbsorptionAmount();
+        if (health != heart.syncedHealth() || absorption != heart.syncedAbsorption() || armor != heart.syncedArmor() || foodLevel != heart.syncedFood() || heart.tickCount % 20 == 0) {
             heart.setSyncedFood(foodLevel);
             heart.setSyncedArmor(armor);
             heart.setSyncedHealth(health);
+            heart.setSyncedAbsorption(absorption);
             PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor, foodLevel,
                     // A camera in another dimension has no hive border to show (radius -1).
-                    owner.serverLevel() == heart.level() ? HiveLevels.get(heart.hiveLevel()).infectionRadius() : -1, heart.blockPosition()));
+                    owner.serverLevel() == heart.level() ? HiveLevels.get(heart.hiveLevel()).infectionRadius() : -1, heart.blockPosition(), absorption));
         }
     }
 

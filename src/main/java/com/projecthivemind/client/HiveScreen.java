@@ -102,7 +102,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int WOODWORK_ROW = 10;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE
+        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -116,6 +116,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button teamTab;
     private Button portalsTab;
     private Button evolveTab;
+    private Button redstoneTab;
     /** The enchanting station's list of what the hive can enchant with: a search box, and rows that the mouse wheel scrolls. */
     private static final int ENCHANT_ROWS = 5;
     private EditBox enchantSearch;
@@ -228,6 +229,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         teamTab = tabButton(2, Items.DIAMOND_SWORD, "screen.projecthivemind.hive.tab_team", Tab.TEAM);
         portalsTab = tabButton(3, Items.ENDER_PEARL, "screen.projecthivemind.hive.tab_portals", Tab.PORTALS);
         evolveTab = tabButton(4, Items.DRAGON_EGG, "screen.projecthivemind.hive.tab_evolve", Tab.EVOLVE);
+        redstoneTab = tabButton(5, Items.REDSTONE, "screen.projecthivemind.hive.tab_redstone", Tab.REDSTONE);
+        createRedstoneWidgets();
         updateTabButtons();
         kindTabs.clear();
         for (int i = 0; i < KINDS.length; i++) {
@@ -343,6 +346,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
         evolveTab.visible = menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
         evolveTab.setX(leftPos + 8 + (portalsTab.visible ? 4 : 3) * TAB_STEP);
+        redstoneTab.visible = menu.hasRedstone();
+        redstoneTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0)) * TAB_STEP);
     }
 
     /** A button that shows the head of a unit's mob model where a label would be. */
@@ -672,6 +677,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         dragUnit = -1;
         portalsTab.active = newTab != Tab.PORTALS;
         evolveTab.active = newTab != Tab.EVOLVE;
+        redstoneTab.active = newTab != Tab.REDSTONE;
         storageSearch.visible = newTab == Tab.HIVE;
 
         if (newTab == Tab.PORTALS) {
@@ -688,6 +694,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             clearUnitButtons();
         }
         updateBehaviorVisibility();
+        updateRedstoneWidgets();
     }
 
     private void updateBehaviorVisibility() {
@@ -901,6 +908,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (tab == Tab.EVOLVE && !evolveTab.visible) {
             showTab(Tab.HIVE, unitPage);
         }
+        if (tab == Tab.REDSTONE && !redstoneTab.visible) {
+            showTab(Tab.HIVE, unitPage);
+        }
+        updateRedstoneWidgets();
         if (tab == Tab.PORTALS) {
             if (portalsTab.visible) {
                 refreshPortals(false);
@@ -1369,6 +1380,94 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         this.renderTooltip(graphics, mouseX, mouseY);
     }
 
+    // ---- the Redstone tab: what the Heart gives and takes through hive relays ----
+
+    private static final int REDSTONE_X = 20;
+    private static final int REDSTONE_TOP = 98;
+    private static final int REDSTONE_ROW = 22;
+    /** The settings: hostile mob, any mob, health, recall. */
+    private final Checkbox[] redstoneBoxes = new Checkbox[4];
+    private EditBox redstonePercentBox;
+    /** Ticks left in which the screen keeps what the player just set, before the server's values are shown again. */
+    private int redstoneHold;
+    private boolean redstoneFilling;
+
+    private void createRedstoneWidgets() {
+        String[] keys = {"hostile", "any", "health", "recall"};
+        int[] rows = {1, 2, 3, 6};
+        for (int i = 0; i < 4; i++) {
+            Checkbox box = Checkbox.builder(Component.translatable("screen.projecthivemind.redstone." + keys[i]), font)
+                    .onValueChange((checkbox, value) -> sendRedstone())
+                    .build();
+            box.setPosition(leftPos + REDSTONE_X, topPos + REDSTONE_TOP + rows[i] * REDSTONE_ROW);
+            box.visible = false;
+            redstoneBoxes[i] = addRenderableWidget(box);
+        }
+        int percentX = REDSTONE_X + 24 + font.width(Component.translatable("screen.projecthivemind.redstone.health")) + 6;
+        redstonePercentBox = addRenderableWidget(new EditBox(font, leftPos + percentX, topPos + REDSTONE_TOP + 3 * REDSTONE_ROW - 3, 30, 14,
+                Component.translatable("screen.projecthivemind.redstone.health")));
+        redstonePercentBox.setMaxLength(3);
+        redstonePercentBox.setFilter(text -> text.isEmpty() || text.chars().allMatch(Character::isDigit));
+        redstonePercentBox.setResponder(text -> sendRedstone());
+        redstonePercentBox.visible = false;
+    }
+
+    private void sendRedstone() {
+        if (redstoneFilling) {
+            return;
+        }
+        int flags = 0;
+        for (int i = 0; i < 4; i++) {
+            flags |= redstoneBoxes[i].selected() ? 1 << i : 0;
+        }
+        String text = redstonePercentBox.getValue();
+        int percent = text.isEmpty() ? 1 : Math.max(1, Math.min(100, Integer.parseInt(text)));
+        redstoneHold = 20;
+        PacketDistributor.sendToServer(new com.projecthivemind.network.SetRedstonePayload(menu.containerId, flags, percent));
+    }
+
+    /** Show the tab's widgets when it is open, and fill them from what the server last said (unless the player has just changed something). */
+    private void updateRedstoneWidgets() {
+        boolean shown = tab == Tab.REDSTONE && menu.hasRedstone();
+        for (Checkbox box : redstoneBoxes) {
+            box.visible = shown;
+        }
+        redstonePercentBox.visible = shown;
+        if (!shown) {
+            return;
+        }
+        if (redstoneHold > 0) {
+            redstoneHold--;
+            return;
+        }
+        redstoneFilling = true;
+        int flags = menu.redstoneFlags();
+        for (int i = 0; i < 4; i++) {
+            if (redstoneBoxes[i].selected() != ((flags >> i & 1) != 0)) {
+                redstoneBoxes[i].onPress();
+            }
+        }
+        if (!redstonePercentBox.isFocused() && !redstonePercentBox.getValue().equals(String.valueOf(menu.redstonePercent()))) {
+            redstonePercentBox.setValue(String.valueOf(menu.redstonePercent()));
+        }
+        redstoneFilling = false;
+    }
+
+    private void renderRedstone(GuiGraphics graphics) {
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.redstone.outputs"), REDSTONE_X, REDSTONE_TOP, 0xFFFFFF, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.redstone.inputs"), REDSTONE_X, REDSTONE_TOP + 5 * REDSTONE_ROW, 0xFFFFFF, false);
+        graphics.drawString(font, "%", redstonePercentBox.getX() - leftPos + redstonePercentBox.getWidth() + 3, REDSTONE_TOP + 3 * REDSTONE_ROW + 1, 0xA0A0A0, false);
+        // A lamp for each output, lit while the Heart is giving it.
+        int live = menu.redstoneFlags() >> 4;
+        for (int i = 0; i < 3; i++) {
+            int x = imageWidth - 40;
+            int y = REDSTONE_TOP + (i + 1) * REDSTONE_ROW + 3;
+            graphics.fill(x - 1, y - 1, x + 11, y + 11, 0xFF000000);
+            graphics.fill(x, y, x + 10, y + 10, (live >> i & 1) != 0 ? 0xFFFF3020 : 0xFF3A1010);
+        }
+        graphics.drawWordWrap(font, Component.translatable("screen.projecthivemind.redstone.help"), REDSTONE_X, REDSTONE_TOP + 7 * REDSTONE_ROW + 4, imageWidth - 2 * REDSTONE_X, 0x909090);
+    }
+
     // ---- the Crafter: the recipes made last, under the crafting grid ----
 
     private static final int RECENT_X = HiveMenu.GRID_X;
@@ -1621,6 +1720,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case TEAM -> renderTeam(graphics);
             case PORTALS -> renderPortals(graphics);
             case EVOLVE -> renderEvolve(graphics);
+            case REDSTONE -> renderRedstone(graphics);
             default -> renderHiveLabels(graphics);
         }
     }

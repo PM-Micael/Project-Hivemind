@@ -232,7 +232,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The bits 32 to 47 of the two masks (there are more than 32 tasks now). */
     private static final int DATA_EVOLVE_TOP = DATA_TOTEM + 1;
     private static final int DATA_EVOLVE_READY_TOP = DATA_EVOLVE_TOP + 1;
-    public static final int DATA_COUNT = DATA_EVOLVE_READY_TOP + 1;
+    private static final int DATA_REDSTONE = DATA_EVOLVE_READY_TOP + 1;
+    private static final int DATA_REDSTONE_PERCENT = DATA_REDSTONE + 1;
+    public static final int DATA_COUNT = DATA_REDSTONE_PERCENT + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -503,6 +505,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 if (index == DATA_TOTEM) {
                     return heart.totemCooldown();
                 }
+                if (index == DATA_REDSTONE) {
+                    return heart.redstoneFlags();
+                }
+                if (index == DATA_REDSTONE_PERCENT) {
+                    return heart.redstonePercent();
+                }
                 if (index == DATA_BREW_TIME) {
                     return heart.brewing().brewTime();
                 }
@@ -772,6 +780,27 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
 
 
+
+    /** True once the hive has consumed a block of redstone: the Redstone tab is there, and the Heart gives and takes signals. */
+    public boolean hasRedstone() {
+        return com.projecthivemind.EvolveTask.REDSTONE.doneIn(evolveMask());
+    }
+
+    /** The Redstone tab's settings (bits 0 to 3) and what the outputs are now (bits 4 to 6). */
+    public int redstoneFlags() {
+        return data.get(DATA_REDSTONE);
+    }
+
+    public int redstonePercent() {
+        return data.get(DATA_REDSTONE_PERCENT);
+    }
+
+    /** The player changed the Redstone tab's settings. */
+    public void setRedstone(int flags, int percent) {
+        if (heart != null && hasRedstone()) {
+            heart.setRedstone(flags, percent);
+        }
+    }
 
     /** Ticks until the Heart's totem effect is ready again; 0 when it is ready (or the task is not done). */
     public int totemCooldownTicks() {

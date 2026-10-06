@@ -12,9 +12,9 @@ public final class HiveAttacks {
     private HiveAttacks() {
     }
 
-    /** True for what a hive attack must leave alone: any hive unit, and any Heart. */
+    /** True for what a hive attack must leave alone: any hive unit, the Heart's golem, and any Heart. */
     public static boolean spares(Entity entity) {
-        return entity instanceof HiveUnit || entity instanceof HiveHeart;
+        return entity instanceof HiveUnit || entity instanceof HiveHeart || entity instanceof HiveGolem;
     }
 
     /** True if this damage comes from the hive's own attacks: its bullets, or anything the Heart itself did. */

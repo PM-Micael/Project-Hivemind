@@ -17,7 +17,6 @@ import com.projecthivemind.network.MobActionPayload;
 import com.projecthivemind.network.SelectionPayload;
 import com.projecthivemind.network.SyncEyesPayload;
 import com.projecthivemind.network.SyncHeartHealthPayload;
-import com.projecthivemind.network.SyncSightPayload;
 import com.projecthivemind.network.SyncActionsPayload;
 import com.projecthivemind.network.WeakStairsPayload;
 import com.projecthivemind.network.WeakToolPayload;
@@ -73,6 +72,31 @@ public final class CommonEvents {
     private CommonEvents() {
     }
 
+    /**
+     * No hostile mob spawns by itself inside a hive border: not in the dark of a night, not in a cave, not when a chunk is made. This is
+     * only the game's own checks of a spot for a mob, answered "no" for a hostile mob in a hive's border. Spawners, spawn eggs, commands, structures and the
+     * hive's own units are never touched, and nothing outside a border is: a mob that is let in anywhere else is as it always was.
+     */
+    @SubscribeEvent
+    static void onSpawnPositionCheck(net.neoforged.neoforge.event.entity.living.MobSpawnEvent.PositionCheck event) {
+        if (!HiveSpawnGuard.enabled) {
+            return;
+        }
+        net.minecraft.world.entity.Mob mob = event.getEntity();
+        net.minecraft.world.entity.MobSpawnType type = event.getSpawnType();
+        if (!(mob instanceof net.minecraft.world.entity.monster.Enemy) || mob instanceof com.projecthivemind.entity.HiveUnit
+                || !(type == net.minecraft.world.entity.MobSpawnType.NATURAL || type == net.minecraft.world.entity.MobSpawnType.CHUNK_GENERATION
+                        || type == net.minecraft.world.entity.MobSpawnType.PATROL || type == net.minecraft.world.entity.MobSpawnType.REINFORCEMENT)) {
+            return;
+        }
+        if (com.projecthivemind.entity.HiveHeart.insideAnyBorder(event.getLevel().getLevel().dimension(), event.getX(), event.getZ())) {
+            HiveSpawnGuard.blocked.incrementAndGet();
+            event.setResult(net.neoforged.neoforge.event.entity.living.MobSpawnEvent.PositionCheck.Result.FAIL);
+        } else {
+            HiveSpawnGuard.allowed.incrementAndGet();
+        }
+    }
+
     // ---- mod bus: registration ----
     /** The creep block is in the creative inventory, with the other building blocks. */
     @SubscribeEvent
@@ -82,6 +106,10 @@ public final class CommonEvents {
             event.accept(ModBlocks.CREEP_DIRT_ITEM.get());
             event.accept(ModBlocks.CREEP_GRASS_ITEM.get());
             event.accept(ModBlocks.CREEP_STONE_ITEM.get());
+            event.accept(ModBlocks.RELAY_HOSTILE_ITEM.get());
+            event.accept(ModBlocks.RELAY_ANY_ITEM.get());
+            event.accept(ModBlocks.RELAY_HEALTH_ITEM.get());
+            event.accept(ModBlocks.RELAY_RECALL_ITEM.get());
         }
     }
 
@@ -96,6 +124,7 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.ConsumeEvolvePayload.TYPE, com.projecthivemind.network.ConsumeEvolvePayload.STREAM_CODEC, ServerPayloads::onConsumeEvolve);
         registrar.playToServer(com.projecthivemind.network.ApplyEnchantPayload.TYPE, com.projecthivemind.network.ApplyEnchantPayload.STREAM_CODEC, ServerPayloads::onApplyEnchant);
         registrar.playToServer(com.projecthivemind.network.ConsumeEnchantPayload.TYPE, com.projecthivemind.network.ConsumeEnchantPayload.STREAM_CODEC, ServerPayloads::onConsumeEnchant);
+        registrar.playToServer(com.projecthivemind.network.SetRedstonePayload.TYPE, com.projecthivemind.network.SetRedstonePayload.STREAM_CODEC, ServerPayloads::onSetRedstone);
         registrar.playToServer(com.projecthivemind.network.PlaceRecipePayload.TYPE, com.projecthivemind.network.PlaceRecipePayload.STREAM_CODEC, ServerPayloads::onPlaceRecipe);
         registrar.playToClient(com.projecthivemind.network.SyncEnchantsPayload.TYPE, com.projecthivemind.network.SyncEnchantsPayload.STREAM_CODEC, ClientPayloads::onSyncEnchants);
         registrar.playToClient(com.projecthivemind.network.SyncRecipesPayload.TYPE, com.projecthivemind.network.SyncRecipesPayload.STREAM_CODEC, ClientPayloads::onSyncRecipes);
@@ -150,7 +179,6 @@ public final class CommonEvents {
         registrar.playToClient(TradeOffersPayload.TYPE, TradeOffersPayload.STREAM_CODEC, ClientPayloads::onTradeOffers);
         registrar.playToClient(SyncHeartHealthPayload.TYPE, SyncHeartHealthPayload.STREAM_CODEC, ClientPayloads::onSyncHeartHealth);
         registrar.playToClient(SyncEyesPayload.TYPE, SyncEyesPayload.STREAM_CODEC, ClientPayloads::onSyncEyes);
-        registrar.playToClient(SyncSightPayload.TYPE, SyncSightPayload.STREAM_CODEC, ClientPayloads::onSyncSight);
         registrar.playToServer(com.projecthivemind.network.ControlRequestPayload.TYPE, com.projecthivemind.network.ControlRequestPayload.STREAM_CODEC, ServerPayloads::onControlRequest);
         registrar.playToServer(com.projecthivemind.network.ControlInputPayload.TYPE, com.projecthivemind.network.ControlInputPayload.STREAM_CODEC, ServerPayloads::onControlInput);
         registrar.playToServer(com.projecthivemind.network.ControlSelectPayload.TYPE, com.projecthivemind.network.ControlSelectPayload.STREAM_CODEC, ServerPayloads::onControlSelect);
@@ -172,6 +200,7 @@ public final class CommonEvents {
         event.put(ModEntities.HIVE_SOLDIER.get(), HiveSoldier.createHiveAttributes().build());
         event.put(ModEntities.HIVE_COLLECTOR.get(), HiveCollector.createCollectorAttributes().build());
         event.put(ModEntities.HIVE_FEEDER.get(), HiveFeeder.createFeederAttributes().build());
+        event.put(ModEntities.HIVE_GOLEM.get(), net.minecraft.world.entity.animal.IronGolem.createAttributes().build());
     }
 
     // ---- game bus ----
@@ -298,6 +327,20 @@ public final class CommonEvents {
     static void onExperienceDrop(net.neoforged.neoforge.event.entity.living.LivingExperienceDropEvent event) {
         if (HivemindManager.takeNoXpOrbs(event.getEntity().getUUID())) {
             event.setCanceled(true);
+        }
+    }
+
+    /** The netherite reward: no hive unit (nor the golem) is hurt by fire or lava. */
+    @SubscribeEvent
+    static void onIncomingDamage(net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent event) {
+        if (!event.getSource().is(net.minecraft.tags.DamageTypeTags.IS_FIRE)) {
+            return;
+        }
+        HiveHeart heart = event.getEntity() instanceof HiveUnit unit ? unit.findHeart()
+                : event.getEntity() instanceof com.projecthivemind.entity.HiveGolem golem ? golem.findHeart() : null;
+        if (heart != null && EvolveTask.NETHERITE.doneIn(heart.evolveMask())) {
+            event.setCanceled(true);
+            event.getEntity().clearFire();
         }
     }
 

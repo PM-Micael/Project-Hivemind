@@ -40,10 +40,6 @@ public final class ClientPayloads {
         com.projecthivemind.client.ClientControl.setHotbar(payload.stacks(), payload.counts(), payload.selected());
     }
 
-    public static void onSyncSight(SyncSightPayload payload, IPayloadContext context) {
-        ClientSight.update(payload.visibleMobs());
-    }
-
     public static void onOpenBook(OpenBookPayload payload, IPayloadContext context) {
         BookViewScreen.BookAccess access = BookViewScreen.BookAccess.fromItem(payload.book());
         if (access != null) {
@@ -64,7 +60,7 @@ public final class ClientPayloads {
     }
 
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
-        ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food());
+        ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food(), payload.absorption());
         ClientState.updateBorder(payload.center(), payload.areaRadius());
     }
 

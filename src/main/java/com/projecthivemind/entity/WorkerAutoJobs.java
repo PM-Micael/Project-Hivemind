@@ -7,7 +7,6 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import com.projecthivemind.HiveActions;
-import com.projecthivemind.HiveSight;
 import com.projecthivemind.HiveArea;
 import com.projecthivemind.UnitAction;
 import com.projecthivemind.WorkerBehavior;
@@ -58,7 +57,7 @@ public final class WorkerAutoJobs {
             }
             BlockState state = level.getBlockState(pos);
             // The hive's tools must be able to harvest it, or the worker would only destroy it for nothing.
-            if (!HiveActions.toolsCanHarvest(heart, state) || !HiveSight.canSeeBlock(level, heart.sightEyes(), pos)) {
+            if (!HiveActions.toolsCanHarvest(heart, state) || !exposed(level, pos)) {
                 continue;
             }
             if (reachable(worker, pos)) {
@@ -72,6 +71,17 @@ public final class WorkerAutoJobs {
             }
         }
         return null;
+    }
+
+    /** A block with at least one face open to air or something see-through: ore buried in solid rock is not looked for, but ore showing in a cave wall is. */
+    private static boolean exposed(ServerLevel level, BlockPos pos) {
+        for (net.minecraft.core.Direction direction : net.minecraft.core.Direction.values()) {
+            BlockPos next = pos.relative(direction);
+            if (level.isLoaded(next) && !level.getBlockState(next).isSolidRender(level, next)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -92,10 +102,15 @@ public final class WorkerAutoJobs {
         ready.removeIf(crop -> !wanted(level, crop, crops, plants));
         if (ready.isEmpty()) {
             BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+            java.util.function.Predicate<BlockState> kinds = state -> (crops && isGrown(state)) || (plants && isWildPlant(state));
+            it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap chunkHas = new it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap();
             for (int x = (int) area.minX; x < (int) area.maxX; x++) {
                 for (int z = (int) area.minZ; z < (int) area.maxZ; z++) {
-                    // Reading a block in an unloaded chunk would make the game load it, so never touch those.
-                    if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                    // A chunk with none of it, or one that is not loaded (reading it would make the game load it), is passed over whole.
+                    int cx = x >> 4;
+                    int cz = z >> 4;
+                    if (!chunkHas.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz),
+                            key -> chunkMayHave(level, cx, cz, origin.getY() - HARVEST_HEIGHT, origin.getY() + HARVEST_HEIGHT, kinds))) {
                         continue;
                     }
                     for (int y = origin.getY() - HARVEST_HEIGHT; y <= origin.getY() + HARVEST_HEIGHT; y++) {
@@ -171,9 +186,13 @@ public final class WorkerAutoJobs {
         int height = Math.max(HARVEST_HEIGHT, Math.min(behavior.chopLogs() ? behavior.logRadius() : 0, 12));
         List<BlockPos> logs = new ArrayList<>();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap chunkHas = new it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap();
         for (int x = (int) Math.floor(search.minX); x < (int) Math.ceil(search.maxX); x++) {
             for (int z = (int) Math.floor(search.minZ); z < (int) Math.ceil(search.maxZ); z++) {
-                if (!level.hasChunkAt(pos.set(x, origin.getY(), z))) {
+                int cx = x >> 4;
+                int cz = z >> 4;
+                if (!chunkHas.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz),
+                        key -> chunkMayHave(level, cx, cz, origin.getY() - height, origin.getY() + height, TreeFelling::isNaturalLog))) {
                     continue;
                 }
                 for (int y = origin.getY() - height; y <= origin.getY() + height; y++) {
@@ -224,6 +243,25 @@ public final class WorkerAutoJobs {
     /** How far above the floor the Heart stands on a worker flattening the ground cuts the hills away: this many blocks. */
     public static final int FLATTEN_CUT_HEIGHT = 4;
 
+    /**
+     * Whether a chunk could hold a block of a kind, between two heights: asked of each of its sections' palettes, so a chunk with none of it (a
+     * flat world, a stretch of sky) is passed over without looking at a single block. A chunk that is not loaded says no.
+     */
+    public static boolean chunkMayHave(ServerLevel level, int chunkX, int chunkZ, int minY, int maxY, java.util.function.Predicate<BlockState> test) {
+        net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+        if (chunk == null) {
+            return false;
+        }
+        net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
+        for (int s = 0; s < sections.length; s++) {
+            int bottom = level.getMinBuildHeight() + s * 16;
+            if (bottom <= maxY && bottom + 15 >= minY && sections[s].maybeHas(test)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** True for what flattening digs off a rise: stone and the like, dirt and grass, sand and gravel. */
     public static boolean isFlattenCut(BlockState state) {
         return state.is(BlockTags.DIRT) || state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraft.world.level.block.Blocks.STONE)
@@ -245,9 +283,13 @@ public final class WorkerAutoJobs {
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (FlattenRegion region : FlattenRegion.of(worker, heart)) {
             int floorTop = region.floorTop();
+            it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap chunkHas = new it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap();
             for (int x = region.minX(); x < region.maxX(); x++) {
                 for (int z = region.minZ(); z < region.maxZ(); z++) {
-                    if (!region.contains(x, z) || !level.hasChunkAt(pos.set(x, floorTop, z))) {
+                    int cx = x >> 4;
+                    int cz = z >> 4;
+                    if (!region.contains(x, z) || !chunkHas.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz),
+                            key -> chunkMayHave(level, cx, cz, floorTop + 1, floorTop + FLATTEN_CUT_HEIGHT, WorkerAutoJobs::isFlattenCut))) {
                         continue;
                     }
                     for (int y = floorTop + FLATTEN_CUT_HEIGHT; y > floorTop; y--) {
@@ -302,10 +344,14 @@ public final class WorkerAutoJobs {
         double radiusSqr = (double) radius * radius;
         List<BlockPos> found = new ArrayList<>();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap chunkHas = new it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap();
         for (int x = origin.getX() - radius; x <= origin.getX() + radius; x++) {
             for (int z = origin.getZ() - radius; z <= origin.getZ() + radius; z++) {
                 // Reading a block in an unloaded chunk would make the game load it, so never touch those.
-                if (!level.hasChunk(x >> 4, z >> 4)) {
+                int cx = x >> 4;
+                int cz = z >> 4;
+                if (!chunkHas.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz),
+                        key -> chunkMayHave(level, cx, cz, origin.getY() - radius, origin.getY() + radius, state -> behavior.mineOre() && state.is(Tags.Blocks.ORES)))) {
                     continue;
                 }
                 for (int y = Math.max(level.getMinBuildHeight(), origin.getY() - radius);

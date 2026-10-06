@@ -70,6 +70,24 @@ public final class ModBlocks {
         return CREEP_BLOCK.get();
     }
 
+    /** The hive relays: where the Heart gives and takes redstone signals (see HiveRelayBlock). One block for each thing a relay does. */
+    private static DeferredBlock<Block> relay(com.projecthivemind.block.RelayChannel channel) {
+        return BLOCKS.register("hive_relay_" + channel.id(), () -> new com.projecthivemind.block.HiveRelayBlock(BlockBehaviour.Properties.of()
+                .mapColor(MapColor.CRIMSON_NYLIUM)
+                .strength(1.5F)
+                .sound(SoundType.NETHER_WART)
+                .lightLevel(state -> state.getValue(com.projecthivemind.block.HiveRelayBlock.POWERED) ? 7 : 0), channel));
+    }
+
+    public static final DeferredBlock<Block> RELAY_HOSTILE = relay(com.projecthivemind.block.RelayChannel.HOSTILE);
+    public static final DeferredBlock<Block> RELAY_ANY = relay(com.projecthivemind.block.RelayChannel.ANY);
+    public static final DeferredBlock<Block> RELAY_HEALTH = relay(com.projecthivemind.block.RelayChannel.HEALTH);
+    public static final DeferredBlock<Block> RELAY_RECALL = relay(com.projecthivemind.block.RelayChannel.RECALL);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_HOSTILE_ITEM = ITEMS.registerSimpleBlockItem(RELAY_HOSTILE);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_ANY_ITEM = ITEMS.registerSimpleBlockItem(RELAY_ANY);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_HEALTH_ITEM = ITEMS.registerSimpleBlockItem(RELAY_HEALTH);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_RECALL_ITEM = ITEMS.registerSimpleBlockItem(RELAY_RECALL);
+
     private ModBlocks() {
     }
 }

@@ -66,6 +66,13 @@ public final class ModEntities {
                     .clientTrackingRange(8)
                     .build("hive_feeder"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<com.projecthivemind.entity.HiveGolem>> HIVE_GOLEM = ENTITY_TYPES.register("hive_golem",
+            () -> EntityType.Builder.of(com.projecthivemind.entity.HiveGolem::new, MobCategory.MISC)
+                    .sized(1.4F, 2.7F)
+                    .eyeHeight(2.2F)
+                    .clientTrackingRange(10)
+                    .build("hive_golem"));
+
     private ModEntities() {
     }
 }

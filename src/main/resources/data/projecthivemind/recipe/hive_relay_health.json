@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "redstone",
+  "ingredients": [
+    { "item": "minecraft:redstone_block" },
+    { "item": "minecraft:nether_wart_block" },
+    { "item": "minecraft:egg" }
+  ],
+  "result": { "id": "projecthivemind:hive_relay_health", "count": 2 }
+}

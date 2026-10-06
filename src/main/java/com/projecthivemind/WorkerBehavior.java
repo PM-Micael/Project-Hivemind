@@ -8,7 +8,7 @@ import net.minecraft.util.Mth;
  * edited from its page of the hive menu.
  *
  * <p>A worker only goes after blocks that are inside the radius of the option that wants them, that the hive can see
- * (see HiveSight), and that the hive's tools can harvest.
+ * (an open face, not buried in rock), and that the hive's tools can harvest.
  *
  * @param mineOre    mine ore blocks
  * @param oreRadius  how far around itself a worker looks for ore, in blocks

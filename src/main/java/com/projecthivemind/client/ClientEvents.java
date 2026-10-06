@@ -52,6 +52,7 @@ public final class ClientEvents {
         event.registerEntityRenderer(ModEntities.HIVE_SOLDIER.get(), ZombieRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_COLLECTOR.get(), SilverfishRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_FEEDER.get(), net.minecraft.client.renderer.entity.BeeRenderer::new);
+        event.registerEntityRenderer(ModEntities.HIVE_GOLEM.get(), net.minecraft.client.renderer.entity.IronGolemRenderer::new);
     }
 
     @SubscribeEvent

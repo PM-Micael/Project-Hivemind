@@ -17,6 +17,8 @@ public final class HiveHud {
     private static final ResourceLocation CONTAINER = ResourceLocation.withDefaultNamespace("hud/heart/container");
     private static final ResourceLocation FULL = ResourceLocation.withDefaultNamespace("hud/heart/full");
     private static final ResourceLocation HALF = ResourceLocation.withDefaultNamespace("hud/heart/half");
+    private static final ResourceLocation GOLD_FULL = ResourceLocation.withDefaultNamespace("hud/heart/absorbing_full");
+    private static final ResourceLocation GOLD_HALF = ResourceLocation.withDefaultNamespace("hud/heart/absorbing_half");
     private static final ResourceLocation ARMOR_EMPTY = ResourceLocation.withDefaultNamespace("hud/armor_empty");
     private static final ResourceLocation ARMOR_HALF = ResourceLocation.withDefaultNamespace("hud/armor_half");
     private static final ResourceLocation ARMOR_FULL = ResourceLocation.withDefaultNamespace("hud/armor_full");
@@ -45,7 +47,9 @@ public final class HiveHud {
         }
         int health = (int) Math.ceil(ClientState.heartHealth());
         int hearts = (int) Math.ceil(maxHealth / 2.0F);
-        int rows = (hearts + HEARTS_PER_ROW - 1) / HEARTS_PER_ROW;
+        int absorption = (int) Math.ceil(ClientState.heartAbsorption());
+        int goldHearts = (absorption + 1) / 2;
+        int rows = (hearts + goldHearts + HEARTS_PER_ROW - 1) / HEARTS_PER_ROW;
         // Vanilla squeezes the rows together as they pile up, so a lot of health does not climb off the screen.
         int rowHeight = Math.max(10 - (rows - 2), 3);
 
@@ -55,6 +59,11 @@ public final class HiveHud {
         if (bar) {
             drawHealthBar(graphics, left, bottom, health, maxHealth);
             rows = 1;
+            if (absorption > 0) {
+                // The extra health as a gold bar of its own over the red one, as wide as the health bar is for the same points.
+                drawGoldBar(graphics, left, bottom - 10, absorption, maxHealth);
+                rows = 2;
+            }
         }
         for (int i = 0; i < (bar ? 0 : hearts); i++) {
             int x = left + (i % HEARTS_PER_ROW) * 8;
@@ -65,6 +74,15 @@ public final class HiveHud {
             } else if (health == i * 2 + 1) {
                 graphics.blitSprite(HALF, x, y, 9, 9);
             }
+        }
+
+        // The extra health (absorption): gold hearts after the health hearts, laid out the same way.
+        for (int i = 0; i < (bar ? 0 : goldHearts); i++) {
+            int slot = hearts + i;
+            int x = left + (slot % HEARTS_PER_ROW) * 8;
+            int y = bottom - (slot / HEARTS_PER_ROW) * rowHeight;
+            graphics.blitSprite(CONTAINER, x, y, 9, 9);
+            graphics.blitSprite(absorption >= i * 2 + 2 ? GOLD_FULL : GOLD_HALF, x, y, 9, 9);
         }
 
         // The hive's hunger, on the right as a player's is: ten drumsticks, filling from the right.
@@ -116,6 +134,23 @@ public final class HiveHud {
         for (int line = 1; line * SEGMENT_POINTS < maxHealth - 0.01F; line++) {
             int x = left + 1 + Math.round(inner * line * SEGMENT_POINTS / maxHealth);
             graphics.fill(x, bottom, x + 1, bottom + BAR_HEIGHT, BAR_FRAME);
+        }
+    }
+
+    private static final int BAR_GOLD = 0xFFE8B820;
+
+    /** The absorption as a gold bar on the same scale as the health bar (a full bar is the health's maximum), cut by the same dark lines. */
+    private static void drawGoldBar(GuiGraphics graphics, int left, int top, int absorption, float maxHealth) {
+        int inner = BAR_WIDTH - 2;
+        graphics.fill(left, top, left + BAR_WIDTH, top + BAR_HEIGHT, BAR_FRAME);
+        graphics.fill(left + 1, top + 1, left + 1 + inner, top + BAR_HEIGHT - 1, BAR_EMPTY);
+        int filled = Math.round(inner * Math.max(0.0F, Math.min(1.0F, absorption / maxHealth)));
+        if (filled > 0) {
+            graphics.fill(left + 1, top + 1, left + 1 + filled, top + BAR_HEIGHT - 1, BAR_GOLD);
+        }
+        for (int line = 1; line * SEGMENT_POINTS < maxHealth - 0.01F; line++) {
+            int x = left + 1 + Math.round(inner * line * SEGMENT_POINTS / maxHealth);
+            graphics.fill(x, top, x + 1, top + BAR_HEIGHT, BAR_FRAME);
         }
     }
 

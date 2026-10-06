@@ -40,12 +40,62 @@ public class GatherAtHeartGoal extends Goal {
     private double settledRadius = ARRIVED;
     private double lastDistance;
     private int checkTimer;
+    private boolean running;
+    /** The goal each unit has, so that the diagnosis command can ask it why it is not at the Heart. Weak: a unit that is gone is let go. */
+    private static final java.util.Map<PathfinderMob, GatherAtHeartGoal> GOALS = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     public GatherAtHeartGoal(PathfinderMob mob, BooleanSupplier enabled) {
         this.mob = mob;
         this.unit = (HiveUnit) mob;
         this.enabled = enabled;
         this.setFlags(EnumSet.of(Flag.MOVE));
+        GOALS.put(mob, this);
+    }
+
+    /** Why this unit is where it is, in a few words: what the hive's diagnosis command prints for it. */
+    public static String diagnose(PathfinderMob mob) {
+        GatherAtHeartGoal goal = GOALS.get(mob);
+        HiveUnit unit = (HiveUnit) mob;
+        HiveHeart heart = unit.findLocalHeart();
+        if (goal == null) {
+            return "has no gather goal";
+        }
+        if (heart == null) {
+            return "no Heart in this dimension";
+        }
+        if (!goal.enabled.getAsBoolean()) {
+            return "wander is on";
+        }
+        if (unit.action() != null) {
+            return "has an order: " + unit.action().kind();
+        }
+        if (mob.getTarget() != null) {
+            return "has a target";
+        }
+        if (mob instanceof HiveScout scout && scout.isControlled()) {
+            return "is controlled";
+        }
+        if (heart.isUnitSelected(mob.getId())) {
+            return "is selected";
+        }
+        if (heart.teamLeader(mob) != null) {
+            return "follows a team scout outside the border";
+        }
+        if (!HiveArea.containsXZ(heart, mob.getX(), mob.getZ())) {
+            return "is outside the border";
+        }
+        double distance = goal.distanceToHeart(heart);
+        String where = String.format(java.util.Locale.ROOT, "%.1f blocks from the Heart, settled at %.1f", distance, goal.settledRadius);
+        if (distance <= goal.settledRadius) {
+            return "is at the Heart (" + where + ")";
+        }
+        if (goal.running) {
+            return "is walking there (" + where + ")";
+        }
+        if (mob.tickCount < goal.nextTry) {
+            return "is waiting to try again (" + where + ")";
+        }
+        return "should walk but is not (" + where + ")";
     }
 
     private boolean idleInside(HiveHeart heart) {
@@ -88,6 +138,7 @@ public class GatherAtHeartGoal extends Goal {
 
     @Override
     public void start() {
+        running = true;
         HiveHeart heart = unit.findLocalHeart();
         if (heart == null) {
             return;
@@ -119,6 +170,7 @@ public class GatherAtHeartGoal extends Goal {
 
     @Override
     public void stop() {
+        running = false;
         HiveHeart heart = unit.findLocalHeart();
         // The path ran out before the middle (the others are in the way): that is as near as it gets, so the unit settles a little further out.
         if (heart != null && mob.getNavigation().isDone() && distanceToHeart(heart) > settledRadius) {

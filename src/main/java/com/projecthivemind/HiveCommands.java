@@ -21,6 +21,8 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * /hivemind level up
  * /hivemind level down
  * /hivemind creep get
+ * /hivemind spawnguard on|off|stats
+ * /hivemind gather
  * /hivemind creep radius &lt;blocks&gt;
  * </pre>
  */
@@ -38,6 +40,38 @@ public final class HiveCommands {
                                 .executes(context -> set(context, IntegerArgumentType.getInteger(context, "level")))))
                         .then(Commands.literal("up").executes(context -> set(context, hiveOf(context) == null ? 0 : hiveOf(context).hiveLevel() + 1)))
                         .then(Commands.literal("down").executes(context -> set(context, hiveOf(context) == null ? 0 : hiveOf(context).hiveLevel() - 1))))
+                .then(Commands.literal("gather").executes(context -> {
+                    HiveHeart heart = hiveOf(context);
+                    if (heart == null || !(context.getSource().getEntity() instanceof ServerPlayer player) || !(heart.level() instanceof net.minecraft.server.level.ServerLevel level)) {
+                        return 0;
+                    }
+                    java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+                    for (java.util.UUID id : HivemindManager.get(player).allUnits()) {
+                        if (level.getEntity(id) instanceof net.minecraft.world.entity.PathfinderMob mob && mob instanceof com.projecthivemind.entity.HiveUnit unit && mob.isAlive()) {
+                            String reason = com.projecthivemind.entity.GatherAtHeartGoal.diagnose(mob);
+                            // Distances differ for every unit: they are not part of what is counted.
+                            counts.merge(unit.kind().name().toLowerCase(java.util.Locale.ROOT) + " " + reason.replaceAll(" \\(.*\\)", ""), 1, Integer::sum);
+                        }
+                    }
+                    counts.forEach((reason, number) -> context.getSource().sendSuccess(() -> Component.literal(number + " x " + reason), false));
+                    return counts.size();
+                }))
+                .then(Commands.literal("spawnguard")
+                        .then(Commands.literal("on").executes(context -> {
+                            HiveSpawnGuard.enabled = true;
+                            context.getSource().sendSuccess(() -> Component.translatable("command.projecthivemind.spawnguard.on"), true);
+                            return 1;
+                        }))
+                        .then(Commands.literal("off").executes(context -> {
+                            HiveSpawnGuard.enabled = false;
+                            context.getSource().sendSuccess(() -> Component.translatable("command.projecthivemind.spawnguard.off"), true);
+                            return 1;
+                        }))
+                        .then(Commands.literal("stats").executes(context -> {
+                            context.getSource().sendSuccess(() -> Component.translatable("command.projecthivemind.spawnguard.stats", HiveSpawnGuard.enabled ? "on" : "off",
+                                    HiveSpawnGuard.blocked.get(), HiveSpawnGuard.allowed.get()), false);
+                            return 1;
+                        })))
                 .then(Commands.literal("creep")
                         .then(Commands.literal("get").executes(context -> {
                             HiveHeart heart = hiveOf(context);

@@ -47,6 +47,9 @@ public class WorkerFillGoal extends Goal {
     @Nullable
     private BlockPos target;
     private int nextScan;
+    /** How many looks in a row found nothing to fill, and whether the last one found a gap it could not reach (another may be reachable: look again soon). */
+    private int idleScans;
+    private boolean retrySoon;
     private int repathCooldown;
     private int placeCooldown;
     private int stuckTicks;
@@ -82,6 +85,14 @@ public class WorkerFillGoal extends Goal {
             return false;
         }
         target = findGap(heart);
+        if (target != null || retrySoon) {
+            idleScans = 0;
+        } else {
+            // Nothing to fill: the whole area is not looked over again at once. Each empty look waits longer (up to 16 times as long), a little differently for each worker.
+            idleScans = Math.min(idleScans + 1, 4);
+            nextScan = worker.tickCount + SCAN_INTERVAL * (1 << idleScans) + worker.getRandom().nextInt(SCAN_INTERVAL);
+        }
+        retrySoon = false;
         return target != null;
     }
 
@@ -254,6 +265,7 @@ public class WorkerFillGoal extends Goal {
         }
         if (best != null && !reachable(best)) {
             ignored.put(best, worker.tickCount + IGNORE_TICKS);
+            retrySoon = true;
             return null;
         }
         return best;

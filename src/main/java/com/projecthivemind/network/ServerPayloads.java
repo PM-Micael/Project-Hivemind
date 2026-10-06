@@ -355,6 +355,13 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onSetRedstone(com.projecthivemind.network.SetRedstonePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setRedstone(payload.flags(), payload.percent());
+        }
+    }
+
     public static void onPlaceRecipe(com.projecthivemind.network.PlaceRecipePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof com.projecthivemind.menu.HiveMenu menu
                 && menu.containerId == payload.containerId()) {

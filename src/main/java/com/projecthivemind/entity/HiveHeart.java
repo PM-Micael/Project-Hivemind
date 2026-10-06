@@ -122,6 +122,7 @@ public class HiveHeart extends Mob {
     }
     /** The health last sent to the owner for the health bar. */
     private float syncedHealth = -1.0F;
+    private float syncedAbsorption = -1.0F;
     private int syncedArmor = -1;
     private int syncedFood = -1;
     /** The furnace built into the Heart, usable once a furnace has been consumed on the Evolve tab. It always exists so the menu code stays simple. */
@@ -158,9 +159,6 @@ public class HiveHeart extends Mob {
 
     /** What the hive can see from, refreshed several times a second. Not saved. */
     private List<HiveSight.Eye> sightEyes = List.of();
-    /** The mobs the owner's client was last told are in sight. Not saved. */
-    private Set<Integer> syncedSight = Set.of();
-    /** The eyes last sent to the owner, which are those of the camera's dimension. */
     private List<HiveSight.Eye> syncedEyes = List.of();
 
     public List<HiveSight.Eye> syncedEyes() {
@@ -179,14 +177,6 @@ public class HiveHeart extends Mob {
 
     public void setSightEyes(List<HiveSight.Eye> eyes) {
         this.sightEyes = eyes;
-    }
-
-    public Set<Integer> syncedSight() {
-        return syncedSight;
-    }
-
-    public void setSyncedSight(Set<Integer> mobIds) {
-        this.syncedSight = mobIds;
     }
 
     /** Entity ids of the units the owner has selected right now, as their client reports. Not saved. */
@@ -375,6 +365,30 @@ public class HiveHeart extends Mob {
         return level.getEntity(id) instanceof HiveHeart heart && heart.isAlive() ? heart : null;
     }
 
+    /**
+     * The Hearts that are in a loaded level right now, kept so that a question about a place (is it inside a hive's border?) is answered from this
+     * short list, with no search of the world: it is asked for every spot the game's spawning tries, from more than one thread.
+     */
+    private static final java.util.Set<HiveHeart> ACTIVE = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** True if this place is inside the border of a Heart in that dimension (sideways; the border covers every height). */
+    public static boolean insideAnyBorder(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension, double x, double z) {
+        for (HiveHeart heart : ACTIVE) {
+            if (heart.level().dimension().equals(dimension) && com.projecthivemind.HiveArea.containsXZ(heart, x, z)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void onAddedToLevel() {
+        super.onAddedToLevel();
+        if (!this.level().isClientSide) {
+            ACTIVE.add(this);
+        }
+    }
+
     @Override
     public void remove(RemovalReason reason) {
         // A destroyed Heart takes its light away with it.
@@ -383,11 +397,15 @@ public class HiveHeart extends Mob {
             removeGlowLights();
             releaseSlowed();
             releaseCreepBonus();
+            if (this.level() instanceof ServerLevel golemLevel) {
+                golems(golemLevel).forEach(HiveGolem::discard);
+            }
         }
         // A destroyed Heart no longer holds its chunks loaded (one that is merely unloading keeps them).
         if (reason.shouldDestroy()) {
             HivemindManager.holdHiveChunks(this, false);
         }
+        ACTIVE.remove(this);
         super.remove(reason);
     }
 
@@ -661,8 +679,23 @@ public class HiveHeart extends Mob {
             return;
         }
         java.util.Set<UUID> now = new HashSet<>();
-        for (Mob mob : serverLevel.getEntitiesOfClass(Mob.class, com.projecthivemind.HiveArea.areaBox(serverLevel, this),
-                candidate -> candidate instanceof HiveUnit unit && this.ownerId.equals(unit.ownerId()) && candidate.isAlive())) {
+        net.minecraft.server.level.ServerPlayer owner = this.getServer() == null ? null : this.getServer().getPlayerList().getPlayer(this.ownerId);
+        java.util.List<Mob> units = new java.util.ArrayList<>();
+        if (owner != null) {
+            for (UUID id : HivemindManager.get(owner).allUnits()) {
+                if (serverLevel.getEntity(id) instanceof Mob mob && mob.isAlive()) {
+                    units.add(mob);
+                }
+            }
+        }
+        // The netherite reward: every unit (and the golem) is fireproof and cannot be knocked back.
+        boolean netherite = com.projecthivemind.EvolveTask.NETHERITE.doneIn(evolveMask);
+        java.util.List<Mob> protectedMobs = new java.util.ArrayList<>(units);
+        protectedMobs.addAll(golems(serverLevel));
+        for (Mob mob : protectedMobs) {
+            netheriteProtection(mob, netherite);
+        }
+        for (Mob mob : units) {
             if (mob.onGround() && com.projecthivemind.HiveArea.containsXZ(this, mob.getX(), mob.getZ())
                     && serverLevel.getBlockState(mob.getOnPos()).is(com.projecthivemind.ModBlocks.CREEP)) {
                 creepBonus(mob, hiveLevel, true);
@@ -676,6 +709,164 @@ public class HiveHeart extends Mob {
         }
         onCreep.clear();
         onCreep.addAll(now);
+    }
+
+    private static final net.minecraft.resources.ResourceLocation NETHERITE_KNOCKBACK = com.projecthivemind.ProjectHivemind.id("netherite_knockback");
+
+    /** With the netherite reward, a unit is on fire for nothing (see the damage event too) and takes no knockback. Without it, the modifier is gone. */
+    private static void netheriteProtection(Mob mob, boolean on) {
+        net.minecraft.world.entity.ai.attributes.AttributeInstance instance = mob.getAttribute(Attributes.KNOCKBACK_RESISTANCE);
+        if (instance != null) {
+            if (on && !instance.hasModifier(NETHERITE_KNOCKBACK)) {
+                instance.addTransientModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(NETHERITE_KNOCKBACK, 1.0D,
+                        net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE));
+            } else if (!on) {
+                instance.removeModifier(NETHERITE_KNOCKBACK);
+            }
+        }
+        if (on && mob.isOnFire()) {
+            mob.clearFire();
+        }
+    }
+
+    // ---- redstone: signals given and taken through hive relays ----
+
+    /** The settings of the Redstone tab: bit 0 hostile mob, 1 any mob, 2 health, 3 recall (each on or off). Saved. */
+    private int redstoneConfig = 0b1111;
+    /** The health, in percent of the maximum, that the health signal is on under. Saved. */
+    private int redstonePercent = 50;
+    /** What each output is right now (and on in the settings): bits 0 to 2, as the settings. Not saved. */
+    private int redstoneLive;
+    /** How often the outputs are worked out, in ticks. */
+    private static final int REDSTONE_INTERVAL = 10;
+
+    /** The settings in bits 0 to 3 and what the outputs are now in bits 4 to 6, for the menu. */
+    public int redstoneFlags() {
+        return redstoneConfig | (redstoneLive << 4);
+    }
+
+    public int redstonePercent() {
+        return redstonePercent;
+    }
+
+    public void setRedstone(int config, int percent) {
+        this.redstoneConfig = config & 0b1111;
+        this.redstonePercent = Math.max(1, Math.min(100, percent));
+    }
+
+    /** Whether a relay of this kind is giving a signal. */
+    public boolean signal(com.projecthivemind.block.RelayChannel channel) {
+        return channel.ordinal() < 3 && (redstoneLive & (1 << channel.ordinal())) != 0;
+    }
+
+    /** The Heart whose border a relay at this place is in, with the redstone task done (or null). */
+    @Nullable
+    public static HiveHeart redstoneHeartAt(net.minecraft.world.level.Level level, BlockPos pos) {
+        for (HiveHeart heart : ACTIVE) {
+            if (heart.level() == level && com.projecthivemind.EvolveTask.REDSTONE.doneIn(heart.evolveMask)
+                    && com.projecthivemind.HiveArea.containsXZ(heart, pos.getX() + 0.5D, pos.getZ() + 0.5D)) {
+                return heart;
+            }
+        }
+        return null;
+    }
+
+    /** Every REDSTONE_INTERVAL ticks: what is true of the hive now, for the relays to give. */
+    private void keepRedstone(ServerLevel level) {
+        if (!com.projecthivemind.EvolveTask.REDSTONE.doneIn(evolveMask)) {
+            redstoneLive = 0;
+            return;
+        }
+        net.minecraft.world.phys.AABB area = com.projecthivemind.HiveArea.areaBox(level, this);
+        int live = 0;
+        if ((redstoneConfig & 1) != 0 && mobInside(level, area, true)) {
+            live |= 1;
+        }
+        if ((redstoneConfig & 2) != 0 && mobInside(level, area, false)) {
+            live |= 2;
+        }
+        if ((redstoneConfig & 4) != 0 && this.getHealth() * 100.0F < redstonePercent * this.getMaxHealth()) {
+            live |= 4;
+        }
+        redstoneLive = live;
+    }
+
+    /** Whether a mob that is not the hive's is inside the border: any, or only a hostile one. Stops at the first it finds. */
+    private static boolean mobInside(ServerLevel level, net.minecraft.world.phys.AABB area, boolean hostileOnly) {
+        java.util.List<Mob> found = new java.util.ArrayList<>(1);
+        level.getEntities(net.minecraft.world.level.entity.EntityTypeTest.forClass(Mob.class), area,
+                mob -> mob.isAlive() && !HiveAttacks.spares(mob) && (!hostileOnly || mob instanceof net.minecraft.world.entity.monster.Enemy), found, 1);
+        return !found.isEmpty();
+    }
+
+    /** The recall input: every soldier that is outside the border (in this dimension) is told to walk to the Heart. Returns how many were. */
+    public int recallSoldiers() {
+        if (!(this.level() instanceof ServerLevel level) || this.ownerId == null || this.getServer() == null || (redstoneConfig & 8) == 0
+                || !com.projecthivemind.EvolveTask.REDSTONE.doneIn(evolveMask)) {
+            return 0;
+        }
+        net.minecraft.server.level.ServerPlayer owner = this.getServer().getPlayerList().getPlayer(this.ownerId);
+        if (owner == null) {
+            return 0;
+        }
+        int called = 0;
+        for (UUID id : HivemindManager.get(owner).allUnits()) {
+            if (level.getEntity(id) instanceof HiveSoldier soldier && soldier.isAlive() && !com.projecthivemind.HiveArea.containsXZ(this, soldier.getX(), soldier.getZ())) {
+                soldier.setAction(new com.projecthivemind.UnitAction(com.projecthivemind.UnitAction.Kind.WALK, this.blockPosition().below()));
+                called++;
+            }
+        }
+        return called;
+    }
+
+    // ---- the iron golem ----
+
+    /** How long after a golem dies the Heart waits before making another, in ticks: one minute. */
+    private static final int GOLEM_RESPAWN_TICKS = 1200;
+    private int golemCooldown;
+
+    public void golemDied() {
+        golemCooldown = GOLEM_RESPAWN_TICKS;
+    }
+
+    /** The golems this Heart has (looked for round the Heart: they never go beyond their square). */
+    public java.util.List<HiveGolem> golems(ServerLevel level) {
+        net.minecraft.world.phys.AABB around = this.getBoundingBox().inflate(HiveGolem.REACH + 12.0D);
+        return level.getEntitiesOfClass(HiveGolem.class, around, golem -> golem.isAlive() && this.getUUID().equals(golem.heartIdOrNull()));
+    }
+
+    /** Every second: with the iron task done the Heart has a golem, a new one after the old one has been gone a while; without it, none. */
+    private void keepGolem(ServerLevel level) {
+        java.util.List<HiveGolem> golems = golems(level);
+        if (!com.projecthivemind.EvolveTask.IRON.doneIn(evolveMask)) {
+            golems.forEach(HiveGolem::discard);
+            return;
+        }
+        if (!golems.isEmpty()) {
+            // Only one: any more (an old one that was loaded late) go.
+            for (int i = 1; i < golems.size(); i++) {
+                golems.get(i).discard();
+            }
+            return;
+        }
+        if (golemCooldown > 0) {
+            golemCooldown = Math.max(0, golemCooldown - 20);
+            return;
+        }
+        HiveGolem golem = com.projecthivemind.ModEntities.HIVE_GOLEM.get().create(level);
+        if (golem == null) {
+            return;
+        }
+        double reach = widthAt(visualLevel()) / 2.0D + 1.5D;
+        double[][] sides = {{reach, 0.0D}, {-reach, 0.0D}, {0.0D, reach}, {0.0D, -reach}};
+        for (double[] side : sides) {
+            golem.moveTo(this.getX() + side[0], this.getY(), this.getZ() + side[1], this.random.nextFloat() * 360.0F, 0.0F);
+            if (level.noCollision(golem)) {
+                break;
+            }
+        }
+        golem.setHeartId(this.getUUID());
+        level.addFreshEntity(golem);
     }
 
     /** The Heart is gone: no unit keeps the creep's bonus. */
@@ -800,6 +991,12 @@ public class HiveHeart extends Mob {
         }
         if (this.tickCount % 5 == 0) {
             keepCreepBonus();
+        }
+        if (this.tickCount % 20 == 0 && this.level() instanceof ServerLevel golemLevel) {
+            keepGolem(golemLevel);
+        }
+        if (this.tickCount % REDSTONE_INTERVAL == 0 && this.level() instanceof ServerLevel redstoneLevel) {
+            keepRedstone(redstoneLevel);
         }
         if (this.tickCount % 1200 == 0 && com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask)) {
             giveBottleExperience();
@@ -977,6 +1174,14 @@ public class HiveHeart extends Mob {
 
     public void setSyncedArmor(int armor) {
         this.syncedArmor = armor;
+    }
+
+    public float syncedAbsorption() {
+        return syncedAbsorption;
+    }
+
+    public void setSyncedAbsorption(float absorption) {
+        this.syncedAbsorption = absorption;
     }
 
     public float syncedHealth() {
@@ -1471,6 +1676,8 @@ public class HiveHeart extends Mob {
         tag.putLong(EVOLVE_TAG, evolveMask);
         tag.putInt("TotemCooldown", totemCooldown);
         tag.putFloat("CreepRadius", creepRadius);
+        tag.putInt("RedstoneConfig", redstoneConfig);
+        tag.putInt("RedstonePercent", redstonePercent);
         net.minecraft.nbt.ListTag enchants = new net.minecraft.nbt.ListTag();
         for (String id : unlockedEnchants) {
             enchants.add(net.minecraft.nbt.StringTag.valueOf(id));
@@ -1588,6 +1795,8 @@ public class HiveHeart extends Mob {
         evolveMask = tag.getLong(EVOLVE_TAG);
         totemCooldown = tag.getInt("TotemCooldown");
         creepRadius = tag.getFloat("CreepRadius");
+        redstoneConfig = tag.contains("RedstoneConfig") ? tag.getInt("RedstoneConfig") : 0b1111;
+        redstonePercent = tag.contains("RedstonePercent") ? Math.max(1, Math.min(100, tag.getInt("RedstonePercent"))) : 50;
         unlockedEnchants.clear();
         net.minecraft.nbt.ListTag savedEnchants = tag.getList("UnlockedEnchants", net.minecraft.nbt.Tag.TAG_STRING);
         for (int i = 0; i < savedEnchants.size(); i++) {

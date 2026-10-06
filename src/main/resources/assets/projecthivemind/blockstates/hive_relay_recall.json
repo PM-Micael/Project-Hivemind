@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "powered=false": { "model": "projecthivemind:block/hive_relay_recall" },
+    "powered=true": { "model": "projecthivemind:block/hive_relay_recall_on" }
+  }
+}

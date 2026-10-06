@@ -685,6 +685,7 @@ public class HiveWorker extends Skeleton implements HiveUnit {
 
     /** Ticks between looks for work. Looking is the expensive part, so an idle worker does it every couple of seconds. */
     private static final int JOB_SCAN_INTERVAL = 40;
+    private int jobScanBackoff = 1;
 
     private int nextJobScan;
     /** The plants and crops the last look round the hive found, so the next job comes from this list and not from another look at the whole area. */
@@ -782,8 +783,10 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             }
             // Not tickCount % N: use a deadline, so the timing never depends on the entity id.
             if (action == null && heart != null && (this.tickCount >= nextJobScan || !fellQueue.isEmpty() || flattenActive)) {
-                nextJobScan = this.tickCount + JOB_SCAN_INTERVAL;
                 findOwnWork(heart);
+                // With nothing found the next look waits longer (up to 8 times as long), a little differently for each worker; work found starts it over.
+                jobScanBackoff = this.action() != null ? 1 : Math.min(jobScanBackoff * 2, 8);
+                nextJobScan = this.tickCount + JOB_SCAN_INTERVAL * jobScanBackoff + this.random.nextInt(JOB_SCAN_INTERVAL);
             }
         }
     }

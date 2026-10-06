@@ -1,30 +1,25 @@
 package com.projecthivemind.client;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
+import com.projecthivemind.ProjectHivemind;
 import com.projecthivemind.network.SyncEyesPayload;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+
 /**
- * What the hive can see right now, as last told by the server: the living things in sight (anything not in this set is
- * hidden from the player while they are in the RTS view) and the eyes it sees with, which the terrain fog uses.
+ * The eyes the hive sees with, as last told by the server: where each is and how far it sees. The terrain fog is drawn from them.
  * Plain data only.
  */
+@EventBusSubscriber(modid = ProjectHivemind.MODID, value = Dist.CLIENT)
 public final class ClientSight {
-    private static Set<Integer> visible = new HashSet<>();
     private static List<SyncEyesPayload.EyePoint> eyes = List.of();
     private static int eyesVersion;
 
     private ClientSight() {
-    }
-
-    public static void update(List<Integer> visibleMobIds) {
-        visible = new HashSet<>(visibleMobIds);
-    }
-
-    public static boolean isVisible(int entityId) {
-        return visible.contains(entityId);
     }
 
     public static void updateEyes(List<SyncEyesPayload.EyePoint> newEyes) {
@@ -42,8 +37,12 @@ public final class ClientSight {
     }
 
     public static void reset() {
-        visible = new HashSet<>();
         eyes = List.of();
         eyesVersion++;
+    }
+
+    @SubscribeEvent
+    static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        reset();
     }
 }
