@@ -656,10 +656,10 @@ public final class HivemindManager {
         }
     }
 
-    /** Tell the owner which enchantments the hive has made available (for the enchanting station and the Evolve tab). */
+    /** Tell the owner which enchantments the hive has made available, and which it could learn now (for the enchanting station and the Evolve tab). */
     public static void sendEnchants(ServerPlayer owner, HiveHeart heart) {
-        PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncEnchantsPayload(
-                heart.unlockedEnchants().stream().map(net.minecraft.resources.ResourceLocation::toString).toList()));
+        PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncEnchantsPayload(List.copyOf(heart.unlockedEnchants()),
+                com.projecthivemind.HiveEnchanting.readyKeys(heart.getStorage(), heart.unlockedEnchants(), owner.level().registryAccess())));
     }
 
     public static void openMenu(ServerPlayer player) {

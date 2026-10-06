@@ -286,6 +286,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     };
     private final SimpleContainer anvilResult = new SimpleContainer(1);
     private final DataSlot anvilCost = DataSlot.standalone();
+    /** What the player was last told about the enchantments (server side), so that it is sent again only when it changes. */
+    private String lastEnchantSignature;
     @Nullable
     private AnvilEngine anvilEngine;
 
@@ -697,6 +699,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             scroll.refresh();
             scoutScroll.refresh();
         }
+        // The levels of enchantments the hive could learn change as books come into and leave its storage: the Evolve tab is told when they do.
+        if (heart != null && player instanceof net.minecraft.server.level.ServerPlayer owner && hasEnchanting()) {
+            java.util.List<String> ready = HiveEnchanting.readyKeys(heart.getStorage(), heart.unlockedEnchants(), owner.level().registryAccess());
+            String signature = heart.unlockedEnchants().size() + "|" + ready;
+            if (!signature.equals(lastEnchantSignature)) {
+                lastEnchantSignature = signature;
+                HivemindManager.sendEnchants(owner, heart);
+            }
+        }
         super.broadcastChanges();
     }
 
@@ -836,33 +847,49 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return enchantSlots.getItem(0);
     }
 
-    private static net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> enchantmentById(net.minecraft.core.RegistryAccess registries, String text) {
-        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(text);
+    /** A level of an enchantment, as the hive keeps it: the enchantment and the level (see {@link HiveEnchanting#key}). Null if the text is not one. */
+    private record EnchantChoice(net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder, int level, String id) {
+    }
+
+    private static EnchantChoice parseEnchant(net.minecraft.core.RegistryAccess registries, String text) {
+        int at = text.lastIndexOf('@');
+        if (at < 0) {
+            return null;
+        }
+        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(text.substring(0, at));
+        int level;
+        try {
+            level = Integer.parseInt(text.substring(at + 1));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
         if (id == null) {
             return null;
         }
-        return registries.registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
+        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = registries.registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT)
                 .getHolder(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.ENCHANTMENT, id)).orElse(null);
+        return holder == null || level < 1 || level > HiveEnchanting.maxLevel(holder) ? null : new EnchantChoice(holder, level, id.toString());
     }
 
     /**
-     * Server side: the player clicked an enchantment on the Evolve tab. If it is not available yet and an enchanted book with it is in the hive's
-     * storage, one of the book is taken from there and the enchantment becomes available in the enchanting station.
+     * Server side: the player clicked a level of an enchantment on the Evolve tab. If it is not available yet and an enchanted book with exactly that
+     * enchantment at exactly that level is in the hive's storage, one of the book is taken from there and that level becomes available in the enchanting
+     * station.
      */
-    public void consumeEnchantBook(String idText) {
+    public void consumeEnchantBook(String keyText) {
         if (heart == null || !hasEnchanting() || !(player instanceof net.minecraft.server.level.ServerPlayer owner)) {
             return;
         }
-        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantmentById(player.level().registryAccess(), idText);
-        if (holder == null || heart.unlockedEnchants().contains(holder.key().location())) {
+        EnchantChoice choice = parseEnchant(player.level().registryAccess(), keyText);
+        if (choice == null || HiveEnchanting.isAvailable(heart.unlockedEnchants(), choice.id(), choice.holder(), choice.level())) {
             return;
         }
         for (int i = 0; i < heart.getStorage().getContainerSize(); i++) {
             ItemStack stack = heart.getStorage().getItem(i);
             if (stack.is(net.minecraft.world.item.Items.ENCHANTED_BOOK) && stack.getOrDefault(net.minecraft.core.component.DataComponents.STORED_ENCHANTMENTS,
-                    net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY).getLevel(holder) > 0) {
+                    net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY).getLevel(choice.holder()) == choice.level()) {
                 heart.getStorage().removeItem(i, 1);
-                heart.unlockEnchant(holder.key().location());
+                heart.unlockEnchant(HiveEnchanting.key(choice.id(), choice.level()));
                 HivemindManager.sendEnchants(owner, heart);
                 broadcastChanges();
                 return;
@@ -872,30 +899,30 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     /**
-     * Server side: the player picked an available enchantment for the item in the station. It goes on at its highest level, and costs what
-     * {@link HiveEnchanting} says in lapis lazuli (from the lapis slot) and levels (from the hivemind's own experience bar).
+     * Server side: the player picked an available level of an enchantment for the item in the station. It costs what {@link HiveEnchanting} says in
+     * lapis lazuli (from the lapis slot) and levels (from the hivemind's own experience bar).
      */
-    public void applyEnchant(String idText) {
+    public void applyEnchant(String keyText) {
         if (heart == null || !hasEnchanting() || !(player.level() instanceof net.minecraft.server.level.ServerLevel level)) {
             return;
         }
-        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantmentById(level.registryAccess(), idText);
-        if (holder == null || !heart.unlockedEnchants().contains(holder.key().location())) {
+        EnchantChoice choice = parseEnchant(level.registryAccess(), keyText);
+        if (choice == null || !HiveEnchanting.isAvailable(heart.unlockedEnchants(), choice.id(), choice.holder(), choice.level())) {
             return;
         }
         ItemStack stack = enchantSlots.getItem(0);
-        if (HiveEnchanting.problem(stack, holder) != null) {
+        if (HiveEnchanting.problem(stack, choice.holder(), choice.level()) != null) {
             return;
         }
-        int lapisCost = HiveEnchanting.lapisCost(holder);
-        int levelCost = HiveEnchanting.levelCost(holder);
+        int lapisCost = HiveEnchanting.lapisCost(choice.level());
+        int levelCost = HiveEnchanting.levelCost(choice.level());
         boolean free = player.hasInfiniteMaterials();
         ItemStack lapis = enchantSlots.getItem(1);
         if (!free && (lapis.isEmpty() || lapis.getCount() < lapisCost || player.experienceLevel < levelCost)) {
             return;
         }
         java.util.List<net.minecraft.world.item.enchantment.EnchantmentInstance> list =
-                java.util.List.of(new net.minecraft.world.item.enchantment.EnchantmentInstance(holder, HiveEnchanting.levelOf(holder)));
+                java.util.List.of(new net.minecraft.world.item.enchantment.EnchantmentInstance(choice.holder(), choice.level()));
         player.onEnchantmentPerformed(stack, levelCost);
         ItemStack enchanted = stack.getItem().applyEnchantments(stack, list);
         enchantSlots.setItem(0, enchanted);

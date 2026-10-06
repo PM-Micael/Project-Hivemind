@@ -1045,14 +1045,14 @@ public class HiveHeart extends Mob {
     }
 
     /** The enchantments the hive has made available in its enchanting station, by consuming a book with each. Saved. */
-    private final java.util.Set<net.minecraft.resources.ResourceLocation> unlockedEnchants = new java.util.LinkedHashSet<>();
+    private final java.util.Set<String> unlockedEnchants = new java.util.LinkedHashSet<>();
 
-    public java.util.Set<net.minecraft.resources.ResourceLocation> unlockedEnchants() {
+    public java.util.Set<String> unlockedEnchants() {
         return java.util.Collections.unmodifiableSet(unlockedEnchants);
     }
 
-    public void unlockEnchant(net.minecraft.resources.ResourceLocation id) {
-        unlockedEnchants.add(id);
+    public void unlockEnchant(String key) {
+        unlockedEnchants.add(key);
     }
 
     /** The evolution tasks the hive has done, as a mask of {@link com.projecthivemind.EvolveTask#bit}s. */
@@ -1265,8 +1265,8 @@ public class HiveHeart extends Mob {
         tag.putLong(EVOLVE_TAG, evolveMask);
         tag.putInt("TotemCooldown", totemCooldown);
         net.minecraft.nbt.ListTag enchants = new net.minecraft.nbt.ListTag();
-        for (net.minecraft.resources.ResourceLocation id : unlockedEnchants) {
-            enchants.add(net.minecraft.nbt.StringTag.valueOf(id.toString()));
+        for (String id : unlockedEnchants) {
+            enchants.add(net.minecraft.nbt.StringTag.valueOf(id));
         }
         tag.put("UnlockedEnchants", enchants);
         if (glowCenter != null && glowDimension != null) {
@@ -1378,9 +1378,9 @@ public class HiveHeart extends Mob {
         unlockedEnchants.clear();
         net.minecraft.nbt.ListTag savedEnchants = tag.getList("UnlockedEnchants", net.minecraft.nbt.Tag.TAG_STRING);
         for (int i = 0; i < savedEnchants.size(); i++) {
-            net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(savedEnchants.getString(i));
-            if (id != null) {
-                unlockedEnchants.add(id);
+            String saved = savedEnchants.getString(i);
+            if (!saved.isEmpty()) {
+                unlockedEnchants.add(saved);
             }
         }
         int[] glow = tag.getIntArray("GlowCenter");

@@ -80,7 +80,7 @@ public final class ClientPayloads {
     }
 
     public static void onSyncEnchants(com.projecthivemind.network.SyncEnchantsPayload payload, IPayloadContext context) {
-        com.projecthivemind.client.ClientEnchants.update(payload.unlocked());
+        com.projecthivemind.client.ClientEnchants.update(payload.unlocked(), payload.ready());
     }
 
     public static void onSyncPortals(SyncPortalsPayload payload, IPayloadContext context) {

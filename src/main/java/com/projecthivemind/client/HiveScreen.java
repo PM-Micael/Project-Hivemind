@@ -121,7 +121,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private EditBox enchantSearch;
     private final Button[] enchantRows = new Button[ENCHANT_ROWS];
     private int enchantScroll;
-    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> enchantShown = List.of();
+    private List<EnchantEntry> enchantShown = List.of();
     /** The Evolve tab's Enchantments section: a search box, and how many rows of its grid are scrolled off the top. */
     private EditBox evolveEnchantSearch;
     private int evolveEnchantScroll;
@@ -253,7 +253,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 int index = enchantScroll + row;
                 if (index < enchantShown.size()) {
                     PacketDistributor.sendToServer(new com.projecthivemind.network.ApplyEnchantPayload(menu.containerId,
-                            enchantShown.get(index).key().location().toString()));
+                            enchantShown.get(index).key()));
                 }
             }).bounds(leftPos + HiveMenu.ENCHANT_ITEM_X + 26, topPos + HiveMenu.ENCHANT_ITEM_Y + i * 18, 78, 17).build());
             enchantRows[i].visible = false;
@@ -548,11 +548,46 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
 
-    /** Every enchantment of the game, vanilla and modded, in order of name. Worked out again only when the game's registries change. */
-    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> allEnchantments;
+    /** One level of one enchantment: what the hive makes available by consuming a book with exactly that level, and what a row of the list is. */
+    private record EnchantEntry(net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder, int level) {
+        String id() {
+            return holder.key().location().toString();
+        }
+
+        /** How the hive keeps it, and how it is sent to the server. */
+        String key() {
+            return com.projecthivemind.HiveEnchanting.key(id(), level);
+        }
+
+        /** "Sharpness III". */
+        Component fullName() {
+            return net.minecraft.world.item.enchantment.Enchantment.getFullname(holder, level);
+        }
+
+        /** An enchanted book with exactly this level is in the hive's storage, and the level is not learnt yet: the hive can learn it now. */
+        boolean ready() {
+            return ClientEnchants.isReady(key());
+        }
+
+        boolean available() {
+            return com.projecthivemind.HiveEnchanting.isAvailable(ClientEnchants.all(), id(), holder, level);
+        }
+
+        /** An enchanted book of this enchantment at this level, as the icon. */
+        ItemStack icon() {
+            return net.minecraft.world.item.EnchantedBookItem.createForEnchantment(new net.minecraft.world.item.enchantment.EnchantmentInstance(holder, level));
+        }
+
+        boolean matches(String filter) {
+            return filter.isEmpty() || fullName().getString().toLowerCase(Locale.ROOT).contains(filter);
+        }
+    }
+
+    /** Every level of every enchantment of the game, vanilla and modded, in order of name and then level. Worked out again only when the game's registries change. */
+    private List<EnchantEntry> allEnchantments;
     private Object allEnchantmentsFor;
 
-    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> allEnchantments() {
+    private List<EnchantEntry> allEnchantments() {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null) {
             return List.of();
@@ -560,21 +595,22 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         net.minecraft.core.Registry<net.minecraft.world.item.enchantment.Enchantment> registry =
                 minecraft.level.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT);
         if (allEnchantments == null || allEnchantmentsFor != registry) {
-            allEnchantments = registry.holders().sorted(java.util.Comparator.comparing((net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder) ->
-                    holder.value().description().getString().toLowerCase(Locale.ROOT))).toList();
+            List<EnchantEntry> entries = new ArrayList<>();
+            registry.holders().sorted(java.util.Comparator.comparing((net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder) ->
+                    holder.value().description().getString().toLowerCase(Locale.ROOT))).forEach(holder -> {
+                for (int level = 1; level <= com.projecthivemind.HiveEnchanting.maxLevel(holder); level++) {
+                    entries.add(new EnchantEntry(holder, level));
+                }
+            });
+            allEnchantments = List.copyOf(entries);
             allEnchantmentsFor = registry;
         }
         return allEnchantments;
     }
 
-    /** The name of an enchantment without a level: "Sharpness". */
-    private static String enchantName(net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder) {
-        return holder.value().description().getString();
-    }
-
     /**
-     * The enchanting station's list: the enchantments the hive has made available, filtered by what is typed in the search box, as rows the mouse
-     * wheel scrolls. A row is dimmed when its enchantment cannot go on the item in the station, or the hive cannot pay for it; its popup says why,
+     * The enchanting station's list: the levels of enchantments the hive has made available, filtered by what is typed in the search box, as rows the
+     * mouse wheel scrolls. A row is dimmed when its enchantment cannot go on the item in the station, or the hive cannot pay for it; its popup says why,
      * and what it costs in lapis lazuli and levels (red where the hive is short).
      */
     private void updateEnchantList() {
@@ -589,10 +625,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             return;
         }
         String filter = enchantSearch.getValue().toLowerCase(Locale.ROOT).trim();
-        enchantShown = allEnchantments().stream()
-                .filter(holder -> ClientEnchants.isUnlocked(holder.key().location().toString()))
-                .filter(holder -> filter.isEmpty() || enchantName(holder).toLowerCase(Locale.ROOT).contains(filter))
-                .toList();
+        enchantShown = allEnchantments().stream().filter(EnchantEntry::available).filter(entry -> entry.matches(filter)).toList();
         enchantScroll = Math.max(0, Math.min(enchantScroll, enchantShown.size() - ENCHANT_ROWS));
         ItemStack item = menu.enchantItem();
         boolean free = minecraft.player.hasInfiniteMaterials();
@@ -603,17 +636,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 button.visible = false;
                 continue;
             }
-            net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = enchantShown.get(index);
-            int lapisCost = com.projecthivemind.HiveEnchanting.lapisCost(holder);
-            int levelCost = com.projecthivemind.HiveEnchanting.levelCost(holder);
+            EnchantEntry entry = enchantShown.get(index);
+            int lapisCost = com.projecthivemind.HiveEnchanting.lapisCost(entry.level());
+            int levelCost = com.projecthivemind.HiveEnchanting.levelCost(entry.level());
             boolean lapisOk = free || menu.enchantLapis() >= lapisCost;
             boolean levelsOk = free || minecraft.player.experienceLevel >= levelCost;
-            String problem = com.projecthivemind.HiveEnchanting.problem(item, holder);
+            String problem = com.projecthivemind.HiveEnchanting.problem(item, entry.holder(), entry.level());
             button.visible = true;
-            button.setMessage(net.minecraft.world.item.enchantment.Enchantment.getFullname(holder, com.projecthivemind.HiveEnchanting.levelOf(holder)));
+            button.setMessage(entry.fullName());
             button.active = problem == null && lapisOk && levelsOk;
-            net.minecraft.network.chat.MutableComponent text = Component.empty().append(net.minecraft.world.item.enchantment.Enchantment.getFullname(holder,
-                    com.projecthivemind.HiveEnchanting.levelOf(holder)));
+            net.minecraft.network.chat.MutableComponent text = Component.empty().append(entry.fullName());
             if (problem != null) {
                 text.append("\n").append(Component.translatable("screen.projecthivemind.enchant.problem." + problem).withStyle(net.minecraft.ChatFormatting.RED));
             }
@@ -1824,10 +1856,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (tab == Tab.EVOLVE && button == 0) {
-            net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> clicked = evolveEnchantAt(mouseX, mouseY);
+            EnchantEntry clicked = evolveEnchantAt(mouseX, mouseY);
             if (clicked != null) {
-                if (!ClientEnchants.isUnlocked(clicked.key().location().toString())) {
-                    PacketDistributor.sendToServer(new com.projecthivemind.network.ConsumeEnchantPayload(menu.containerId, clicked.key().location().toString()));
+                if (clicked.ready()) {
+                    PacketDistributor.sendToServer(new com.projecthivemind.network.ConsumeEnchantPayload(menu.containerId, clicked.key()));
                 }
                 return true;
             }
@@ -1859,18 +1891,17 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     /**
-     * The enchantments the section shows: those the search matches, the ones the hive has not made available yet first (they are the tasks), then
-     * those it has.
+     * The levels of enchantments the section shows: those the search matches, the ones the hive has not made available yet first (they are the tasks),
+     * then those it has.
      */
-    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> evolveEnchantList() {
+    private List<EnchantEntry> evolveEnchantList() {
         String filter = evolveEnchantSearch == null ? "" : evolveEnchantSearch.getValue().toLowerCase(Locale.ROOT).trim();
-        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> matching = allEnchantments().stream()
-                .filter(holder -> filter.isEmpty() || enchantName(holder).toLowerCase(Locale.ROOT).contains(filter)).toList();
-        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> ordered = new ArrayList<>();
-        for (boolean unlocked : new boolean[] {false, true}) {
-            for (net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder : matching) {
-                if (ClientEnchants.isUnlocked(holder.key().location().toString()) == unlocked) {
-                    ordered.add(holder);
+        List<EnchantEntry> matching = allEnchantments().stream().filter(entry -> !entry.available() && entry.matches(filter)).toList();
+        List<EnchantEntry> ordered = new ArrayList<>();
+        for (boolean ready : new boolean[] {true, false}) {
+            for (EnchantEntry entry : matching) {
+                if (entry.ready() == ready) {
+                    ordered.add(entry);
                 }
             }
         }
@@ -1890,19 +1921,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    /** An enchanted book of this enchantment, at its highest level, as the icon. */
-    private static ItemStack enchantIcon(net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder) {
-        return net.minecraft.world.item.EnchantedBookItem.createForEnchantment(
-                new net.minecraft.world.item.enchantment.EnchantmentInstance(holder, com.projecthivemind.HiveEnchanting.levelOf(holder)));
-    }
-
-    /** The enchantment under this mouse position in the section (screen coordinates), or null. */
+    /** The level of an enchantment under this mouse position in the section (screen coordinates), or null. */
     @javax.annotation.Nullable
-    private net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> evolveEnchantAt(double mouseX, double mouseY) {
+    private EnchantEntry evolveEnchantAt(double mouseX, double mouseY) {
         if (tab != Tab.EVOLVE || !evolveEnchantSection()) {
             return null;
         }
-        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> list = evolveEnchantList();
+        List<EnchantEntry> list = evolveEnchantList();
         int columns = evolveColumns();
         for (int row = 0; row < EVOLVE_ENCHANT_VIEW_ROWS; row++) {
             for (int column = 0; column < columns; column++) {
@@ -1925,15 +1950,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (!evolveEnchantSection()) {
             return;
         }
-        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> list = evolveEnchantList();
+        List<EnchantEntry> list = evolveEnchantList();
         int columns = evolveColumns();
         int rows = evolveEnchantRows(list.size());
         evolveEnchantScroll = Math.max(0, Math.min(evolveEnchantScroll, rows - EVOLVE_ENCHANT_VIEW_ROWS));
         int top = evolveEnchantTop();
-        long available = list.stream().filter(holder -> ClientEnchants.isUnlocked(holder.key().location().toString())).count();
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.enchantments", available, list.size()), UNIT_LIST_X, top - 14, 0xFFFFFF, false);
+        long learnt = allEnchantments().stream().filter(EnchantEntry::available).count();
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.enchantments", learnt, allEnchantments().size()), UNIT_LIST_X, top - 14, 0xFFFFFF, false);
         if (list.isEmpty()) {
-            graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.enchantments.none"), UNIT_LIST_X + 4, top + 4, 0x909090, false);
+            graphics.drawString(font, Component.translatable(evolveEnchantSearch.getValue().isBlank() ? "screen.projecthivemind.evolve.enchantments.all" : "screen.projecthivemind.evolve.enchantments.none"),
+                    UNIT_LIST_X + 4, top + 4, 0x909090, false);
         }
         for (int row = 0; row < EVOLVE_ENCHANT_VIEW_ROWS; row++) {
             for (int column = 0; column < columns; column++) {
@@ -1941,13 +1967,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 if (index >= list.size()) {
                     break;
                 }
-                net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = list.get(index);
-                boolean done = ClientEnchants.isUnlocked(holder.key().location().toString());
+                EnchantEntry entry = list.get(index);
+                boolean ready = entry.ready();
                 int x = UNIT_LIST_X + column * EVOLVE_STEP;
                 int y = top + row * EVOLVE_STEP;
-                graphics.fill(x - 1, y - 1, x + 17, y + 17, done ? 0xFF55AA55 : SLOT_EDGE);
-                graphics.fill(x, y, x + 16, y + 16, done ? 0xFF2E6B2E : SLOT_FILL);
-                graphics.renderItem(enchantIcon(holder), x, y);
+                // One the hive has a book for is highlighted in green, as a task it can do is.
+                graphics.fill(x - 1, y - 1, x + 17, y + 17, ready ? 0xFF55FF55 : SLOT_EDGE);
+                graphics.fill(x, y, x + 16, y + 16, ready ? 0xFF2E6B2E : SLOT_FILL);
+                graphics.renderItem(entry.icon(), x, y);
             }
         }
         if (rows > EVOLVE_ENCHANT_VIEW_ROWS) {
@@ -1959,17 +1986,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
     }
 
-    /** Hovering over an enchantment names it: green if it is available in the enchanting station already, otherwise how to make it so. */
+    /** Hovering over a level of an enchantment names it: green if it is available in the enchanting station already, otherwise how to make it so. */
     private void renderEvolveEnchantTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
-        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> hovered = evolveEnchantAt(mouseX, mouseY);
+        EnchantEntry hovered = evolveEnchantAt(mouseX, mouseY);
         if (hovered == null) {
             return;
         }
-        boolean done = ClientEnchants.isUnlocked(hovered.key().location().toString());
-        graphics.renderComponentTooltip(font, List.of(
-                net.minecraft.world.item.enchantment.Enchantment.getFullname(hovered, com.projecthivemind.HiveEnchanting.levelOf(hovered)),
-                done ? Component.translatable("screen.projecthivemind.evolve.enchantment.available").withStyle(net.minecraft.ChatFormatting.GREEN)
-                        : Component.translatable("screen.projecthivemind.evolve.enchantment.click").withStyle(net.minecraft.ChatFormatting.YELLOW)), mouseX, mouseY);
+        graphics.renderComponentTooltip(font, List.of(hovered.fullName(),
+                hovered.ready() ? Component.translatable("screen.projecthivemind.evolve.click").withStyle(net.minecraft.ChatFormatting.GREEN)
+                        : Component.translatable("screen.projecthivemind.evolve.unmet").withStyle(net.minecraft.ChatFormatting.RED)), mouseX, mouseY);
     }
 
     // ---- the portal network ----
