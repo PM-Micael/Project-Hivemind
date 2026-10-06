@@ -74,6 +74,17 @@ public final class CommonEvents {
     }
 
     // ---- mod bus: registration ----
+    /** The creep block is in the creative inventory, with the other building blocks. */
+    @SubscribeEvent
+    static void addToCreativeTabs(net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent event) {
+        if (event.getTabKey() == net.minecraft.world.item.CreativeModeTabs.BUILDING_BLOCKS) {
+            event.accept(ModBlocks.CREEP_BLOCK_ITEM.get());
+            event.accept(ModBlocks.CREEP_DIRT_ITEM.get());
+            event.accept(ModBlocks.CREEP_GRASS_ITEM.get());
+            event.accept(ModBlocks.CREEP_STONE_ITEM.get());
+        }
+    }
+
 
     @SubscribeEvent
     static void registerPayloads(RegisterPayloadHandlersEvent event) {

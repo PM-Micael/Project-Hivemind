@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "top": "projecthivemind:block/creep_grass_top",
+    "side": "projecthivemind:block/creep_grass_side",
+    "bottom": "projecthivemind:block/creep_dirt"
+  }
+}

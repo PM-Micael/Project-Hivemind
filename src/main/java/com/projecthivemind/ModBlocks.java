@@ -29,6 +29,47 @@ public final class ModBlocks {
                     .sound(SoundType.SCAFFOLDING)
                     .noOcclusion()));
 
+    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(ProjectHivemind.MODID);
+
+    /** The block the Heart's creep is made of: it spreads under the hive area, turning what is there (and filling what is empty) into this. */
+    public static final DeferredBlock<Block> CREEP_BLOCK = BLOCKS.register("creep_block",
+            () -> new Block(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.CRIMSON_NYLIUM)
+                    .strength(1.0F)
+                    .sound(SoundType.NETHER_WART)));
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> CREEP_BLOCK_ITEM = ITEMS.registerSimpleBlockItem(CREEP_BLOCK);
+
+    /** The creep takes a form from what it consumes: dirt, grass and stone each have their own, and anything else (or empty space) is the plain one. */
+    public static final DeferredBlock<Block> CREEP_DIRT = BLOCKS.register("creep_dirt",
+            () -> new Block(BlockBehaviour.Properties.of().mapColor(MapColor.CRIMSON_NYLIUM).strength(0.8F).sound(SoundType.NETHER_WART)));
+    public static final DeferredBlock<Block> CREEP_GRASS = BLOCKS.register("creep_grass",
+            () -> new Block(BlockBehaviour.Properties.of().mapColor(MapColor.CRIMSON_NYLIUM).strength(0.9F).sound(SoundType.NETHER_WART)));
+    public static final DeferredBlock<Block> CREEP_STONE = BLOCKS.register("creep_stone",
+            () -> new Block(BlockBehaviour.Properties.of().mapColor(MapColor.CRIMSON_NYLIUM).strength(2.0F, 6.0F).sound(SoundType.NETHER_WART)));
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> CREEP_DIRT_ITEM = ITEMS.registerSimpleBlockItem(CREEP_DIRT);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> CREEP_GRASS_ITEM = ITEMS.registerSimpleBlockItem(CREEP_GRASS);
+    public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> CREEP_STONE_ITEM = ITEMS.registerSimpleBlockItem(CREEP_STONE);
+
+    /** Every kind of creep block. */
+    public static final net.minecraft.tags.TagKey<Block> CREEP = net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.BLOCK, ProjectHivemind.id("creep"));
+
+    /** The creep block that a block turns into. */
+    public static Block creepFor(net.minecraft.world.level.block.state.BlockState state) {
+        if (state.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK) || state.is(net.minecraft.world.level.block.Blocks.PODZOL)
+                || state.is(net.minecraft.world.level.block.Blocks.MYCELIUM)) {
+            return CREEP_GRASS.get();
+        }
+        if (state.is(net.minecraft.world.level.block.Blocks.DIRT) || state.is(net.minecraft.world.level.block.Blocks.COARSE_DIRT)
+                || state.is(net.minecraft.world.level.block.Blocks.ROOTED_DIRT) || state.is(net.minecraft.world.level.block.Blocks.MUD)) {
+            return CREEP_DIRT.get();
+        }
+        if (state.is(net.minecraft.tags.BlockTags.BASE_STONE_OVERWORLD) || state.is(net.minecraft.world.level.block.Blocks.COBBLESTONE)
+                || state.is(net.minecraft.world.level.block.Blocks.DEEPSLATE) || state.is(net.minecraft.world.level.block.Blocks.COBBLED_DEEPSLATE)) {
+            return CREEP_STONE.get();
+        }
+        return CREEP_BLOCK.get();
+    }
+
     private ModBlocks() {
     }
 }

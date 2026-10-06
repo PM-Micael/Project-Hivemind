@@ -13,6 +13,7 @@ public class ProjectHivemind {
 
     public ProjectHivemind(IEventBus modEventBus, ModContainer container) {
         ModBlocks.BLOCKS.register(modEventBus);
+        ModBlocks.ITEMS.register(modEventBus);
         ModComponents.COMPONENTS.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
         ModMenus.MENU_TYPES.register(modEventBus);

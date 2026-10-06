@@ -1429,6 +1429,10 @@ public final class HivemindManager {
         ServerLevel level = (ServerLevel) heart.level();
         boolean up = newLevel >= heart.hiveLevel();
         heart.setHiveLevel(newLevel);
+        // A bigger body: whatever is in the space it now takes is cleared away.
+        if (up) {
+            heart.clearBody();
+        }
         // The hive area is bigger: the lights over it are looked at again at once.
         heart.refreshGlowLights();
         // The storage is a new, bigger container now: a menu that is still open would be looking at the old one.

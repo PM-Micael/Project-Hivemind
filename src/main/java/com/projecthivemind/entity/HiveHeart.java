@@ -382,6 +382,7 @@ public class HiveHeart extends Mob {
             removeLight();
             removeGlowLights();
             releaseSlowed();
+            releaseCreepBonus();
         }
         // A destroyed Heart no longer holds its chunks loaded (one that is merely unloading keeps them).
         if (reason.shouldDestroy()) {
@@ -623,6 +624,72 @@ public class HiveHeart extends Mob {
         slowed.clear();
     }
 
+    // ---- units on creep: stronger and faster ----
+
+    private static final net.minecraft.resources.ResourceLocation CREEP_ARMOR = com.projecthivemind.ProjectHivemind.id("creep_armor");
+    private static final net.minecraft.resources.ResourceLocation CREEP_SPEED = com.projecthivemind.ProjectHivemind.id("creep_speed");
+    /** What standing on creep inside the border gives, for each level of the hive: defence points, and a share of the base movement speed. */
+    private static final double CREEP_ARMOR_PER_LEVEL = 2.0D;
+    private static final double CREEP_SPEED_PER_LEVEL = 0.05D;
+    /** The units that have the creep's bonus right now, so that one that has stepped off (or left the border) is let go. Not saved: the modifiers do not save either. */
+    private final java.util.Set<UUID> onCreep = new HashSet<>();
+
+    private static void creepBonus(Mob mob, net.minecraft.core.Holder<net.minecraft.world.entity.ai.attributes.Attribute> attribute,
+            net.minecraft.resources.ResourceLocation id, double amount, net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation operation, boolean on) {
+        net.minecraft.world.entity.ai.attributes.AttributeInstance instance = mob.getAttribute(attribute);
+        if (instance == null) {
+            return;
+        }
+        net.minecraft.world.entity.ai.attributes.AttributeModifier current = instance.getModifier(id);
+        if (on && (current == null || current.amount() != amount)) {
+            instance.removeModifier(id);
+            instance.addTransientModifier(new net.minecraft.world.entity.ai.attributes.AttributeModifier(id, amount, operation));
+        } else if (!on && current != null) {
+            instance.removeModifier(id);
+        }
+    }
+
+    private static void creepBonus(Mob mob, int hiveLevel, boolean on) {
+        creepBonus(mob, Attributes.ARMOR, CREEP_ARMOR, CREEP_ARMOR_PER_LEVEL * hiveLevel, net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_VALUE, on);
+        creepBonus(mob, Attributes.MOVEMENT_SPEED, CREEP_SPEED, CREEP_SPEED_PER_LEVEL * hiveLevel,
+                net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_BASE, on);
+    }
+
+    /** A hive unit standing on a creep block inside this Heart's border gets the bonus; the moment it is not, it loses it. */
+    private void keepCreepBonus() {
+        if (!(this.level() instanceof ServerLevel serverLevel) || this.ownerId == null) {
+            return;
+        }
+        java.util.Set<UUID> now = new HashSet<>();
+        for (Mob mob : serverLevel.getEntitiesOfClass(Mob.class, com.projecthivemind.HiveArea.areaBox(serverLevel, this),
+                candidate -> candidate instanceof HiveUnit unit && this.ownerId.equals(unit.ownerId()) && candidate.isAlive())) {
+            if (mob.onGround() && com.projecthivemind.HiveArea.containsXZ(this, mob.getX(), mob.getZ())
+                    && serverLevel.getBlockState(mob.getOnPos()).is(com.projecthivemind.ModBlocks.CREEP)) {
+                creepBonus(mob, hiveLevel, true);
+                now.add(mob.getUUID());
+            }
+        }
+        for (UUID id : onCreep) {
+            if (!now.contains(id) && serverLevel.getEntity(id) instanceof Mob mob) {
+                creepBonus(mob, hiveLevel, false);
+            }
+        }
+        onCreep.clear();
+        onCreep.addAll(now);
+    }
+
+    /** The Heart is gone: no unit keeps the creep's bonus. */
+    private void releaseCreepBonus() {
+        if (this.level() instanceof ServerLevel serverLevel) {
+            for (UUID id : onCreep) {
+                if (serverLevel.getEntity(id) instanceof Mob mob) {
+                    creepBonus(mob, hiveLevel, false);
+                }
+            }
+        }
+        onCreep.clear();
+    }
+
     /** 10 seconds. */
     private static final int SPAWN_INTERVAL_TICKS = 200;
 
@@ -670,10 +737,13 @@ public class HiveHeart extends Mob {
         return this.entityData.get(DATA_LEVEL);
     }
 
-    /** The body is solid: players and mobs cannot walk through it. */
+    /**
+     * The body is not solid for anyone: nothing can stand on it or be held back by it, so the hive's units can always reach an enemy that
+     * is at the Heart. It can still be hit, targeted and shot (those do not depend on this), and the cactus reward still hurts what is in it.
+     */
     @Override
     public boolean canBeCollidedWith() {
-        return true;
+        return false;
     }
 
     /** The body is as big as the level says (the entity type itself is a block: its size cannot change with a level). */
@@ -722,8 +792,14 @@ public class HiveHeart extends Mob {
         if (totemCooldown > 0) {
             totemCooldown--;
         }
+        if (this.tickCount % CREEP_INTERVAL == 0 && this.level() instanceof ServerLevel creepLevel) {
+            spreadCreep(creepLevel);
+        }
         if (this.tickCount % 10 == 0) {
             keepCobweb();
+        }
+        if (this.tickCount % 5 == 0) {
+            keepCreepBonus();
         }
         if (this.tickCount % 1200 == 0 && com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask)) {
             giveBottleExperience();
@@ -1070,6 +1146,104 @@ public class HiveHeart extends Mob {
         unlockedEnchants.add(key);
     }
 
+
+    // ---- creep: the Heart turns the ground under the hive into creep blocks ----
+
+    /** How far, in blocks, the creep has spread from the Heart (square, like the hive area). Saved. */
+    private float creepRadius;
+    /** How often the creep is worked at, in ticks, and how much it spreads in that time: one block every 30 seconds. */
+    private static final int CREEP_INTERVAL = 10;
+    private static final float CREEP_GROWTH = CREEP_INTERVAL / 600.0F;
+    /** Each time: this many spots at the creep's edge (the outer few blocks), and this many anywhere it has reached (to fill in what is left behind). */
+    private static final int CREEP_EDGE_SAMPLES = 6;
+    private static final int CREEP_INNER_SAMPLES = 3;
+    private static final int CREEP_EDGE_WIDTH = 3;
+    /** How far below the Heart's own level the creep goes, in blocks. */
+    public static final int CREEP_DEPTH = 4;
+
+    private void spreadCreep(ServerLevel level) {
+        int border = com.projecthivemind.HiveLevels.get(hiveLevel).infectionRadius();
+        creepRadius = Math.min(border, Math.max(creepRadius, widthAt(visualLevel()) / 2.0F) + CREEP_GROWTH);
+        int reach = (int) Math.ceil(creepRadius);
+        BlockPos center = this.blockPosition();
+        for (int i = 0; i < CREEP_EDGE_SAMPLES + CREEP_INNER_SAMPLES; i++) {
+            int dx = this.random.nextInt(2 * reach + 1) - reach;
+            int dz = this.random.nextInt(2 * reach + 1) - reach;
+            if (i < CREEP_EDGE_SAMPLES) {
+                // On one of the four sides of the square, in its outer few blocks.
+                int out = reach - this.random.nextInt(Math.min(CREEP_EDGE_WIDTH, reach + 1));
+                int signed = this.random.nextBoolean() ? out : -out;
+                if (this.random.nextBoolean()) {
+                    dx = signed;
+                } else {
+                    dz = signed;
+                }
+            }
+            BlockPos pos = new BlockPos(center.getX() + dx, center.getY() - 1 - this.random.nextInt(CREEP_DEPTH), center.getZ() + dz);
+            if (level.hasChunkAt(pos) && level.isInWorldBounds(pos)) {
+                creepInto(level, pos);
+            }
+        }
+    }
+
+    /** One block becomes creep: empty space is filled, a solid full block is turned; fluids, things with contents, unbreakable blocks and the hive's own blocks are left. */
+    private static void creepInto(ServerLevel level, BlockPos pos) {
+        net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
+        if (state.is(com.projecthivemind.ModBlocks.CREEP) || !state.getFluidState().isEmpty()) {
+            return;
+        }
+        boolean empty = state.isAir() || state.canBeReplaced();
+        if (!empty) {
+            if (state.getDestroySpeed(level, pos) < 0.0F || level.getBlockEntity(pos) != null || !state.isCollisionShapeFullBlock(level, pos)
+                    || state.is(com.projecthivemind.ModBlocks.HIVE_PORTAL.get()) || state.is(com.projecthivemind.ModBlocks.CONSTRUCTION.get())) {
+                return;
+            }
+        }
+        level.setBlock(pos, com.projecthivemind.ModBlocks.creepFor(state).defaultBlockState(), net.minecraft.world.level.block.Block.UPDATE_ALL);
+    }
+
+    /**
+     * The Heart has grown: every block in its new body is broken and drops as an item (what a chest holds drops too), so the body is not inside
+     * terrain. Unbreakable blocks (bedrock) and the hive's own portal and construction blocks are left; fluids are just removed.
+     */
+    public void clearBody() {
+        if (!(this.level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        int reach = widthAt(visualLevel()) / 2;
+        BlockPos base = this.blockPosition();
+        for (int y = 0; y < heightAt(visualLevel()); y++) {
+            for (int x = -reach; x <= reach; x++) {
+                for (int z = -reach; z <= reach; z++) {
+                    BlockPos pos = base.offset(x, y, z);
+                    if (!serverLevel.hasChunkAt(pos) || !serverLevel.isInWorldBounds(pos)) {
+                        continue;
+                    }
+                    net.minecraft.world.level.block.state.BlockState state = serverLevel.getBlockState(pos);
+                    if (state.isAir() || state.getDestroySpeed(serverLevel, pos) < 0.0F && state.getFluidState().isEmpty()
+                            || state.is(com.projecthivemind.ModBlocks.HIVE_PORTAL.get()) || state.is(com.projecthivemind.ModBlocks.CONSTRUCTION.get())) {
+                        continue;
+                    }
+                    if (state.getFluidState().isEmpty()) {
+                        serverLevel.destroyBlock(pos, true);
+                    } else {
+                        serverLevel.setBlock(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), net.minecraft.world.level.block.Block.UPDATE_ALL);
+                    }
+                }
+            }
+        }
+        // The Heart's own light block is kept at its base again.
+        keepLight();
+    }
+
+    /** How far the creep has spread (the commands can set it). */
+    public float creepRadius() {
+        return creepRadius;
+    }
+
+    public void setCreepRadius(float radius) {
+        this.creepRadius = Math.max(0.0F, radius);
+    }
     /** The last recipes crafted at the hive's crafting grid (their ids), the newest first: what the Crafter evolution remembers. Saved. */
     public static final int RECENT_RECIPES = 5;
     private final java.util.List<String> recentRecipes = new java.util.ArrayList<>();
@@ -1296,6 +1470,7 @@ public class HiveHeart extends Mob {
         tag.put(STORAGE_TAG, storage.save(registryAccess()));
         tag.putLong(EVOLVE_TAG, evolveMask);
         tag.putInt("TotemCooldown", totemCooldown);
+        tag.putFloat("CreepRadius", creepRadius);
         net.minecraft.nbt.ListTag enchants = new net.minecraft.nbt.ListTag();
         for (String id : unlockedEnchants) {
             enchants.add(net.minecraft.nbt.StringTag.valueOf(id));
@@ -1412,6 +1587,7 @@ public class HiveHeart extends Mob {
         }
         evolveMask = tag.getLong(EVOLVE_TAG);
         totemCooldown = tag.getInt("TotemCooldown");
+        creepRadius = tag.getFloat("CreepRadius");
         unlockedEnchants.clear();
         net.minecraft.nbt.ListTag savedEnchants = tag.getList("UnlockedEnchants", net.minecraft.nbt.Tag.TAG_STRING);
         for (int i = 0; i < savedEnchants.size(); i++) {

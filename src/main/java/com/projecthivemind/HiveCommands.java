@@ -20,6 +20,8 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * /hivemind level set &lt;level&gt;
  * /hivemind level up
  * /hivemind level down
+ * /hivemind creep get
+ * /hivemind creep radius &lt;blocks&gt;
  * </pre>
  */
 @EventBusSubscriber(modid = ProjectHivemind.MODID)
@@ -35,7 +37,25 @@ public final class HiveCommands {
                         .then(Commands.literal("set").then(Commands.argument("level", IntegerArgumentType.integer(1, HiveLevels.maxLevel()))
                                 .executes(context -> set(context, IntegerArgumentType.getInteger(context, "level")))))
                         .then(Commands.literal("up").executes(context -> set(context, hiveOf(context) == null ? 0 : hiveOf(context).hiveLevel() + 1)))
-                        .then(Commands.literal("down").executes(context -> set(context, hiveOf(context) == null ? 0 : hiveOf(context).hiveLevel() - 1)))));
+                        .then(Commands.literal("down").executes(context -> set(context, hiveOf(context) == null ? 0 : hiveOf(context).hiveLevel() - 1))))
+                .then(Commands.literal("creep")
+                        .then(Commands.literal("get").executes(context -> {
+                            HiveHeart heart = hiveOf(context);
+                            if (heart == null) {
+                                return 0;
+                            }
+                            context.getSource().sendSuccess(() -> Component.translatable("command.projecthivemind.creep.get", String.format(java.util.Locale.ROOT, "%.1f", heart.creepRadius())), false);
+                            return (int) heart.creepRadius();
+                        }))
+                        .then(Commands.literal("radius").then(Commands.argument("blocks", IntegerArgumentType.integer(0, 256)).executes(context -> {
+                            HiveHeart heart = hiveOf(context);
+                            if (heart == null) {
+                                return 0;
+                            }
+                            heart.setCreepRadius(IntegerArgumentType.getInteger(context, "blocks"));
+                            context.getSource().sendSuccess(() -> Component.translatable("command.projecthivemind.creep.set", IntegerArgumentType.getInteger(context, "blocks")), true);
+                            return 1;
+                        })))));
     }
 
     /** The hive of the player who ran the command, or null (and the player is told why). */

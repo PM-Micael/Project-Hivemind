@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "projecthivemind:creep_block",
+    "projecthivemind:creep_dirt",
+    "projecthivemind:creep_grass",
+    "projecthivemind:creep_stone"
+  ]
+}
