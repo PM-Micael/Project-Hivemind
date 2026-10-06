@@ -1331,6 +1331,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         if (tab == Tab.EVOLVE) {
             renderEvolveTooltips(graphics, mouseX, mouseY);
+            renderEvolveEnchantTooltip(graphics, mouseX, mouseY);
         }
         this.renderTooltip(graphics, mouseX, mouseY);
     }
@@ -1477,6 +1478,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (tab == Tab.HIVE && maxStationScroll() > 0 && mouseX >= leftPos + STATION_BUTTON_X - 2 && mouseX < leftPos + stationBarX() + 8
                 && mouseY >= topPos + HiveMenu.STORAGE_Y && mouseY < topPos + HiveMenu.STORAGE_Y + stationViewHeight()) {
             scrollStations(-(int) Math.signum(scrollY) * STATION_BUTTON_STEP);
+            return true;
+        }
+        if (tab == Tab.EVOLVE && evolveEnchantSection() && mouseY >= topPos + evolveEnchantTop() && mouseY < topPos + evolveEnchantTop() + EVOLVE_ENCHANT_VIEW_ROWS * EVOLVE_STEP) {
+            int maxScroll = Math.max(0, evolveEnchantRows(evolveEnchantList().size()) - EVOLVE_ENCHANT_VIEW_ROWS);
+            evolveEnchantScroll = Math.max(0, Math.min(maxScroll, evolveEnchantScroll - (int) Math.signum(scrollY)));
+            return true;
+        }
+        if (stationInView(Station.ENCHANT) && enchantVisible() && mouseX >= leftPos + HiveMenu.ENCHANT_ITEM_X + 26 && mouseX < leftPos + HiveMenu.ENCHANT_ITEM_X + 26 + 78
+                && mouseY >= topPos + HiveMenu.ENCHANT_ITEM_Y && mouseY < topPos + HiveMenu.ENCHANT_ITEM_Y + ENCHANT_ROWS * 18) {
+            enchantScroll = Math.max(0, Math.min(Math.max(0, enchantShown.size() - ENCHANT_ROWS), enchantScroll - (int) Math.signum(scrollY)));
             return true;
         }
         if (tab == Tab.EVOLVE && evolveDoneRows() > evolveVisibleRows() && mouseY >= topPos + evolveDoneTop()) {
@@ -1719,7 +1730,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     /** Where the Completed list starts: under the rows of tasks still to do. */
     private int evolveDoneTop() {
-        return EVOLVE_TOP + 24 + evolveTaskRows() * EVOLVE_STEP;
+        // (Under the Enchantments section too, once there is one: its heading, its rows and the gap under them.)
+        return EVOLVE_TOP + 24 + evolveTaskRows() * EVOLVE_STEP + (menu.hasEnchanting() ? 24 + EVOLVE_ENCHANT_VIEW_ROWS * EVOLVE_STEP : 0);
     }
 
     /**
@@ -1765,6 +1777,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             graphics.fill(imageWidth - 8, thumbY, imageWidth - 6, thumbY + thumb, 0xFFC0C0C0);
         }
         List<EvolveIcon> icons = evolveIcons();
+        renderEvolveEnchantments(graphics);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.tasks"), UNIT_LIST_X, EVOLVE_TOP - 14, 0xFFFFFF, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.completed"), UNIT_LIST_X, evolveDoneTop() - 14, 0xFFFFFF, false);
         if (icons.stream().allMatch(EvolveIcon::done)) {
@@ -1811,6 +1824,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (tab == Tab.EVOLVE && button == 0) {
+            net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> clicked = evolveEnchantAt(mouseX, mouseY);
+            if (clicked != null) {
+                if (!ClientEnchants.isUnlocked(clicked.key().location().toString())) {
+                    PacketDistributor.sendToServer(new com.projecthivemind.network.ConsumeEnchantPayload(menu.containerId, clicked.key().location().toString()));
+                }
+                return true;
+            }
             for (EvolveIcon icon : evolveIcons()) {
                 int x = leftPos + icon.x();
                 int y = topPos + icon.y();
@@ -1821,6 +1841,135 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    // ---- the Enchantments section of the Evolve tab ----
+
+    /** How many rows of enchantment icons are in view at once in the section. */
+    private static final int EVOLVE_ENCHANT_VIEW_ROWS = 2;
+
+    /** The section is there once the hive has consumed an enchanting table. */
+    private boolean evolveEnchantSection() {
+        return menu.hasEnchanting();
+    }
+
+    /** Where the section's grid starts: under the tasks, with its heading above it. */
+    private int evolveEnchantTop() {
+        return EVOLVE_TOP + 24 + evolveTaskRows() * EVOLVE_STEP;
+    }
+
+    /**
+     * The enchantments the section shows: those the search matches, the ones the hive has not made available yet first (they are the tasks), then
+     * those it has.
+     */
+    private List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> evolveEnchantList() {
+        String filter = evolveEnchantSearch == null ? "" : evolveEnchantSearch.getValue().toLowerCase(Locale.ROOT).trim();
+        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> matching = allEnchantments().stream()
+                .filter(holder -> filter.isEmpty() || enchantName(holder).toLowerCase(Locale.ROOT).contains(filter)).toList();
+        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> ordered = new ArrayList<>();
+        for (boolean unlocked : new boolean[] {false, true}) {
+            for (net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder : matching) {
+                if (ClientEnchants.isUnlocked(holder.key().location().toString()) == unlocked) {
+                    ordered.add(holder);
+                }
+            }
+        }
+        return ordered;
+    }
+
+    private int evolveEnchantRows(int count) {
+        return (count + evolveColumns() - 1) / evolveColumns();
+    }
+
+    /** Every tick: the section's search box is there on the Evolve tab once the hive can enchant, at the section's heading. */
+    private void updateEvolveEnchantUi() {
+        boolean shown = tab == Tab.EVOLVE && evolveEnchantSection();
+        evolveEnchantSearch.visible = shown;
+        if (shown) {
+            evolveEnchantSearch.setY(topPos + evolveEnchantTop() - 16);
+        }
+    }
+
+    /** An enchanted book of this enchantment, at its highest level, as the icon. */
+    private static ItemStack enchantIcon(net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment> holder) {
+        return net.minecraft.world.item.EnchantedBookItem.createForEnchantment(
+                new net.minecraft.world.item.enchantment.EnchantmentInstance(holder, com.projecthivemind.HiveEnchanting.levelOf(holder)));
+    }
+
+    /** The enchantment under this mouse position in the section (screen coordinates), or null. */
+    @javax.annotation.Nullable
+    private net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> evolveEnchantAt(double mouseX, double mouseY) {
+        if (tab != Tab.EVOLVE || !evolveEnchantSection()) {
+            return null;
+        }
+        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> list = evolveEnchantList();
+        int columns = evolveColumns();
+        for (int row = 0; row < EVOLVE_ENCHANT_VIEW_ROWS; row++) {
+            for (int column = 0; column < columns; column++) {
+                int index = (evolveEnchantScroll + row) * columns + column;
+                if (index >= list.size()) {
+                    return null;
+                }
+                int x = leftPos + UNIT_LIST_X + column * EVOLVE_STEP;
+                int y = topPos + evolveEnchantTop() + row * EVOLVE_STEP;
+                if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+                    return list.get(index);
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The section in the panel's own coordinates: its heading, how many are available, and the visible rows of icons. */
+    private void renderEvolveEnchantments(GuiGraphics graphics) {
+        if (!evolveEnchantSection()) {
+            return;
+        }
+        List<net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment>> list = evolveEnchantList();
+        int columns = evolveColumns();
+        int rows = evolveEnchantRows(list.size());
+        evolveEnchantScroll = Math.max(0, Math.min(evolveEnchantScroll, rows - EVOLVE_ENCHANT_VIEW_ROWS));
+        int top = evolveEnchantTop();
+        long available = list.stream().filter(holder -> ClientEnchants.isUnlocked(holder.key().location().toString())).count();
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.enchantments", available, list.size()), UNIT_LIST_X, top - 14, 0xFFFFFF, false);
+        if (list.isEmpty()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.enchantments.none"), UNIT_LIST_X + 4, top + 4, 0x909090, false);
+        }
+        for (int row = 0; row < EVOLVE_ENCHANT_VIEW_ROWS; row++) {
+            for (int column = 0; column < columns; column++) {
+                int index = (evolveEnchantScroll + row) * columns + column;
+                if (index >= list.size()) {
+                    break;
+                }
+                net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> holder = list.get(index);
+                boolean done = ClientEnchants.isUnlocked(holder.key().location().toString());
+                int x = UNIT_LIST_X + column * EVOLVE_STEP;
+                int y = top + row * EVOLVE_STEP;
+                graphics.fill(x - 1, y - 1, x + 17, y + 17, done ? 0xFF55AA55 : SLOT_EDGE);
+                graphics.fill(x, y, x + 16, y + 16, done ? 0xFF2E6B2E : SLOT_FILL);
+                graphics.renderItem(enchantIcon(holder), x, y);
+            }
+        }
+        if (rows > EVOLVE_ENCHANT_VIEW_ROWS) {
+            int height = EVOLVE_ENCHANT_VIEW_ROWS * EVOLVE_STEP;
+            int thumb = Math.max(10, height * EVOLVE_ENCHANT_VIEW_ROWS / rows);
+            int thumbY = top + (height - thumb) * evolveEnchantScroll / (rows - EVOLVE_ENCHANT_VIEW_ROWS);
+            graphics.fill(imageWidth - 8, top, imageWidth - 6, top + height, 0x44000000);
+            graphics.fill(imageWidth - 8, thumbY, imageWidth - 6, thumbY + thumb, 0xFFC0C0C0);
+        }
+    }
+
+    /** Hovering over an enchantment names it: green if it is available in the enchanting station already, otherwise how to make it so. */
+    private void renderEvolveEnchantTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        net.minecraft.core.Holder.Reference<net.minecraft.world.item.enchantment.Enchantment> hovered = evolveEnchantAt(mouseX, mouseY);
+        if (hovered == null) {
+            return;
+        }
+        boolean done = ClientEnchants.isUnlocked(hovered.key().location().toString());
+        graphics.renderComponentTooltip(font, List.of(
+                net.minecraft.world.item.enchantment.Enchantment.getFullname(hovered, com.projecthivemind.HiveEnchanting.levelOf(hovered)),
+                done ? Component.translatable("screen.projecthivemind.evolve.enchantment.available").withStyle(net.minecraft.ChatFormatting.GREEN)
+                        : Component.translatable("screen.projecthivemind.evolve.enchantment.click").withStyle(net.minecraft.ChatFormatting.YELLOW)), mouseX, mouseY);
     }
 
     // ---- the portal network ----
@@ -2229,6 +2378,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 case TRASH -> "screen.projecthivemind.hive.trash";
             };
             graphics.drawString(font, Component.translatable(key), HiveMenu.GRID_X, stationTitleY(station), 0xA0A0A0, false);
+        }
+        if (enchantVisible() && enchantShown.isEmpty()) {
+            // Nothing is available yet (or nothing matches the search): say how to get something.
+            graphics.drawWordWrap(font, Component.translatable(enchantSearch.getValue().isBlank() ? "screen.projecthivemind.enchant.none" : "screen.projecthivemind.enchant.no_match"),
+                    HiveMenu.ENCHANT_ITEM_X + 26, HiveMenu.ENCHANT_ITEM_Y + 2, 78, 0x909090);
         }
         if (stationInView(Station.ANVIL) && menu.anvilCost() > 0) {
             // What the result costs, in the hivemind's own levels: green when it has them, red when it has not.
