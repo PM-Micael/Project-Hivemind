@@ -3,6 +3,9 @@ package com.projecthivemind;
 import java.util.Optional;
 
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -37,6 +40,9 @@ public final class HiveFurnace {
     /** Ticks the current item has been cooking, and how long it takes. */
     private int cookingProgress;
     private int cookingTotal = 200;
+    /** The fuel the player chose to keep the fuel slot filled with from the hive's storage, or null for none. */
+    @javax.annotation.Nullable
+    private Item autoFuel;
 
     public SimpleContainer items() {
         return items;
@@ -56,6 +62,60 @@ public final class HiveFurnace {
 
     public int cookingTotal() {
         return cookingTotal;
+    }
+
+    @javax.annotation.Nullable
+    public Item autoFuel() {
+        return autoFuel;
+    }
+
+    /** Choose the fuel to keep the fuel slot filled with (null for none); only something that burns is taken. */
+    public void setAutoFuel(@javax.annotation.Nullable Item item) {
+        autoFuel = item != null && item.getDefaultInstance().getBurnTime(RecipeType.SMELTING) > 0 ? item : null;
+    }
+
+    /**
+     * Keep the fuel slot filled with the chosen fuel from the hive's storage: what is left of a burnt fuel (an empty bucket, after lava) goes back to the
+     * storage, and the slot is topped up. Called now and then from the Heart.
+     */
+    public void refuel(SimpleContainer storage) {
+        if (autoFuel == null) {
+            return;
+        }
+        ItemStack slot = items.getItem(FUEL);
+        if (!slot.isEmpty() && !slot.is(autoFuel)) {
+            // Something else is in the slot: only what is no use as fuel (the leftover) is put away.
+            if (isFuel(slot)) {
+                return;
+            }
+            ItemStack rest = storage.addItem(slot.copy());
+            items.setItem(FUEL, rest);
+            if (!rest.isEmpty()) {
+                return;
+            }
+            slot = ItemStack.EMPTY;
+        }
+        int limit = autoFuel.getDefaultMaxStackSize();
+        for (int i = 0; i < storage.getContainerSize(); i++) {
+            int have = slot.isEmpty() ? 0 : slot.getCount();
+            if (have >= limit) {
+                break;
+            }
+            ItemStack stored = storage.getItem(i);
+            if (stored.isEmpty() || !stored.is(autoFuel) || (!slot.isEmpty() && !ItemStack.isSameItemSameComponents(slot, stored))) {
+                continue;
+            }
+            int moved = Math.min(limit - have, stored.getCount());
+            if (slot.isEmpty()) {
+                slot = stored.copyWithCount(moved);
+                items.setItem(FUEL, slot);
+            } else {
+                slot.grow(moved);
+            }
+            stored.shrink(moved);
+            storage.setChanged();
+            items.setChanged();
+        }
     }
 
     /** True if this item burns as fuel. */
@@ -147,6 +207,9 @@ public final class HiveFurnace {
         tag.putInt(LIT_DURATION_TAG, litDuration);
         tag.putInt(COOK_TAG, cookingProgress);
         tag.putInt(COOK_TOTAL_TAG, cookingTotal);
+        if (autoFuel != null) {
+            tag.putString("AutoFuel", BuiltInRegistries.ITEM.getKey(autoFuel).toString());
+        }
         return tag;
     }
 
@@ -159,5 +222,7 @@ public final class HiveFurnace {
         litDuration = tag.getInt(LIT_DURATION_TAG);
         cookingProgress = tag.getInt(COOK_TAG);
         cookingTotal = tag.contains(COOK_TOTAL_TAG) ? tag.getInt(COOK_TOTAL_TAG) : 200;
+        ResourceLocation fuelId = tag.contains("AutoFuel") ? ResourceLocation.tryParse(tag.getString("AutoFuel")) : null;
+        autoFuel = fuelId == null ? null : BuiltInRegistries.ITEM.getOptional(fuelId).orElse(null);
     }
 }

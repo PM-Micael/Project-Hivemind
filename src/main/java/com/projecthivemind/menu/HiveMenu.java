@@ -111,6 +111,23 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int GROUP_SCOUT_STORAGE = 2048;
     /** Not a group of slots: the screen showing is the compact inventory (storage in three rows, and the crafting grid). */
     public static final int GROUP_COMPACT = 1 << 20;
+    /** The Fluids tab: the container slots under and over its meters. */
+    public static final int GROUP_FLUIDS = 4096;
+    /** The Fluids tab shows this many columns at a time (the rest are scrolled to), where its slots are and how tall its meters are. */
+    public static final int FLUID_COLUMNS = 5;
+    public static final int FLUID_X = 52;
+    public static final int FLUID_STEP = 60;
+    public static final int FLUID_TOP_Y = 70;
+    public static final int FLUID_METER_Y = 92;
+    public static final int FLUID_METER_HEIGHT = 42;
+    public static final int FLUID_BOTTOM_Y = 140;
+    /** The output window, under the middle column, and how many containers one of the input slots takes. */
+    public static final int FLUID_OUTPUT_X = FLUID_X + 2 * FLUID_STEP;
+    public static final int FLUID_OUTPUT_Y = 160;
+    /** The small window onto the storage under the output, with its search box above it (the tab's own layout of the storage slots). */
+    public static final int FLUID_STORAGE_X = 99;
+    public static final int FLUID_STORAGE_Y = 198;
+    public static final int FLUID_INPUT_LIMIT = 16;
     /** Where the compact inventory puts its slots (panel coordinates): the storage, the crafting grid and its result. */
     public static final int COMPACT_STORAGE_X = 8;
     public static final int COMPACT_STORAGE_Y = 92;
@@ -243,7 +260,9 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_EVOLVE_READY_TOP = DATA_EVOLVE_TOP + 1;
     private static final int DATA_REDSTONE = DATA_EVOLVE_READY_TOP + 1;
     private static final int DATA_REDSTONE_PERCENT = DATA_REDSTONE + 1;
-    public static final int DATA_COUNT = DATA_REDSTONE_PERCENT + 1;
+    /** The fuel the furnace is kept filled with: the item's number in the registry plus one, 0 for none. */
+    private static final int DATA_FURNACE_AUTOFUEL = DATA_REDSTONE_PERCENT + 1;
+    public static final int DATA_COUNT = DATA_FURNACE_AUTOFUEL + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -306,6 +325,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     /** Client-side only: the screen shows the Quests tab, so the slots are hidden. */
     public int visibleGroups = GROUP_STORAGE | GROUP_GEAR | GROUP_CRAFT;
+
+    /** The Fluids tab's slots: the server's window onto the Heart's fluid columns, or a plain container on the client. */
+    private final Container fluidView;
+    @Nullable
+    private FluidWindow fluidWindow;
+    /** The column the tab starts from, and how many columns there are (both set by the server). */
+    private final DataSlot fluidScroll = DataSlot.standalone();
+    private final DataSlot fluidColumnCount = DataSlot.standalone();
+    private String lastFluidSignature;
+    private int fluidStart;
 
     /** Client constructor: the real contents arrive from the server. */
     public HiveMenu(int containerId, Inventory inventory, int totalStorageSlots) {
@@ -428,6 +457,26 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         this.addDataSlot(scoutScroll.position());
         this.addDataSlot(scoutScroll.matchCount());
         this.addDataSlot(anvilCost);
+        // The Fluids tab: the top slots (full containers to empty), then the bottom ones (empty containers to fill), one of each for a column.
+        if (heart != null) {
+            this.fluidWindow = new FluidWindow(heart.fluids());
+            this.fluidView = fluidWindow;
+        } else {
+            this.fluidView = new SimpleContainer(FLUID_COLUMNS * 2 + 1) {
+                /** The server decides how many a slot holds: what it sends must not be cut down to the item's usual stack here. */
+                @Override
+                public int getMaxStackSize(ItemStack stack) {
+                    return com.projecthivemind.HiveFluids.OUTPUT_LIMIT;
+                }
+            };
+        }
+        this.fluidStart = this.slots.size();
+        for (int i = 0; i < FLUID_COLUMNS * 2; i++) {
+            this.addSlot(new FluidSlot(fluidView, i, FLUID_X + (i % FLUID_COLUMNS) * FLUID_STEP, i < FLUID_COLUMNS ? FLUID_TOP_Y : FLUID_BOTTOM_Y));
+        }
+        this.addSlot(new FluidOutputSlot(fluidView, FLUID_COLUMNS * 2, FLUID_OUTPUT_X, FLUID_OUTPUT_Y));
+        this.addDataSlot(fluidScroll);
+        this.addDataSlot(fluidColumnCount);
     }
 
     /** Server constructor: backed by the Heart's real storage, with live stats for the screen. */
@@ -516,6 +565,10 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 }
                 if (index == DATA_REDSTONE) {
                     return heart.redstoneFlags();
+                }
+                if (index == DATA_FURNACE_AUTOFUEL) {
+                    net.minecraft.world.item.Item chosen = heart.furnace().autoFuel();
+                    return chosen == null ? 0 : net.minecraft.core.registries.BuiltInRegistries.ITEM.getId(chosen) + 1;
                 }
                 if (index == DATA_REDSTONE_PERCENT) {
                     return heart.redstonePercent();
@@ -735,6 +788,21 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncRecipesPayload(java.util.List.copyOf(heart.recentRecipes())));
             }
         }
+        // The fluids: containers left in the slots are emptied and filled as the meters allow, and the screen is told what the meters hold.
+        if (heart != null && player instanceof net.minecraft.server.level.ServerPlayer owner && hasFluids()) {
+            heart.fluids().processAll();
+            fluidColumnCount.set(heart.fluids().columns());
+            setFluidScroll(fluidScroll.get());
+            String signature = heart.fluids().signature();
+            if (!signature.equals(lastFluidSignature)) {
+                lastFluidSignature = signature;
+                java.util.List<com.projecthivemind.network.SyncFluidsPayload.Entry> entries = new java.util.ArrayList<>();
+                for (net.minecraft.resources.ResourceLocation id : heart.fluids().fluids()) {
+                    entries.add(new com.projecthivemind.network.SyncFluidsPayload.Entry(id, heart.fluids().amount(id)));
+                }
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(owner, new com.projecthivemind.network.SyncFluidsPayload(entries));
+            }
+        }
         super.broadcastChanges();
     }
 
@@ -861,6 +929,23 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
     }
 
+    /**
+     * Client and server: lay the storage out as the Fluids tab's small window (three rows under the output slot). Call after {@link #setCompact}, which
+     * puts everything back; turning it off is that call's job.
+     */
+    public void setFluidLayout(boolean on) {
+        if (!on) {
+            return;
+        }
+        scroll.setCompact(true);
+        for (Slot slot : this.slots) {
+            if (slot instanceof HiveSlot hive && hive.group == GROUP_STORAGE) {
+                int index = slot.getContainerSlot();
+                hive.setOrigin(FLUID_STORAGE_X + (index % STORAGE_COLUMNS) * 18, FLUID_STORAGE_Y + (index / STORAGE_COLUMNS) * 18);
+            }
+        }
+    }
+
     /** The food slot, so the screen can show what goes in it when it is empty. */
     public Slot foodSlot() {
         return this.slots.get(foodIndex);
@@ -875,6 +960,244 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     /** The trash slot, so the screen can draw it. */
     public Slot trashSlot() {
         return trashSlot;
+    }
+
+    // ---- fluids ----
+
+    /** Whether this slot is one of the Fluids tab's, and whether it is one of the top row (where full containers are emptied). */
+    public boolean isFluidSlot(Slot slot) {
+        return slot.index >= fluidStart;
+    }
+
+    public boolean isFluidTopSlot(Slot slot) {
+        return slot.index - fluidStart < FLUID_COLUMNS;
+    }
+
+    public boolean isFluidOutputSlot(Slot slot) {
+        return slot.index - fluidStart == FLUID_COLUMNS * 2;
+    }
+
+    /** True once the hive has consumed a cauldron: it keeps fluids, on the Fluids tab. */
+    /** Server side: the Fluids tab's pull button: full containers in the hive's storage go to the input slots. */
+    public void pullFluids() {
+        if (heart != null && hasFluids() && storage != null) {
+            int moved = heart.fluids().pull(storage);
+            heart.fluids().processAll();
+            if (player instanceof net.minecraft.server.level.ServerPlayer owner) {
+                owner.displayClientMessage(Component.translatable(moved > 0 ? "message.projecthivemind.fluids.pulled" : "message.projecthivemind.fluids.nothing", moved), true);
+            }
+        }
+    }
+
+    /** The fuel the furnace is kept filled with, or air for none. */
+    public net.minecraft.world.item.Item furnaceAutoFuel() {
+        int id = data.get(DATA_FURNACE_AUTOFUEL) - 1;
+        return id < 0 ? net.minecraft.world.item.Items.AIR : net.minecraft.core.registries.BuiltInRegistries.ITEM.byId(id);
+    }
+
+    /** Server side: choose the fuel to keep the furnace filled with (an item name; empty for none). */
+    public void setFurnaceAutoFuel(String name) {
+        if (heart != null && hasFurnace()) {
+            net.minecraft.resources.ResourceLocation id = name.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(name);
+            heart.furnace().setAutoFuel(id == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(id).orElse(null));
+        }
+    }
+
+    public boolean hasFluids() {
+        return com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask());
+    }
+
+    /** The column the Fluids tab starts from. */
+    public int fluidScroll() {
+        return fluidScroll.get();
+    }
+
+    /** How many columns the Fluids tab has: one for each fluid, and one more for a new fluid. */
+    public int fluidColumnCount() {
+        return fluidColumnCount.get();
+    }
+
+    /** Server side: show the Fluids tab from this column (kept in range). */
+    public void setFluidScroll(int column) {
+        fluidScroll.set(Math.max(0, Math.min(column, Math.max(0, fluidColumnCount.get() - FLUID_COLUMNS))));
+    }
+
+    /** Whether the slot of the Fluids tab with this index (the tops first, then the bottoms) has anything behind it right now. */
+    private boolean fluidColumnShown(int slotIndex) {
+        int column = fluidScroll.get() + slotIndex % FLUID_COLUMNS;
+        int columns = fluidColumnCount.get();
+        // The extra column for a new fluid only has a top slot.
+        return column < columns && (slotIndex < FLUID_COLUMNS || column < columns - 1);
+    }
+
+    /** The server's view of the Heart's fluid columns as five of them at a time: the tops of the five, then their bottoms. */
+    private final class FluidWindow implements Container {
+        private final com.projecthivemind.HiveFluids fluids;
+
+        FluidWindow(com.projecthivemind.HiveFluids fluids) {
+            this.fluids = fluids;
+        }
+
+        @Nullable
+        private com.projecthivemind.HiveFluids.Cells cell(int slot) {
+            if (slot >= FLUID_COLUMNS * 2) {
+                return null;
+            }
+            com.projecthivemind.HiveFluids.Cells cell = fluids.column(fluidScroll.get() + slot % FLUID_COLUMNS);
+            return cell == null || (slot >= FLUID_COLUMNS && cell.key() == null) ? null : cell;
+        }
+
+        private static int part(int slot) {
+            return slot / FLUID_COLUMNS;
+        }
+
+        /** Whether this item may be put in this slot: a full container of the column's fluid at the top, an empty one that can hold it at the bottom. */
+        boolean accepts(int slot, ItemStack stack) {
+            com.projecthivemind.HiveFluids.Cells cell = cell(slot);
+            if (cell == null) {
+                return false;
+            }
+            return part(slot) == 0 ? com.projecthivemind.FluidContainers.drain(stack, cell.key(), Integer.MAX_VALUE) != null
+                    : com.projecthivemind.FluidContainers.canHold(stack, cell.key());
+        }
+
+        @Override
+        public int getContainerSize() {
+            return FLUID_COLUMNS * 2 + 1;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            for (int i = 0; i < getContainerSize(); i++) {
+                if (!getItem(i).isEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public ItemStack getItem(int slot) {
+            if (slot >= FLUID_COLUMNS * 2) {
+                return fluids.outputSlot().getItem(0);
+            }
+            com.projecthivemind.HiveFluids.Cells cell = cell(slot);
+            return cell == null ? ItemStack.EMPTY : cell.getItem(part(slot));
+        }
+
+        @Override
+        public ItemStack removeItem(int slot, int amount) {
+            if (slot >= FLUID_COLUMNS * 2) {
+                return fluids.outputSlot().removeItem(0, amount);
+            }
+            com.projecthivemind.HiveFluids.Cells cell = cell(slot);
+            return cell == null ? ItemStack.EMPTY : cell.removeItem(part(slot), amount);
+        }
+
+        @Override
+        public ItemStack removeItemNoUpdate(int slot) {
+            if (slot >= FLUID_COLUMNS * 2) {
+                return fluids.outputSlot().removeItemNoUpdate(0);
+            }
+            com.projecthivemind.HiveFluids.Cells cell = cell(slot);
+            return cell == null ? ItemStack.EMPTY : cell.removeItemNoUpdate(part(slot));
+        }
+
+        @Override
+        public void setItem(int slot, ItemStack stack) {
+            if (slot >= FLUID_COLUMNS * 2) {
+                fluids.outputSlot().setItem(0, stack);
+                return;
+            }
+            com.projecthivemind.HiveFluids.Cells cell = cell(slot);
+            if (cell != null) {
+                cell.setItem(part(slot), stack);
+            }
+        }
+
+        @Override
+        public int getMaxStackSize() {
+            return FLUID_INPUT_LIMIT;
+        }
+
+        @Override
+        public void setChanged() {
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return true;
+        }
+
+        @Override
+        public void clearContent() {
+        }
+    }
+
+    /** A slot of the Fluids tab: one container at a time, of the right kind for its place, and not there when its column is not. */
+    private class FluidSlot extends Slot {
+        FluidSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+        /** Picking up from here takes no more than the item's usual stack, however many the slot holds. */
+        @Override
+        public ItemStack remove(int amount) {
+            return super.remove(Math.min(amount, Math.max(1, getItem().getMaxStackSize())));
+        }
+
+
+        @Override
+        public int getMaxStackSize() {
+            return FLUID_INPUT_LIMIT;
+        }
+
+        @Override
+        public int getMaxStackSize(ItemStack stack) {
+            return FLUID_INPUT_LIMIT;
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return fluidWindow == null || fluidWindow.accepts(getContainerSlot(), stack);
+        }
+
+        @Override
+        public boolean isActive() {
+            return (visibleGroups & GROUP_FLUIDS) != 0 && fluidColumnShown(getContainerSlot());
+        }
+    }
+
+    /** The output window of the Fluids tab: emptied and filled containers come out here, and nothing can be put in. */
+    private class FluidOutputSlot extends Slot {
+        FluidOutputSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+        /** Picking up from here takes no more than the item's usual stack, however many the slot holds. */
+        @Override
+        public ItemStack remove(int amount) {
+            return super.remove(Math.min(amount, Math.max(1, getItem().getMaxStackSize())));
+        }
+
+
+        @Override
+        public int getMaxStackSize() {
+            return com.projecthivemind.HiveFluids.OUTPUT_LIMIT;
+        }
+
+        @Override
+        public int getMaxStackSize(ItemStack stack) {
+            return com.projecthivemind.HiveFluids.OUTPUT_LIMIT;
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public boolean isActive() {
+            return (visibleGroups & GROUP_FLUIDS) != 0;
+        }
     }
 
     /** True once the hive has consumed an anvil: it can repair, combine and rename items, paying with the hivemind's levels. */
@@ -1220,6 +1543,45 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
 
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
+        if (index >= fluidStart) {
+            // From the Fluids tab (a container waiting to be emptied or filled, or the output): into the hive's storage, wherever there is room in it.
+            Slot fluidSlot = this.slots.get(index);
+            if (storage == null || fluidSlot == null || !fluidSlot.hasItem()) {
+                return ItemStack.EMPTY;
+            }
+            ItemStack held = fluidSlot.getItem();
+            ItemStack before = held.copy();
+            ItemStack rest = storage.addItem(held.copy());
+            if (rest.getCount() == before.getCount()) {
+                return ItemStack.EMPTY;
+            }
+            if (rest.isEmpty()) {
+                fluidSlot.setByPlayer(ItemStack.EMPTY);
+            } else {
+                held.setCount(rest.getCount());
+                fluidSlot.setChanged();
+            }
+            return before;
+        }
+        if (index < resultIndex && (visibleGroups & GROUP_FLUIDS) != 0 && heart != null) {
+            // From the storage window on the Fluids tab: into the input slot it belongs in (a full container to be emptied, or an empty one to be filled).
+            Slot from = this.slots.get(index);
+            if (from == null || !from.hasItem()) {
+                return ItemStack.EMPTY;
+            }
+            ItemStack held = from.getItem();
+            ItemStack before = held.copy();
+            if (heart.fluids().insert(held) <= 0) {
+                return ItemStack.EMPTY;
+            }
+            if (held.isEmpty()) {
+                from.setByPlayer(ItemStack.EMPTY);
+            } else {
+                from.setChanged();
+            }
+            heart.fluids().processAll();
+            return before;
+        }
         Slot slot = this.slots.get(index);
         if (slot == null || !slot.hasItem()) {
             return ItemStack.EMPTY;
@@ -1362,6 +1724,12 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             this.group = group;
             this.baseX = x;
             this.baseY = y;
+        }
+
+        /** Picking up from here takes no more than the item's usual stack, however many the slot holds. */
+        @Override
+        public ItemStack remove(int amount) {
+            return super.remove(Math.min(amount, Math.max(1, getItem().getMaxStackSize())));
         }
 
         /** Move the slot's home (the compact inventory lays the slots out differently). */

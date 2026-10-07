@@ -102,7 +102,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int WOODWORK_ROW = 11;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE
+        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE, FLUIDS
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -117,6 +117,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button portalsTab;
     private Button evolveTab;
     private Button redstoneTab;
+    private Button fluidsTab;
+    private Button fluidLeft;
+    private Button fluidRight;
+    private Button fluidPull;
+    private SeedButton furnaceFuelButton;
     /** The enchanting station's list of what the hive can enchant with: a search box, and rows that the mouse wheel scrolls. */
     private static final int ENCHANT_ROWS = 5;
     private EditBox enchantSearch;
@@ -240,6 +245,14 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         portalsTab = tabButton(3, Items.ENDER_PEARL, "screen.projecthivemind.hive.tab_portals", Tab.PORTALS);
         evolveTab = tabButton(4, Items.DRAGON_EGG, "screen.projecthivemind.hive.tab_evolve", Tab.EVOLVE);
         redstoneTab = tabButton(5, Items.REDSTONE, "screen.projecthivemind.hive.tab_redstone", Tab.REDSTONE);
+        fluidsTab = tabButton(6, Items.CAULDRON, "screen.projecthivemind.hive.tab_fluids", Tab.FLUIDS);
+        fluidLeft = addRenderableWidget(Button.builder(Component.literal("<"), button -> scrollFluids(-1)).bounds(leftPos + 8, topPos + HiveMenu.FLUID_METER_Y + 11, 20, 20).build());
+        fluidRight = addRenderableWidget(Button.builder(Component.literal(">"), button -> scrollFluids(1)).bounds(leftPos + imageWidth - 28, topPos + HiveMenu.FLUID_METER_Y + 11, 20, 20).build());
+        fluidPull = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.fluids.pull"), button -> PacketDistributor.sendToServer(new com.projecthivemind.network.PullFluidsPayload(menu.containerId)))
+                .bounds(leftPos + 8, topPos + HiveMenu.FLUID_OUTPUT_Y, 50, 18).tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.fluids.pull.tooltip"))).build());
+        fluidPull.visible = false;
+        fluidLeft.visible = false;
+        fluidRight.visible = false;
         createRedstoneWidgets();
         updateTabButtons();
         kindTabs.clear();
@@ -287,6 +300,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 button -> PacketDistributor.sendToServer(new com.projecthivemind.network.ClearTrashPayload(menu.containerId)))
                 .bounds(leftPos + HiveMenu.GRID_X - 8, topPos + HiveMenu.GRID_Y + 22, 50, 16).build());
         clearTrashButton.visible = false;
+        // The furnace: choose a fuel to keep its fuel slot filled with from the storage.
+        furnaceFuelButton = addRenderableWidget(new SeedButton(leftPos + HiveMenu.FURNACE_FUEL_X + 24, topPos + HiveMenu.FURNACE_FUEL_Y - 2, 20, 20,
+                () -> new ItemStack(menu.furnaceAutoFuel()), button -> openFurnaceFuelPicker()));
+        furnaceFuelButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.furnace_fuel.tooltip")));
+        furnaceFuelButton.visible = false;
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
                 Component.translatable("screen.projecthivemind.hive.search")));
         storageSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
@@ -376,6 +394,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         evolveTab.setX(leftPos + 8 + (portalsTab.visible ? 4 : 3) * TAB_STEP);
         redstoneTab.visible = menu.hasRedstone();
         redstoneTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0)) * TAB_STEP);
+        fluidsTab.visible = menu.hasFluids();
+        fluidsTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0) + (redstoneTab.visible ? 1 : 0)) * TAB_STEP);
     }
 
     /** A button that shows the head of a unit's mob model where a label would be. */
@@ -553,16 +573,23 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             boolean open = stationInView(station);
             menu.layoutStation(station.group, 0, open ? Integer.MIN_VALUE : Integer.MAX_VALUE, open ? Integer.MAX_VALUE : Integer.MAX_VALUE);
         }
+        if (furnaceFuelButton != null) {
+            furnaceFuelButton.visible = stationInView(Station.FURNACE);
+        }
         if (clearTrashButton != null) {
             clearTrashButton.visible = stationInView(Station.TRASH);
         }
         // The scouts' page shows the armor every scout wears; the other tabs have no slots.
         int groups = tab == Tab.HIVE ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_GEAR | focusedStation.group
-                : tab == Tab.UNITS && unitPage == UnitKind.SCOUT ? HiveMenu.GROUP_SCOUT_ARMOR | HiveMenu.GROUP_SCOUT_STORAGE : 0;
+                : tab == Tab.UNITS && unitPage == UnitKind.SCOUT ? HiveMenu.GROUP_SCOUT_ARMOR | HiveMenu.GROUP_SCOUT_STORAGE
+                : tab == Tab.FLUIDS ? HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_FLUIDS : 0;
         if (scoutSearch != null) {
             scoutSearch.visible = tab == Tab.UNITS && unitPage == UnitKind.SCOUT;
         }
         if (menu.visibleGroups != groups || sentGroups != groups) {
+            // The storage is laid out as the Fluids tab's small window while that tab is open, and as usual otherwise.
+            menu.setCompact(false);
+            menu.setFluidLayout((groups & HiveMenu.GROUP_FLUIDS) != 0);
             menu.visibleGroups = groups;
             sentGroups = groups;
             PacketDistributor.sendToServer(new SetMenuViewPayload(menu.containerId, groups));
@@ -706,7 +733,17 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         portalsTab.active = newTab != Tab.PORTALS;
         evolveTab.active = newTab != Tab.EVOLVE;
         redstoneTab.active = newTab != Tab.REDSTONE;
-        storageSearch.visible = newTab == Tab.HIVE;
+        fluidsTab.active = newTab != Tab.FLUIDS;
+        storageSearch.visible = newTab == Tab.HIVE || newTab == Tab.FLUIDS;
+        if (newTab == Tab.FLUIDS) {
+            storageSearch.setX(leftPos + HiveMenu.FLUID_STORAGE_X);
+            storageSearch.setY(topPos + HiveMenu.FLUID_STORAGE_Y - 15);
+            storageSearch.setWidth(9 * 18);
+        } else {
+            storageSearch.setX(leftPos + HiveMenu.STORAGE_X + 46);
+            storageSearch.setY(topPos + LABEL_Y - 2);
+            storageSearch.setWidth(112);
+        }
 
         if (newTab == Tab.PORTALS) {
             portalScroll = 0;
@@ -929,13 +966,20 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         super.containerTick();
         updateJobBox();
         // The portal network and the evolve slot come with a level of the hive; their tabs are there once the hive has it.
-        updateTabButtons();
         layoutStations();
         updateEnchantList();
         updateEvolveEnchantUi();
         if (tab == Tab.EVOLVE && !evolveTab.visible) {
             showTab(Tab.HIVE, unitPage);
         }
+        if (tab == Tab.FLUIDS && !fluidsTab.visible) {
+            showTab(Tab.HIVE, unitPage);
+        }
+        updateTabButtons();
+        boolean scrollableFluids = tab == Tab.FLUIDS && menu.fluidColumnCount() > HiveMenu.FLUID_COLUMNS;
+        fluidPull.visible = tab == Tab.FLUIDS;
+        fluidLeft.visible = scrollableFluids;
+        fluidRight.visible = scrollableFluids;
         if (tab == Tab.REDSTONE && !redstoneTab.visible) {
             showTab(Tab.HIVE, unitPage);
         }
@@ -1080,6 +1124,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         Minecraft.getInstance().setScreen(new SeedPickerScreen(this, Component.translatable("screen.projecthivemind.fill.title"),
                 item -> com.projecthivemind.entity.HiveWorker.fillBlock(item) != null,
                 item -> PacketDistributor.sendToServer(new com.projecthivemind.network.SetWorkerFillPayload(unit,
+                        item == null ? "" : BuiltInRegistries.ITEM.getKey(item).toString()))));
+    }
+
+    /** Pick the fuel the furnace is kept filled with: everything that burns, as a scrolling grid shown over this screen. */
+    private void openFurnaceFuelPicker() {
+        int container = menu.containerId;
+        Minecraft.getInstance().setScreen(new SeedPickerScreen(this, Component.translatable("screen.projecthivemind.furnace_fuel.title"),
+                item -> com.projecthivemind.HiveFurnace.isFuel(new ItemStack(item)),
+                item -> PacketDistributor.sendToServer(new com.projecthivemind.network.SetFurnaceFuelPayload(container,
                         item == null ? "" : BuiltInRegistries.ITEM.getKey(item).toString()))));
     }
 
@@ -1409,7 +1462,90 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             renderEvolveTooltips(graphics, mouseX, mouseY);
             renderEvolveEnchantTooltip(graphics, mouseX, mouseY);
         }
+        if (tab == Tab.FLUIDS) {
+            renderFluidTooltips(graphics, mouseX, mouseY);
+        }
         this.renderTooltip(graphics, mouseX, mouseY);
+    }
+
+    // ---- the Fluids tab: a meter for each fluid the hive keeps, with a slot over it to empty a container into it and one under it to fill one ----
+
+    private void scrollFluids(int by) {
+        int max = Math.max(0, menu.fluidColumnCount() - HiveMenu.FLUID_COLUMNS);
+        int column = Math.max(0, Math.min(max, menu.fluidScroll() + by));
+        if (column != menu.fluidScroll()) {
+            PacketDistributor.sendToServer(new com.projecthivemind.network.ScrollFluidsPayload(menu.containerId, column));
+        }
+    }
+
+    private static Component fluidAmount(net.minecraft.resources.ResourceLocation id, int amount) {
+        if (id.equals(com.projecthivemind.HiveFluids.XP)) {
+            return Component.translatable("screen.projecthivemind.fluids.xp", amount, com.projecthivemind.HiveFluids.XP_CAPACITY);
+        }
+        return Component.translatable("screen.projecthivemind.fluids.amount", String.format(Locale.ROOT, "%.2f", amount / (double) com.projecthivemind.HiveFluids.BUCKET),
+                com.projecthivemind.HiveFluids.CAPACITY / com.projecthivemind.HiveFluids.BUCKET);
+    }
+
+    private void renderFluids(GuiGraphics graphics) {
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.fluids.output_label"), HiveMenu.FLUID_OUTPUT_X - 44, HiveMenu.FLUID_OUTPUT_Y + 4, 0xA0A0A0, false);
+        List<com.projecthivemind.network.SyncFluidsPayload.Entry> fluids = ClientFluids.all();
+        for (int c = 0; c < HiveMenu.FLUID_COLUMNS; c++) {
+            int column = menu.fluidScroll() + c;
+            if (column >= menu.fluidColumnCount()) {
+                break;
+            }
+            int x = HiveMenu.FLUID_X + c * HiveMenu.FLUID_STEP - 4;
+            int y = HiveMenu.FLUID_METER_Y;
+            int height = HiveMenu.FLUID_METER_HEIGHT;
+            graphics.fill(x - 1, y - 1, x + 25, y + height + 1, SLOT_EDGE);
+            graphics.fill(x, y, x + 24, y + height, SLOT_FILL);
+            String label;
+            if (column < fluids.size()) {
+                com.projecthivemind.network.SyncFluidsPayload.Entry entry = fluids.get(column);
+                int filled = (int) ((long) height * entry.amount() / com.projecthivemind.HiveFluids.capacity(entry.id()));
+                if (entry.amount() > 0 && filled < 1) {
+                    // A little in the meter always shows, even when it is less than a pixel (experience, a bottle at a time).
+                    filled = 1;
+                }
+                graphics.fill(x, y + height - filled, x + 24, y + height, ClientFluids.color(entry.id()));
+                for (int quarter = 1; quarter < 4; quarter++) {
+                    graphics.fill(x, y + height * quarter / 4, x + 6, y + height * quarter / 4 + 1, 0x80FFFFFF);
+                }
+                label = ClientFluids.name(entry.id()).getString();
+            } else {
+                graphics.drawString(font, "+", x + 12 - font.width("+") / 2, y + height / 2 - 4, 0xFF909090, false);
+                label = Component.translatable("screen.projecthivemind.fluids.new").getString();
+            }
+            String shown = font.plainSubstrByWidth(label, HiveMenu.FLUID_STEP - 4);
+            graphics.drawString(font, shown, x + 12 - font.width(shown) / 2, HiveMenu.FLUID_TOP_Y - 12, 0xA0A0A0, false);
+        }
+    }
+
+    private void renderFluidTooltips(GuiGraphics graphics, int mouseX, int mouseY) {
+        List<com.projecthivemind.network.SyncFluidsPayload.Entry> fluids = ClientFluids.all();
+        for (int c = 0; c < HiveMenu.FLUID_COLUMNS; c++) {
+            int column = menu.fluidScroll() + c;
+            if (column >= menu.fluidColumnCount()) {
+                break;
+            }
+            int x = leftPos + HiveMenu.FLUID_X + c * HiveMenu.FLUID_STEP - 4;
+            int y = topPos + HiveMenu.FLUID_METER_Y;
+            if (mouseX >= x && mouseX < x + 24 && mouseY >= y && mouseY < y + HiveMenu.FLUID_METER_HEIGHT) {
+                if (column < fluids.size()) {
+                    com.projecthivemind.network.SyncFluidsPayload.Entry entry = fluids.get(column);
+                    graphics.renderComponentTooltip(font, List.of(ClientFluids.name(entry.id()), fluidAmount(entry.id(), entry.amount())), mouseX, mouseY);
+                } else {
+                    graphics.renderTooltip(font, Component.translatable("screen.projecthivemind.fluids.new.tooltip"), mouseX, mouseY);
+                }
+                return;
+            }
+        }
+        // An empty slot says what it is for.
+        if (hoveredSlot != null && menu.isFluidSlot(hoveredSlot) && hoveredSlot.isActive() && !hoveredSlot.hasItem()) {
+            graphics.renderTooltip(font, Component.translatable(menu.isFluidOutputSlot(hoveredSlot) ? "screen.projecthivemind.fluids.output"
+                    : menu.isFluidTopSlot(hoveredSlot) ? "screen.projecthivemind.fluids.top" : "screen.projecthivemind.fluids.bottom"),
+                    mouseX, mouseY);
+        }
     }
 
     // ---- the Redstone tab: what the Heart gives and takes through hive relays ----
@@ -1660,6 +1796,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             HiveStyle.scrollbar(graphics, leftPos + HiveMenu.STORAGE_X + 9 * 18 + 1, topPos + HiveMenu.STORAGE_Y,
                     scroll.visibleRows() * 18, scroll.totalRows(), scroll.visibleRows(), scroll.row());
         }
+        if (tab == Tab.FLUIDS) {
+            StorageScroll fluidStorage = menu.storageScroll();
+            HiveStyle.scrollbar(graphics, leftPos + HiveMenu.FLUID_STORAGE_X + 9 * 18 + 1, topPos + HiveMenu.FLUID_STORAGE_Y,
+                    fluidStorage.visibleRows() * 18, fluidStorage.totalRows(), fluidStorage.visibleRows(), fluidStorage.row());
+        }
 
         if (tab == Tab.UNITS && unitPage == UnitKind.SCOUT) {
             StorageScroll scoutScroll = menu.scoutScroll();
@@ -1684,6 +1825,21 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** The mouse wheel over the hive storage scrolls it. */
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (tab == Tab.FLUIDS) {
+            StorageScroll fluidStorage = menu.storageScroll();
+            if (fluidStorage.maxRow() > 0 && mouseX >= leftPos + HiveMenu.FLUID_STORAGE_X && mouseX < leftPos + HiveMenu.FLUID_STORAGE_X + 9 * 18 + 6
+                    && mouseY >= topPos + HiveMenu.FLUID_STORAGE_Y && mouseY < topPos + HiveMenu.FLUID_STORAGE_Y + fluidStorage.visibleRows() * 18) {
+                int row = HiveStyle.scrolledRow(fluidStorage.row(), scrollY, fluidStorage.maxRow());
+                if (row != fluidStorage.row()) {
+                    PacketDistributor.sendToServer(new ScrollStoragePayload(menu.containerId, row));
+                }
+                return true;
+            }
+            if (menu.fluidColumnCount() > HiveMenu.FLUID_COLUMNS && mouseY < topPos + HiveMenu.FLUID_OUTPUT_Y) {
+                scrollFluids(-(int) Math.signum(scrollY));
+                return true;
+            }
+        }
         StorageScroll scroll = menu.storageScroll();
         StorageScroll scoutScroll = menu.scoutScroll();
         if (tab == Tab.UNITS && unitPage == UnitKind.SCOUT && scoutScroll.maxRow() > 0 && mouseX >= leftPos + HiveMenu.SCOUT_INV_X
@@ -1753,6 +1909,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case PORTALS -> renderPortals(graphics);
             case EVOLVE -> renderEvolve(graphics);
             case REDSTONE -> renderRedstone(graphics);
+            case FLUIDS -> renderFluids(graphics);
             default -> renderHiveLabels(graphics);
         }
     }

@@ -77,8 +77,9 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL | HiveMenu.GROUP_TRASH | HiveMenu.GROUP_COMPACT);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL | HiveMenu.GROUP_TRASH | HiveMenu.GROUP_COMPACT | HiveMenu.GROUP_FLUIDS);
             menu.setCompact((payload.groups() & HiveMenu.GROUP_COMPACT) != 0);
+            menu.setFluidLayout((payload.groups() & HiveMenu.GROUP_FLUIDS) != 0);
         }
     }
 
@@ -316,6 +317,29 @@ public final class ServerPayloads {
     public static void onReinforce(ReinforcePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivePortals.reinforce(player);
+        }
+    }
+
+    public static void onPullFluids(com.projecthivemind.network.PullFluidsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.pullFluids();
+            menu.broadcastChanges();
+        }
+    }
+
+    public static void onSetFurnaceFuel(com.projecthivemind.network.SetFurnaceFuelPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setFurnaceAutoFuel(payload.item());
+        }
+    }
+
+    public static void onScrollFluids(com.projecthivemind.network.ScrollFluidsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setFluidScroll(payload.column());
+            menu.broadcastChanges();
         }
     }
 

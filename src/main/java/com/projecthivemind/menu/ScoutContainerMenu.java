@@ -73,6 +73,12 @@ public class ScoutContainerMenu extends AbstractContainerMenu implements Spectat
         int storageY = storageY(this.targetSize);
         for (int i = 0; i < scroll.visibleSlots(scroll.total()); i++) {
             this.addSlot(new Slot(scroll.view(), i, SLOT_X + (i % COLUMNS) * 18, storageY + (i / COLUMNS) * 18) {
+                /** Picking up from here takes no more than the item's usual stack, however many the slot holds. */
+                @Override
+                public ItemStack remove(int amount) {
+                    return super.remove(Math.min(amount, Math.max(1, getItem().getMaxStackSize())));
+                }
+
                 /** The hive's storage may hold bigger stacks than the item usually does (see the evolution tasks). */
                 @Override
                 public int getMaxStackSize(ItemStack stack) {

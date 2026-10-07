@@ -128,6 +128,10 @@ public final class CommonEvents {
         registrar.playToServer(com.projecthivemind.network.SetRedstonePayload.TYPE, com.projecthivemind.network.SetRedstonePayload.STREAM_CODEC, ServerPayloads::onSetRedstone);
         registrar.playToServer(com.projecthivemind.network.PlaceRecipePayload.TYPE, com.projecthivemind.network.PlaceRecipePayload.STREAM_CODEC, ServerPayloads::onPlaceRecipe);
         registrar.playToClient(com.projecthivemind.network.SyncEnchantsPayload.TYPE, com.projecthivemind.network.SyncEnchantsPayload.STREAM_CODEC, ClientPayloads::onSyncEnchants);
+        registrar.playToClient(com.projecthivemind.network.SyncFluidsPayload.TYPE, com.projecthivemind.network.SyncFluidsPayload.STREAM_CODEC, ClientPayloads::onSyncFluids);
+        registrar.playToServer(com.projecthivemind.network.ScrollFluidsPayload.TYPE, com.projecthivemind.network.ScrollFluidsPayload.STREAM_CODEC, ServerPayloads::onScrollFluids);
+        registrar.playToServer(com.projecthivemind.network.PullFluidsPayload.TYPE, com.projecthivemind.network.PullFluidsPayload.STREAM_CODEC, ServerPayloads::onPullFluids);
+        registrar.playToServer(com.projecthivemind.network.SetFurnaceFuelPayload.TYPE, com.projecthivemind.network.SetFurnaceFuelPayload.STREAM_CODEC, ServerPayloads::onSetFurnaceFuel);
         registrar.playToClient(com.projecthivemind.network.SyncRecipesPayload.TYPE, com.projecthivemind.network.SyncRecipesPayload.STREAM_CODEC, ClientPayloads::onSyncRecipes);
         registrar.playToServer(com.projecthivemind.network.AssignConstructionPayload.TYPE, com.projecthivemind.network.AssignConstructionPayload.STREAM_CODEC, ServerPayloads::onAssignConstruction);
         registrar.playToServer(com.projecthivemind.network.UpdateConstructionPayload.TYPE, com.projecthivemind.network.UpdateConstructionPayload.STREAM_CODEC, ServerPayloads::onUpdateConstruction);

@@ -127,6 +127,8 @@ public class HiveHeart extends Mob {
     private int syncedFood = -1;
     /** The furnace built into the Heart, usable once a furnace has been consumed on the Evolve tab. It always exists so the menu code stays simple. */
     private final HiveFurnace furnace = new HiveFurnace();
+    /** The fluids the hive keeps, usable once a cauldron has been consumed on the Evolve tab. */
+    private final com.projecthivemind.HiveFluids fluids = new com.projecthivemind.HiveFluids();
     /** The brewing stand built into the Heart, usable once a brewing stand has been consumed on the Evolve tab. */
     private final HiveBrewing brewing = new HiveBrewing();
     /** The portals standing and the summoning going on (from level 2). */
@@ -1048,6 +1050,9 @@ public class HiveHeart extends Mob {
         }
         if (com.projecthivemind.EvolveTask.FURNACE.doneIn(evolveMask) && this.level() instanceof ServerLevel serverLevel) {
             furnace.tick(serverLevel);
+            if (this.tickCount % 20 == 0) {
+                furnace.refuel(storage);
+            }
         }
         if (com.projecthivemind.EvolveTask.BREWING_STAND.doneIn(evolveMask) && this.level() instanceof ServerLevel serverLevel) {
             brewing.tick(serverLevel);
@@ -1290,6 +1295,10 @@ public class HiveHeart extends Mob {
 
     public SimpleContainer scoutHand() {
         return scoutHand;
+    }
+
+    public com.projecthivemind.HiveFluids fluids() {
+        return fluids;
     }
 
     public HiveFurnace furnace() {
@@ -1670,6 +1679,7 @@ public class HiveHeart extends Mob {
         tag.putInt(KILLS_TAG, kills);
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
+        tag.put("HiveFluidsData", fluids.save(registryAccess()));
         tag.put("HiveBrewing", brewing.save(registryAccess()));
         tag.put("PortalNetwork", portals.save());
         net.minecraft.nbt.ListTag spots = new net.minecraft.nbt.ListTag();
@@ -1802,6 +1812,9 @@ public class HiveHeart extends Mob {
         }
         if (tag.contains("HiveBrewing")) {
             brewing.load(tag.getCompound("HiveBrewing"), registryAccess());
+        }
+        if (tag.contains("HiveFluidsData")) {
+            fluids.load(tag.getCompound("HiveFluidsData"), registryAccess());
         }
         if (tag.contains(FURNACE_TAG)) {
             furnace.load(tag.getCompound(FURNACE_TAG), registryAccess());

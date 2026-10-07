@@ -278,6 +278,7 @@ public final class ClientControl {
     @SubscribeEvent
     static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientEnchants.clear();
+        ClientFluids.reset();
         ClientRecipes.clear();
         wasActive = false;
         cursorMode = false;
