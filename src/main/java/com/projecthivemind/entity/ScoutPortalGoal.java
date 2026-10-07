@@ -32,7 +32,7 @@ public class ScoutPortalGoal extends Goal {
 
     private boolean hasOrder() {
         UnitAction action = scout.action();
-        return action != null && action.kind() == UnitAction.Kind.PORTAL && action.pos() != null && action.face() != null;
+        return action != null && (action.kind() == UnitAction.Kind.PORTAL || action.kind() == UnitAction.Kind.DEHYDRATOR) && action.pos() != null && action.face() != null;
     }
 
     @Override
@@ -87,7 +87,12 @@ public class ScoutPortalGoal extends Goal {
         scout.getNavigation().stop();
         scout.getLookControl().setLookAt(spot);
         scout.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
-        if (!HivePortals.place(level, heart, pos, face)) {
+        if (action.kind() == UnitAction.Kind.DEHYDRATOR) {
+            String problem = com.projecthivemind.Dehydrators.problem(level, heart, pos, face);
+            if (problem != null || !com.projecthivemind.Dehydrators.place(level, heart, pos, face)) {
+                owner.displayClientMessage(Component.translatable(problem != null ? problem : "message.projecthivemind.dehydrator_no_room"), true);
+            }
+        } else if (!HivePortals.place(level, heart, pos, face)) {
             owner.displayClientMessage(Component.translatable("message.projecthivemind.portal_no_room"), true);
         } else {
             HivePortals.sync(owner, heart);

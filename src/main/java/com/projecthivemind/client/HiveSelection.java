@@ -478,6 +478,12 @@ public final class HiveSelection {
                 options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_portal"),
                         () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlacePortalPayload(selected, pos, portalFace, false))));
             }
+            // A scout can place a dehydrator against the face that was clicked, once the hive can store fluids and has consumed a sponge.
+            if (ClientState.dehydrators() && selectionHas(minecraft, selected, UnitKind.SCOUT)) {
+                Direction dehydratorFace = hit.getDirection();
+                options.add(new ContextMenu.Option(Component.translatable("action.projecthivemind.place_dehydrator"),
+                        () -> PacketDistributor.sendToServer(new com.projecthivemind.network.PlaceDehydratorPayload(selected, pos, dehydratorFace))));
+            }
             // Workers can construct on the block: a staircase down, a tower or shaft, a bridge.
             // A scout that is selected also builds: it is the team's conduit, so the build goes to the workers following it.
             List<Integer> builders = withTeamWorkers(minecraft, selected);

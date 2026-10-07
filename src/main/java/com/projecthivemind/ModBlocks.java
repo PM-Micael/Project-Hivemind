@@ -91,6 +91,12 @@ public final class ModBlocks {
     public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_HEALTH_ITEM = ITEMS.registerSimpleBlockItem(RELAY_HEALTH);
     public static final net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem> RELAY_RECALL_ITEM = ITEMS.registerSimpleBlockItem(RELAY_RECALL);
 
+    /** The dehydrator a scout places once the hive has consumed a sponge, and the creep it turns the ground into while it works. No items, no drops. */
+    public static final DeferredBlock<Block> DEHYDRATOR = BLOCKS.register("dehydrator",
+            () -> new com.projecthivemind.block.DehydratorBlock(BlockBehaviour.Properties.of().mapColor(MapColor.COLOR_YELLOW).strength(2.0F).sound(SoundType.WET_GRASS)));
+    public static final DeferredBlock<Block> DEHYDRATED_CREEP = BLOCKS.register("dehydrated_creep",
+            () -> new Block(BlockBehaviour.Properties.of().mapColor(MapColor.COLOR_YELLOW).strength(1.0F, BLAST_PROOF).sound(SoundType.NETHER_WART)));
+
     private ModBlocks() {
     }
 }

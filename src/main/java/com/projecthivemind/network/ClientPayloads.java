@@ -62,6 +62,7 @@ public final class ClientPayloads {
     public static void onSyncHeartHealth(SyncHeartHealthPayload payload, IPayloadContext context) {
         ClientState.updateHeartHealth(payload.health(), payload.maxHealth(), payload.armor(), payload.food(), payload.absorption());
         ClientState.updateBorder(payload.center(), payload.areaRadius());
+        ClientState.setDehydrators(payload.dehydrators());
     }
 
     public static void onSyncTeam(com.projecthivemind.network.SyncTeamPayload payload, IPayloadContext context) {

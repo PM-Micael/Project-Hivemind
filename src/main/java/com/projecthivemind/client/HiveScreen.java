@@ -121,6 +121,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button fluidLeft;
     private Button fluidRight;
     private Button fluidPull;
+    private Button fluidDrain;
     private SeedButton furnaceFuelButton;
     /** The enchanting station's list of what the hive can enchant with: a search box, and rows that the mouse wheel scrolls. */
     private static final int ENCHANT_ROWS = 5;
@@ -251,6 +252,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         fluidPull = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.fluids.pull"), button -> PacketDistributor.sendToServer(new com.projecthivemind.network.PullFluidsPayload(menu.containerId)))
                 .bounds(leftPos + 8, topPos + HiveMenu.FLUID_OUTPUT_Y, 50, 18).tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.fluids.pull.tooltip"))).build());
         fluidPull.visible = false;
+        fluidDrain = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.fluids.drain"), button -> askToDrainFluids())
+                .bounds(leftPos + 8, topPos + HiveMenu.FLUID_OUTPUT_Y + 22, 50, 18).tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.fluids.drain.tooltip"))).build());
+        fluidDrain.visible = false;
         fluidLeft.visible = false;
         fluidRight.visible = false;
         createRedstoneWidgets();
@@ -978,6 +982,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         updateTabButtons();
         boolean scrollableFluids = tab == Tab.FLUIDS && menu.fluidColumnCount() > HiveMenu.FLUID_COLUMNS;
         fluidPull.visible = tab == Tab.FLUIDS;
+        fluidDrain.visible = tab == Tab.FLUIDS;
         fluidLeft.visible = scrollableFluids;
         fluidRight.visible = scrollableFluids;
         if (tab == Tab.REDSTONE && !redstoneTab.visible) {
@@ -1469,6 +1474,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     // ---- the Fluids tab: a meter for each fluid the hive keeps, with a slot over it to empty a container into it and one under it to fill one ----
+
+    private void askToDrainFluids() {
+        Minecraft minecraft = Minecraft.getInstance();
+        int container = menu.containerId;
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.DrainFluidsPayload(container));
+            }
+            minecraft.setScreen(this);
+        }, Component.translatable("screen.projecthivemind.fluids.drain_title"), Component.translatable("screen.projecthivemind.fluids.drain_message"),
+                CommonComponents.GUI_YES, CommonComponents.GUI_NO));
+    }
 
     private void scrollFluids(int by) {
         int max = Math.max(0, menu.fluidColumnCount() - HiveMenu.FLUID_COLUMNS);

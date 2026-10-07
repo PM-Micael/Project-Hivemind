@@ -213,7 +213,7 @@ public class WorkerBuildGoal extends Goal {
             return;
         }
         if (!pos.equals(equippedFor)) {
-            HiveEquipment.equipBestTool(worker, heart, state);
+            HiveEquipment.equipBestTool(worker, heart, state, pos);
             equippedFor = pos;
         }
         ItemStack tool = mob.getMainHandItem();

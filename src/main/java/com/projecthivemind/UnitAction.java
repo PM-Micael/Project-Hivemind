@@ -36,7 +36,9 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Guarding one of the owner's units (soldiers only): {@code target} is the unit being guarded. Kept at until it dies or is cancelled. */
         GUARD,
         /** Placing a hive portal on a face of a block (scouts only): {@code pos} is the block, {@code face} the face it goes on. */
-        PORTAL;
+        PORTAL,
+        /** Placing a dehydrator on a face of a block (scouts only): {@code pos} is the block it goes against, {@code face} the face it goes on. */
+        DEHYDRATOR;
 
         /**
          * Whether this is a job: something a unit keeps at until it is done, like mining a block, fighting a mob or building.
@@ -108,6 +110,10 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
     /** Use the scout's item on this face of this block. */
     public static UnitAction useItem(BlockPos pos, Direction face) {
         return new UnitAction(Kind.USE_ITEM, pos, null, face);
+    }
+
+    public static UnitAction dehydrator(BlockPos pos, Direction face) {
+        return new UnitAction(Kind.DEHYDRATOR, pos, null, face);
     }
 
     public static UnitAction portal(BlockPos pos, Direction face) {

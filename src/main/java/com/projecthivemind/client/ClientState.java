@@ -88,6 +88,17 @@ public final class ClientState {
         return borderRadius;
     }
 
+    /** True once the hive has consumed a sponge and a cauldron: scouts can place dehydrators. */
+    private static boolean dehydrators;
+
+    public static void setDehydrators(boolean on) {
+        dehydrators = on;
+    }
+
+    public static boolean dehydrators() {
+        return dehydrators;
+    }
+
     public static int hiveFood() {
         return hiveFood;
     }

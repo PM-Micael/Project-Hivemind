@@ -162,6 +162,14 @@ public final class HiveEquipment {
      * for the block count (a sword on dirt, an axe on stone, a block or food never do): -1 if the hive has none (the hand stays empty).
      */
     public static int bestToolSlot(HiveHeart heart, RegistryAccess registries, BlockState state) {
+        return bestToolSlot(heart, registries, state, null, null);
+    }
+
+    /**
+     * The same, and when a place is given: for a block no tool is fitted for that drops nothing by hand but something with Silk Touch (glass, an ice
+     * block), a tool with Silk Touch is used, so that the hive can take it.
+     */
+    public static int bestToolSlot(HiveHeart heart, RegistryAccess registries, BlockState state, @Nullable net.minecraft.server.level.ServerLevel level, @Nullable net.minecraft.core.BlockPos pos) {
         boolean needsCorrect = state.requiresCorrectToolForDrops();
         int fallback = -1;
         for (int i = 0; i < TOOL_SLOTS; i++) {
@@ -181,7 +189,26 @@ public final class HiveEquipment {
                 fallback = i;
             }
         }
+        if (fallback == -1 && level != null && pos != null) {
+            fallback = silkTouchSlot(heart, registries, state, level, pos);
+        }
         return fallback;
+    }
+
+    /** The first tool slot holding a Silk Touch tool that makes this block drop something it does not drop by hand, or -1. */
+    private static int silkTouchSlot(HiveHeart heart, RegistryAccess registries, BlockState state, net.minecraft.server.level.ServerLevel level, net.minecraft.core.BlockPos pos) {
+        Holder<Enchantment> silk = registries.lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.SILK_TOUCH);
+        if (!state.getFluidState().isEmpty() || !net.minecraft.world.level.block.Block.getDrops(state, level, pos, level.getBlockEntity(pos), null, ItemStack.EMPTY).isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < TOOL_SLOTS; i++) {
+            ItemStack tool = heart.getToolGear().getItem(i);
+            if (!tool.isEmpty() && tool.getEnchantments().getLevel(silk) > 0 && isToolOrWeapon(tool)
+                    && !net.minecraft.world.level.block.Block.getDrops(state, level, pos, level.getBlockEntity(pos), null, tool).isEmpty()) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -190,7 +217,12 @@ public final class HiveEquipment {
      * With no tools in the hive the hand is empty.
      */
     public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state) {
-        int best = bestToolSlot(heart, worker.level().registryAccess(), state);
+        equipBestTool(worker, heart, state, null);
+    }
+
+    /** The same, knowing where the block is, so that a Silk Touch tool can be picked for what only it can take. */
+    public static void equipBestTool(HiveWorker worker, HiveHeart heart, BlockState state, @Nullable net.minecraft.core.BlockPos pos) {
+        int best = bestToolSlot(heart, worker.level().registryAccess(), state, worker.level() instanceof net.minecraft.server.level.ServerLevel serverLevel ? serverLevel : null, pos);
         // Tell the durability mirror the swap is deliberate, or it would read it as the old tool breaking.
         worker.resetGearMirror();
         worker.setItemSlot(EquipmentSlot.MAINHAND, best >= 0 ? linkedCopy(heart.getToolGear(), best) : ItemStack.EMPTY);

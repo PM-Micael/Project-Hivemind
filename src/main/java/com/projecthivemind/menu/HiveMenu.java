@@ -978,6 +978,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     /** True once the hive has consumed a cauldron: it keeps fluids, on the Fluids tab. */
+    /** Server side: the Fluids tab's drain button (after the player confirmed): every meter is emptied. */
+    public void drainFluids() {
+        if (heart != null && hasFluids()) {
+            heart.fluids().drainAll();
+            if (player instanceof net.minecraft.server.level.ServerPlayer owner) {
+                owner.displayClientMessage(Component.translatable("message.projecthivemind.fluids.drained"), true);
+            }
+        }
+    }
+
     /** Server side: the Fluids tab's pull button: full containers in the hive's storage go to the input slots. */
     public void pullFluids() {
         if (heart != null && hasFluids() && storage != null) {

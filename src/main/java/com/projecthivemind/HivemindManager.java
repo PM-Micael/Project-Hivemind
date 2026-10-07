@@ -1506,7 +1506,7 @@ public final class HivemindManager {
             heart.setSyncedAbsorption(absorption);
             PacketDistributor.sendToPlayer(owner, new SyncHeartHealthPayload(health, heart.getMaxHealth(), armor, foodLevel,
                     // A camera in another dimension has no hive border to show (radius -1).
-                    owner.serverLevel() == heart.level() ? HiveLevels.get(heart.hiveLevel()).infectionRadius() : -1, heart.blockPosition(), absorption));
+                    owner.serverLevel() == heart.level() ? HiveLevels.get(heart.hiveLevel()).infectionRadius() : -1, heart.blockPosition(), absorption, heart.dehydratorsAllowed()));
         }
     }
 

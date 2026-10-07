@@ -12,7 +12,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  * hearts) and the hive's food level, for the bars on the screen; and where the Heart is and how far the hive area reaches from it, for the border
  * particles.
  */
-public record SyncHeartHealthPayload(float health, float maxHealth, int armor, int food, int areaRadius, BlockPos center, float absorption) implements CustomPacketPayload {
+public record SyncHeartHealthPayload(float health, float maxHealth, int armor, int food, int areaRadius, BlockPos center, float absorption, boolean dehydrators) implements CustomPacketPayload {
     public static final Type<SyncHeartHealthPayload> TYPE = new Type<>(ProjectHivemind.id("sync_heart_health"));
     public static final StreamCodec<RegistryFriendlyByteBuf, SyncHeartHealthPayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {
@@ -23,8 +23,9 @@ public record SyncHeartHealthPayload(float health, float maxHealth, int armor, i
                 buf.writeVarInt(payload.areaRadius);
                 buf.writeBlockPos(payload.center);
                 buf.writeFloat(payload.absorption);
+                buf.writeBoolean(payload.dehydrators);
             },
-            buf -> new SyncHeartHealthPayload(buf.readFloat(), buf.readFloat(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readFloat()));
+            buf -> new SyncHeartHealthPayload(buf.readFloat(), buf.readFloat(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readFloat(), buf.readBoolean()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

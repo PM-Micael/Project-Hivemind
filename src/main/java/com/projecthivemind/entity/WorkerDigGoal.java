@@ -147,11 +147,11 @@ public class WorkerDigGoal extends Goal {
                     hiveWorker.resetGearMirror();
                     hiveWorker.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
                 } else {
-                    HiveEquipment.equipBestTool(hiveWorker, heart, state);
+                    HiveEquipment.equipBestTool(hiveWorker, heart, state, pos);
                 }
             } else if (worker instanceof HiveScout scout) {
                 // A scout picks from the same pool of tools; with none suitable it digs with what it holds.
-                scout.holdBestToolFor(heart, state);
+                scout.holdBestToolFor(heart, state, pos);
             }
             equippedFor = pos;
             equippedForBlock = state.getBlock();

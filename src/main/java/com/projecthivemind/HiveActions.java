@@ -823,6 +823,32 @@ public final class HiveActions {
         syncActions(player, heart);
     }
 
+    /** A scout places a dehydrator against the clicked face of a block (once the hive has consumed a sponge and a cauldron). */
+    public static void placeDehydrator(ServerPlayer player, com.projecthivemind.network.PlaceDehydratorPayload request) {
+        if (HivemindManager.get(player).stage() != HivemindStage.HIVE || request.unitIds().size() > BlockActionPayload.MAX_UNITS) {
+            return;
+        }
+        ServerLevel level = player.serverLevel();
+        HiveHeart heart = HivemindManager.findHeart(player);
+        BlockPos pos = request.pos();
+        if (heart == null || !level.isInWorldBounds(pos) || !level.isLoaded(pos)) {
+            return;
+        }
+        if (!heart.dehydratorsAllowed()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.dehydrator_locked"), true);
+            return;
+        }
+        List<Mob> scouts = commandable(player, level, request.unitIds(), UnitKind.SCOUT);
+        if (scouts.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts_use"), true);
+            return;
+        }
+        Mob scout = scouts.get(0);
+        scout.getNavigation().stop();
+        ((HiveUnit) scout).setAction(UnitAction.dehydrator(pos, request.face()));
+        syncActions(player, heart);
+    }
+
     /**
      * A scout places a hive portal (hive level 2 and up). With the portal limit reached, the player is asked first: placing another takes
      * the oldest down.

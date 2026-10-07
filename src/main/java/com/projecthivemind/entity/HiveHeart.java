@@ -761,6 +761,37 @@ public class HiveHeart extends Mob {
         return channel.ordinal() < 3 && (redstoneLive & (1 << channel.ordinal())) != 0;
     }
 
+    /**
+     * The Heart a dehydrator at this place gives its fluid to, with both the sponge and the cauldron tasks done (or null): the nearest one in the same
+     * dimension, or if there is none there, any. A dehydrator does not have to be inside a hive border.
+     */
+    @Nullable
+    public static HiveHeart dehydratorHeartAt(net.minecraft.world.level.Level level, BlockPos pos) {
+        HiveHeart nearest = null;
+        double best = Double.MAX_VALUE;
+        HiveHeart elsewhere = null;
+        for (HiveHeart heart : ACTIVE) {
+            if (!heart.dehydratorsAllowed()) {
+                continue;
+            }
+            if (heart.level() != level) {
+                elsewhere = heart;
+                continue;
+            }
+            double distance = heart.blockPosition().distSqr(pos);
+            if (distance < best) {
+                best = distance;
+                nearest = heart;
+            }
+        }
+        return nearest != null ? nearest : elsewhere;
+    }
+
+    /** True if the hive has consumed a sponge (scouts can place dehydrators) and a cauldron (there is somewhere to put what they drain). */
+    public boolean dehydratorsAllowed() {
+        return com.projecthivemind.EvolveTask.SPONGE.doneIn(evolveMask) && com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask);
+    }
+
     /** The Heart whose border a relay at this place is in, with the redstone task done (or null). */
     @Nullable
     public static HiveHeart redstoneHeartAt(net.minecraft.world.level.Level level, BlockPos pos) {

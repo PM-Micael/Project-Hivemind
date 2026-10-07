@@ -72,7 +72,12 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
 
     /** For a dig order: the hive's best tool for the block, as a worker would pick it. */
     public void holdBestToolFor(HiveHeart heart, net.minecraft.world.level.block.state.BlockState state) {
-        holdHiveTool(heart, HiveEquipment.bestToolSlot(heart, this.level().registryAccess(), state));
+        holdBestToolFor(heart, state, null);
+    }
+
+    /** The same, knowing where the block is, so that a Silk Touch tool can be picked for what only it can take. */
+    public void holdBestToolFor(HiveHeart heart, net.minecraft.world.level.block.state.BlockState state, @javax.annotation.Nullable net.minecraft.core.BlockPos pos) {
+        holdHiveTool(heart, HiveEquipment.bestToolSlot(heart, this.level().registryAccess(), state, this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel ? serverLevel : null, pos));
     }
 
     /** For an attack order: the hive's weapon with the highest damage per second, as a soldier would carry. */

@@ -373,7 +373,7 @@ public final class ScoutControl {
             stopBreaking(scout, session);
             session.breaking = pos.immutable();
             session.breakingState = state;
-            scout.holdBestToolFor(heart, state);
+            scout.holdBestToolFor(heart, state, pos);
             session.toolHeld = scout.holdsHiveTool();
         }
         ItemStack tool = scout.getMainHandItem();

@@ -26,10 +26,10 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class HiveFluids {
     public static final int BUCKET = 3000;
-    /** Every fluid holds this much: 20 buckets. */
-    public static final int CAPACITY = 20 * BUCKET;
+    /** Every fluid holds this much: 1000 buckets. */
+    public static final int CAPACITY = 1000 * BUCKET;
     /** Experience holds this many points, and a bottle o' enchanting is worth this many. */
-    public static final int XP_CAPACITY = 20000;
+    public static final int XP_CAPACITY = 1000000;
     public static final int XP_PER_BOTTLE = 7;
 
     public static final ResourceLocation WATER = ResourceLocation.withDefaultNamespace("water");
@@ -111,6 +111,30 @@ public final class HiveFluids {
     /** The fluids that have a meter, in order. */
     public List<ResourceLocation> fluids() {
         return new ArrayList<>(amounts.keySet());
+    }
+
+    /** Empty every meter. Returns how many fluids had something in them. */
+    public int drainAll() {
+        int emptied = 0;
+        for (Map.Entry<ResourceLocation, Integer> entry : amounts.entrySet()) {
+            if (entry.getValue() > 0) {
+                emptied++;
+                entry.setValue(0);
+            }
+        }
+        return emptied;
+    }
+
+    /** Put this much of a fluid in the hive (it gets a meter if it has none); returns how much went in, which is less than asked when the meter is nearly full. */
+    public int add(ResourceLocation fluid, int units) {
+        int room = capacity(fluid) - amount(fluid);
+        int taken = Math.max(0, Math.min(units, room));
+        if (taken <= 0) {
+            return 0;
+        }
+        amounts.merge(fluid, taken, Integer::sum);
+        cells.computeIfAbsent(fluid, id -> new Cells(id));
+        return taken;
     }
 
     public int amount(ResourceLocation fluid) {

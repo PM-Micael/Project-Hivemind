@@ -131,6 +131,7 @@ public final class CommonEvents {
         registrar.playToClient(com.projecthivemind.network.SyncFluidsPayload.TYPE, com.projecthivemind.network.SyncFluidsPayload.STREAM_CODEC, ClientPayloads::onSyncFluids);
         registrar.playToServer(com.projecthivemind.network.ScrollFluidsPayload.TYPE, com.projecthivemind.network.ScrollFluidsPayload.STREAM_CODEC, ServerPayloads::onScrollFluids);
         registrar.playToServer(com.projecthivemind.network.PullFluidsPayload.TYPE, com.projecthivemind.network.PullFluidsPayload.STREAM_CODEC, ServerPayloads::onPullFluids);
+        registrar.playToServer(com.projecthivemind.network.DrainFluidsPayload.TYPE, com.projecthivemind.network.DrainFluidsPayload.STREAM_CODEC, ServerPayloads::onDrainFluids);
         registrar.playToServer(com.projecthivemind.network.SetFurnaceFuelPayload.TYPE, com.projecthivemind.network.SetFurnaceFuelPayload.STREAM_CODEC, ServerPayloads::onSetFurnaceFuel);
         registrar.playToClient(com.projecthivemind.network.SyncRecipesPayload.TYPE, com.projecthivemind.network.SyncRecipesPayload.STREAM_CODEC, ClientPayloads::onSyncRecipes);
         registrar.playToServer(com.projecthivemind.network.AssignConstructionPayload.TYPE, com.projecthivemind.network.AssignConstructionPayload.STREAM_CODEC, ServerPayloads::onAssignConstruction);
@@ -159,6 +160,7 @@ public final class CommonEvents {
         registrar.playToClient(com.projecthivemind.network.SyncMusicPayload.TYPE, com.projecthivemind.network.SyncMusicPayload.STREAM_CODEC, ClientPayloads::onSyncMusic);
         registrar.playToClient(com.projecthivemind.network.ConfirmPortalPayload.TYPE, com.projecthivemind.network.ConfirmPortalPayload.STREAM_CODEC, ClientPayloads::onConfirmPortal);
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
+        registrar.playToServer(com.projecthivemind.network.PlaceDehydratorPayload.TYPE, com.projecthivemind.network.PlaceDehydratorPayload.STREAM_CODEC, ServerPayloads::onPlaceDehydrator);
         registrar.playToServer(com.projecthivemind.network.SummonUnitsPayload.TYPE, com.projecthivemind.network.SummonUnitsPayload.STREAM_CODEC, ServerPayloads::onSummonUnits);
         registrar.playToServer(com.projecthivemind.network.DeletePortalPayload.TYPE, com.projecthivemind.network.DeletePortalPayload.STREAM_CODEC, ServerPayloads::onDeletePortal);
         registrar.playToServer(com.projecthivemind.network.GoToPortalPayload.TYPE, com.projecthivemind.network.GoToPortalPayload.STREAM_CODEC, ServerPayloads::onGoToPortal);

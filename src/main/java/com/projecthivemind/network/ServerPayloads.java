@@ -145,6 +145,13 @@ public final class ServerPayloads {
             HiveActions.placePortal(player, payload);
         }
     }
+
+    public static void onPlaceDehydrator(com.projecthivemind.network.PlaceDehydratorPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HiveActions.placeDehydrator(player, payload);
+        }
+    }
+
     public static void onGoToPortal(com.projecthivemind.network.GoToPortalPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             com.projecthivemind.HivePortals.goTo(player, payload.index());
@@ -317,6 +324,14 @@ public final class ServerPayloads {
     public static void onReinforce(ReinforcePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivePortals.reinforce(player);
+        }
+    }
+
+    public static void onDrainFluids(com.projecthivemind.network.DrainFluidsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.drainFluids();
+            menu.broadcastChanges();
         }
     }
 
