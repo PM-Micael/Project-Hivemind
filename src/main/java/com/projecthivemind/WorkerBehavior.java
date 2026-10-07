@@ -24,13 +24,14 @@ import net.minecraft.util.Mth;
  * @param fellTrees       fell the natural trees inside the hive border: every log, and the leaves
  * @param fleeHostiles   run away from hostile mobs that come within fleeRadius: the highest priority a worker has, and it holds even while the worker is on a job
  * @param fleeRadius     how close, in blocks, a hostile mob has to come for the worker to run
+ * @param stayAtHeart    when idle inside the border (and not wandering), walk to the Hive Heart and stand in it
  */
-public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside, boolean harvestCrops, boolean clearPlants, boolean wander, boolean flattenGround, boolean flattenTeam, boolean fellTrees, boolean fleeHostiles, int fleeRadius) {
+public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, int logRadius, boolean digThrough, boolean stayInside, boolean harvestCrops, boolean clearPlants, boolean wander, boolean flattenGround, boolean flattenTeam, boolean fellTrees, boolean fleeHostiles, int fleeRadius, boolean stayAtHeart) {
     /** Kept lower than the soldiers' limit because workers scan every block in their range for work. */
     public static final int MAX_RADIUS = 32;
 
     /** Workers do nothing on their own until the player turns something on. */
-    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false, false, false, false, false, false, false, false, false, 16);
+    public static final WorkerBehavior DEFAULT = new WorkerBehavior(false, 8, false, 8, false, false, false, false, false, false, false, false, false, 16, true);
 
     private static final int MINE_ORE = 1;
     private static final int CHOP_LOGS = 2;
@@ -43,6 +44,8 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
     private static final int FELL_TREES = 2048;
     private static final int FLATTEN_TEAM = 16384;
     private static final int FLEE_HOSTILES = 8192;
+    /** Saved when the option is OFF, so that a worker saved before the option existed has it on. */
+    private static final int NOT_AT_HEART = 65536;
 
     public WorkerBehavior {
         oreRadius = Mth.clamp(oreRadius, 0, MAX_RADIUS);
@@ -52,7 +55,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
 
     /** The three checkboxes packed into one number. */
     public int flags() {
-        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0) | (stayInside ? STAY_INSIDE : 0) | (harvestCrops ? HARVEST_CROPS : 0) | (clearPlants ? CLEAR_PLANTS : 0) | (wander ? WANDER : 0) | (flattenGround ? FLATTEN_GROUND : 0) | (flattenTeam ? FLATTEN_TEAM : 0) | (fellTrees ? FELL_TREES : 0) | (fleeHostiles ? FLEE_HOSTILES : 0);
+        return (mineOre ? MINE_ORE : 0) | (chopLogs ? CHOP_LOGS : 0) | (digThrough ? DIG_THROUGH : 0) | (stayInside ? STAY_INSIDE : 0) | (harvestCrops ? HARVEST_CROPS : 0) | (clearPlants ? CLEAR_PLANTS : 0) | (wander ? WANDER : 0) | (flattenGround ? FLATTEN_GROUND : 0) | (flattenTeam ? FLATTEN_TEAM : 0) | (fellTrees ? FELL_TREES : 0) | (fleeHostiles ? FLEE_HOSTILES : 0) | (stayAtHeart ? 0 : NOT_AT_HEART);
     }
 
     /** The radii, in the order of the options above that have one. */
@@ -61,7 +64,7 @@ public record WorkerBehavior(boolean mineOre, int oreRadius, boolean chopLogs, i
     }
 
     public static WorkerBehavior from(int flags, int[] radii) {
-        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0, (flags & STAY_INSIDE) != 0, (flags & HARVEST_CROPS) != 0, (flags & CLEAR_PLANTS) != 0, (flags & WANDER) != 0, (flags & FLATTEN_GROUND) != 0, (flags & FLATTEN_TEAM) != 0, (flags & FELL_TREES) != 0, (flags & FLEE_HOSTILES) != 0, radii.length > 2 ? radii[2] : 16);
+        return new WorkerBehavior((flags & MINE_ORE) != 0, radii[0], (flags & CHOP_LOGS) != 0, radii[1], (flags & DIG_THROUGH) != 0, (flags & STAY_INSIDE) != 0, (flags & HARVEST_CROPS) != 0, (flags & CLEAR_PLANTS) != 0, (flags & WANDER) != 0, (flags & FLATTEN_GROUND) != 0, (flags & FLATTEN_TEAM) != 0, (flags & FELL_TREES) != 0, (flags & FLEE_HOSTILES) != 0, radii.length > 2 ? radii[2] : 16, (flags & NOT_AT_HEART) == 0);
     }
 
     /** True if there is any kind of work for an idle worker to look for. Digging through alone is not work. */

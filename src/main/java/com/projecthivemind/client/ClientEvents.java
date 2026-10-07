@@ -54,10 +54,16 @@ public final class ClientEvents {
         event.registerEntityRenderer(ModEntities.HIVE_FEEDER.get(), net.minecraft.client.renderer.entity.BeeRenderer::new);
         event.registerEntityRenderer(ModEntities.HIVE_GOLEM.get(), net.minecraft.client.renderer.entity.IronGolemRenderer::new);
     }
+    private static net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<com.projecthivemind.menu.HiveMenu> hiveScreen(
+            com.projecthivemind.menu.HiveMenu menu, net.minecraft.world.entity.player.Inventory inventory, net.minecraft.network.chat.Component title) {
+        return ClientConfig.COMPACT_INVENTORY.get() ? new CompactHiveScreen(menu, inventory, title) : new HiveScreen(menu, inventory, title);
+    }
+
 
     @SubscribeEvent
     static void registerScreens(RegisterMenuScreensEvent event) {
-        event.register(ModMenus.HIVE.get(), HiveScreen::new);
+        // The hive inventory is the full menu, or the small one when the player has chosen that (and can switch from either).
+        event.register(ModMenus.HIVE.get(), ClientEvents::hiveScreen);
         event.register(ModMenus.SCOUT_CONTAINER.get(), ScoutContainerScreen::new);
         event.register(ModMenus.SCOUT_TRADE.get(), ScoutTradeScreen::new);
     }

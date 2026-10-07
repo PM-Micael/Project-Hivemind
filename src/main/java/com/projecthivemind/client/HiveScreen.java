@@ -99,7 +99,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** The row of the worker page where the "Woodwork" group begins: its heading is drawn there, and its options are the rows after it. */
     /** The rows of the worker page where its groups of options begin: the heading is drawn there and the options are the rows after it. */
     private static final int BORDER_ROW = 4;
-    private static final int WOODWORK_ROW = 10;
+    private static final int WOODWORK_ROW = 11;
 
     private enum Tab {
         HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE
@@ -149,6 +149,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox hostileInHiveArea;
     private Checkbox soldierStay;
     private Checkbox soldierWander;
+    private Checkbox soldierHeart;
 
     // Worker settings.
     private final EditBox[] workerRadii = new EditBox[3];
@@ -169,6 +170,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     // The collector's setting.
     private Checkbox collectorPickUp;
     private Checkbox workerWander;
+    private Checkbox workerHeart;
     private Checkbox flattenGround;
     private Checkbox flattenTeam;
     private Checkbox channelCrops;
@@ -210,8 +212,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         requestedUnit = entityId;
     }
 
+    /** Kept so that the screen can be swapped for the compact one. */
+    private final Inventory inventory;
+
     public HiveScreen(HiveMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
+        this.inventory = inventory;
         // Wide enough for the tabs, with room to spare for more.
         this.imageWidth = 360;
         // Tall enough for a unit's page, whatever the storage size.
@@ -223,6 +229,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     @Override
     protected void init() {
         super.init();
+        // Back from the compact inventory (or a fresh menu): the storage window is its usual size and the slots are where this screen has them.
+        menu.setCompact(false);
+        addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.compact.on"), button -> switchToCompact())
+                .bounds(leftPos + imageWidth - 98, topPos + 5, 70, 18).tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.compact.on.tooltip"))).build());
         // Top row: the text tabs. Second row: one button for each kind of unit, showing its head.
         hiveTab = tabButton(0, Items.BEE_NEST, "screen.projecthivemind.hive.tab_hive", Tab.HIVE);
         questsTab = tabButton(1, Items.BOOK, "screen.projecthivemind.hive.tab_quests", Tab.QUESTS);
@@ -342,6 +352,24 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int TAB_STEP = 22;
 
     /** Which tab buttons are there for this level, packed to the left: the Portals tab comes with level 2, the Evolve tab with level 2. */
+    /** Set while this screen is being swapped for the compact one, so that the menu is not closed with it. */
+    private boolean switching;
+
+    private void switchToCompact() {
+        ClientConfig.setCompactInventory(true);
+        // The compact screen starts with an empty search box, so the storage is shown whole again.
+        PacketDistributor.sendToServer(new SetStorageSearchPayload(menu.containerId, ""));
+        switching = true;
+        Minecraft.getInstance().setScreen(new CompactHiveScreen(menu, inventory, getTitle()));
+    }
+
+    @Override
+    public void removed() {
+        if (!switching) {
+            super.removed();
+        }
+    }
+
     private void updateTabButtons() {
         portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
         evolveTab.visible = menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
@@ -717,7 +745,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     /** Where the unit page's settings end if nothing is scrolled: how tall the settings of this kind of unit are. */
     private int behaviorContentBottom() {
         return switch (unitPage) {
-            case SOLDIER -> BEHAVIOR_TOP + 4 * BEHAVIOR_ROW;
+            case SOLDIER -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
             case WORKER -> BEHAVIOR_TOP + (WOODWORK_ROW + 4) * BEHAVIOR_ROW;
             case FEEDER -> BEHAVIOR_TOP + 5 * BEHAVIOR_ROW;
             default -> 0;
@@ -1120,6 +1148,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         hostileInHiveArea = behaviorBox(soldierWidgets, 1, "screen.projecthivemind.behavior.hostile_in_hive", this::sendSoldierBehavior);
         soldierStay = behaviorBox(soldierWidgets, 2, "screen.projecthivemind.behavior.stay_inside", this::sendSoldierBehavior);
         soldierWander = behaviorBox(soldierWidgets, 3, "screen.projecthivemind.behavior.wander", this::sendSoldierBehavior);
+        soldierHeart = behaviorBox(soldierWidgets, 4, "screen.projecthivemind.behavior.stay_at_heart", this::sendSoldierBehavior);
 
         // Workers: what to work on, with how far to look for it where that applies. Related options are grouped under headings: first the
         // ones with no group, then "Border Management" (BORDER_ROW) and "Woodwork" (WOODWORK_ROW).
@@ -1146,6 +1175,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // The same, inside the team area around the team scout; it fills with the same block.
         flattenTeam = behaviorBox(workerWidgets, BORDER_ROW + 5, "screen.projecthivemind.behavior.flatten_team", this::sendWorkerBehavior);
         flattenTeam.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.behavior.flatten_team.tooltip")));
+        workerHeart = behaviorBox(workerWidgets, BORDER_ROW + 6, "screen.projecthivemind.behavior.stay_at_heart", this::sendWorkerBehavior);
         // Woodwork (its heading is row WOODWORK_ROW).
         chopLogs = behaviorBox(workerWidgets, WOODWORK_ROW + 1, "screen.projecthivemind.behavior.chop_logs", this::sendWorkerBehavior);
         workerRadii[1] = radiusBox(workerWidgets, WOODWORK_ROW + 1, 1, this::sendWorkerBehavior);
@@ -1245,6 +1275,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(hostileInHiveArea, soldier.hostileInHiveArea());
                 setChecked(soldierStay, soldier.stayInside());
                 setChecked(soldierWander, soldier.wander());
+                setChecked(soldierHeart, soldier.stayAtHeart());
             }
             case WORKER -> {
                 WorkerBehavior worker = WorkerBehavior.from(flags, radii);
@@ -1255,6 +1286,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(harvestCrops, worker.harvestCrops());
                 setChecked(clearPlants, worker.clearPlants());
                 setChecked(workerWander, worker.wander());
+                setChecked(workerHeart, worker.stayAtHeart());
                 setChecked(flattenGround, worker.flattenGround());
                 setChecked(flattenTeam, worker.flattenTeam());
                 setChecked(fellTrees, worker.fellTrees());
@@ -1296,7 +1328,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     private void sendSoldierBehavior() {
         if (canSend()) {
-            SoldierBehavior behavior = new SoldierBehavior(allInHiveArea.selected(), hostileInHiveArea.selected(), soldierStay.selected(), soldierWander.selected());
+            SoldierBehavior behavior = new SoldierBehavior(allInHiveArea.selected(), hostileInHiveArea.selected(), soldierStay.selected(), soldierWander.selected(), soldierHeart.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -1304,7 +1336,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void sendWorkerBehavior() {
         if (canSend()) {
             WorkerBehavior behavior = new WorkerBehavior(mineOre.selected(), number(workerRadii[0]), chopLogs.selected(),
-                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected(), flattenTeam.selected(), fellTrees.selected(), workerFlee.selected(), number(workerRadii[2]));
+                    number(workerRadii[1]), digThrough.selected(), workerStay.selected(), harvestCrops.selected(), clearPlants.selected(), workerWander.selected(), flattenGround.selected(), flattenTeam.selected(), fellTrees.selected(), workerFlee.selected(), number(workerRadii[2]), workerHeart.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -1840,7 +1872,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             int x = leftPos + UNIT_LIST_X + (index % columns) * TEAM_STEP;
             int y = topPos + TEAM_TOP + block * TEAM_BLOCK + 16 + (index / columns) * TEAM_STEP;
             Component name = Component.translatable("screen.projecthivemind.unit.numbered",
-                    Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT)), ClientUnits.ofKind(kind).indexOf(id) + 1);
+                    Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT)), ClientUnits.numberOf(id));
             // Pressing a head picks it up; letting go over a row (see mouseReleased) puts it there.
             UnitIconButton button = new UnitIconButton(x, y, TEAM_HEAD, TEAM_HEAD, name, () -> unitEntity(id, kind), kind, () -> dragUnit == id,
                     pressed -> dragUnit = id);
@@ -1975,7 +2007,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         List<EvolveIcon> icons = evolveIcons();
         renderEvolveEnchantments(graphics);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.tasks"), UNIT_LIST_X, EVOLVE_TOP - 14, 0xFFFFFF, false);
+        Component researchTitle = Component.translatable("screen.projecthivemind.evolve.tasks");
+        graphics.drawString(font, researchTitle, UNIT_LIST_X, EVOLVE_TOP - 14, 0xFFFFFF, false);
+        graphics.drawString(font, "(?)", UNIT_LIST_X + font.width(researchTitle) + 4, EVOLVE_TOP - 14, 0x909090, false);
         graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.completed"), UNIT_LIST_X, evolveDoneTop() - 14, 0xFFFFFF, false);
         if (icons.stream().allMatch(EvolveIcon::done)) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.no_tasks"), UNIT_LIST_X + 4, EVOLVE_TOP + 4, 0x909090, false);
@@ -2001,6 +2035,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
      * met" (red). Drawn after the rest of the screen, so it is in the screen's own coordinates.
      */
     private void renderEvolveTooltips(GuiGraphics graphics, int mouseX, int mouseY) {
+        // The (?) beside "Research" says where the rewards can be shown.
+        int helpX = leftPos + UNIT_LIST_X + font.width(Component.translatable("screen.projecthivemind.evolve.tasks")) + 4;
+        int helpY = topPos + EVOLVE_TOP - 14;
+        if (mouseX >= helpX && mouseX < helpX + font.width("(?)") && mouseY >= helpY && mouseY < helpY + font.lineHeight) {
+            graphics.renderComponentTooltip(font, List.of(Component.translatable("screen.projecthivemind.evolve.rewards_help")), mouseX, mouseY);
+        }
         for (EvolveIcon icon : evolveIcons()) {
             int x = leftPos + icon.x();
             int y = topPos + icon.y();
@@ -2009,9 +2049,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 if (icon.done()) {
                     graphics.renderTooltip(font, stack, mouseX, mouseY);
                 } else {
-                    graphics.renderComponentTooltip(font, List.of(stack.getHoverName(), icon.ready()
+                    java.util.List<Component> lines = new java.util.ArrayList<>();
+                    lines.add(stack.getHoverName());
+                    if (ClientConfig.showEvolutionRewards()) {
+                        lines.add(Component.translatable("screen.projecthivemind.evolve.reward." + icon.task().name().toLowerCase(Locale.ROOT)).withStyle(net.minecraft.ChatFormatting.GRAY));
+                    }
+                    lines.add(icon.ready()
                             ? Component.translatable("screen.projecthivemind.evolve.click").withStyle(net.minecraft.ChatFormatting.GREEN)
-                            : Component.translatable("screen.projecthivemind.evolve.unmet").withStyle(net.minecraft.ChatFormatting.RED)), mouseX, mouseY);
+                            : Component.translatable("screen.projecthivemind.evolve.unmet").withStyle(net.minecraft.ChatFormatting.RED));
+                    graphics.renderComponentTooltip(font, lines, mouseX, mouseY);
                 }
             }
         }
@@ -2221,7 +2267,8 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (portalTarget >= ClientPortals.portals().size()) {
             portalTarget = PORTAL_LIST;
         }
-        List<Object> key = new ArrayList<>(List.of(summoning, portalTarget, ClientPortals.portals().size(), ClientPortals.max()));
+        List<Object> key = new ArrayList<>(List.of(summoning, portalTarget, ClientPortals.portals().size(), ClientPortals.max(),
+                com.projecthivemind.EvolveTask.ENDER_EYE.doneIn(menu.evolveMask())));
         if (portalTarget != PORTAL_LIST && !summoning) {
             summonable().forEach(entry -> key.add(entry.entityId()));
         }
@@ -2238,17 +2285,24 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         int x = leftPos + UNIT_LIST_X;
         if (portalTarget == PORTAL_LIST) {
             int y = topPos + PORTAL_TOP;
+            boolean reinforce = com.projecthivemind.EvolveTask.ENDER_EYE.doneIn(menu.evolveMask());
             Button heart = Button.builder(Component.translatable("screen.projecthivemind.portals.heart").withStyle(net.minecraft.ChatFormatting.GOLD, net.minecraft.ChatFormatting.BOLD),
-                    button -> openSummonPage(-1)).bounds(x, y, PORTAL_LABEL_WIDTH, 24).build();
+                    button -> openSummonPage(-1)).bounds(x, y, reinforce ? 130 : PORTAL_LABEL_WIDTH, 24).build();
             heart.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.heart.tooltip")));
             unitButtons.add(addRenderableWidget(heart));
             // To the right of the Hive Heart: fly the camera there.
             Button goHeart = Button.builder(Component.translatable("screen.projecthivemind.portals.go"), button -> {
                 PacketDistributor.sendToServer(new ReturnToHeartPayload());
                 onClose();
-            }).bounds(x + PORTAL_LABEL_WIDTH + 2, y, PORTAL_GO_WIDTH, 24).build();
+            }).bounds(x + (reinforce ? 130 : PORTAL_LABEL_WIDTH) + 2, y, PORTAL_GO_WIDTH, 24).build();
             goHeart.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.go.heart")));
             unitButtons.add(addRenderableWidget(goHeart));
+            if (reinforce) {
+                Button instant = Button.builder(Component.translatable("screen.projecthivemind.portals.reinforce"),
+                        button -> PacketDistributor.sendToServer(new com.projecthivemind.network.ReinforcePayload())).bounds(x + 130 + 2 + PORTAL_GO_WIDTH + 2, y, 120, 24).build();
+                instant.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.reinforce.tooltip")));
+                unitButtons.add(addRenderableWidget(instant));
+            }
             y += 30;
             for (int i = 0; i < ClientPortals.portals().size() && y + 22 <= topPos + imageHeight - 10; i++) {
                 int index = i;
@@ -2278,7 +2332,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             UnitKind kind = UnitKind.values()[entry.kind()];
             int id = entry.entityId();
             Component name = Component.translatable("screen.projecthivemind.unit.numbered",
-                    Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT)), ClientUnits.ofKind(kind).indexOf(id) + 1);
+                    Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT)), ClientUnits.numberOf(id));
             UnitIconButton button = new UnitIconButton(x, topPos + PORTAL_TOP, UNIT_HEAD, UNIT_HEAD, name, () -> unitEntity(id, kind), kind,
                     () -> summonChoice.contains(id), pressed -> {
                 if (!summonChoice.remove(id)) {

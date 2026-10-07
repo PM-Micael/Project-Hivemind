@@ -1365,6 +1365,8 @@ public class HiveHeart extends Mob {
     private static final int CREEP_EDGE_WIDTH = 3;
     /** How far below the Heart's own level the creep goes, in blocks. */
     public static final int CREEP_DEPTH = 4;
+    /** How far above and below the Heart's level the creep turns the ground's surface (hills and valleys), in blocks. Only solid blocks: empty space is filled just at the depths above. */
+    private static final int CREEP_TERRAIN_RANGE = 8;
 
     private void spreadCreep(ServerLevel level) {
         int border = com.projecthivemind.HiveLevels.get(hiveLevel).infectionRadius();
@@ -1384,20 +1386,34 @@ public class HiveHeart extends Mob {
                     dz = signed;
                 }
             }
-            BlockPos pos = new BlockPos(center.getX() + dx, center.getY() - 1 - this.random.nextInt(CREEP_DEPTH), center.getZ() + dz);
+            int x = center.getX() + dx;
+            int z = center.getZ() + dz;
+            BlockPos pos = new BlockPos(x, center.getY() - 1 - this.random.nextInt(CREEP_DEPTH), z);
+            boolean fillEmpty = true;
+            if (this.random.nextBoolean() && level.hasChunkAt(pos)) {
+                // Or the top of the ground there, however high or low it is: the creep follows hills and valleys. Never fills empty space.
+                int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+                if (Math.abs(top - center.getY()) <= CREEP_TERRAIN_RANGE) {
+                    pos = new BlockPos(x, top, z);
+                    fillEmpty = false;
+                }
+            }
             if (level.hasChunkAt(pos) && level.isInWorldBounds(pos)) {
-                creepInto(level, pos);
+                creepInto(level, pos, fillEmpty);
             }
         }
     }
 
     /** One block becomes creep: empty space is filled, a solid full block is turned; fluids, things with contents, unbreakable blocks and the hive's own blocks are left. */
-    private static void creepInto(ServerLevel level, BlockPos pos) {
+    private static void creepInto(ServerLevel level, BlockPos pos, boolean fillEmpty) {
         net.minecraft.world.level.block.state.BlockState state = level.getBlockState(pos);
         if (state.is(com.projecthivemind.ModBlocks.CREEP) || !state.getFluidState().isEmpty()) {
             return;
         }
         boolean empty = state.isAir() || state.canBeReplaced();
+        if (empty && !fillEmpty) {
+            return;
+        }
         if (!empty) {
             if (state.getDestroySpeed(level, pos) < 0.0F || level.getBlockEntity(pos) != null || !state.isCollisionShapeFullBlock(level, pos)
                     || state.is(com.projecthivemind.ModBlocks.HIVE_PORTAL.get()) || state.is(com.projecthivemind.ModBlocks.CONSTRUCTION.get())) {
@@ -1511,7 +1527,7 @@ public class HiveHeart extends Mob {
     }
 
     public int stackMultiplier() {
-        return com.projecthivemind.EvolveTask.stackMultiplier(evolveMask);
+        return com.projecthivemind.EvolveTask.stackMultiplier(evolveMask, hiveLevel);
     }
 
     public HiveStorage getStorage() {
@@ -1648,6 +1664,7 @@ public class HiveHeart extends Mob {
         tag.putBoolean("QuestDragon", dragonDefeated);
         tag.put("Teams", teams.save());
         tag.put("SlotConfigs", slotConfigs.save());
+        tag.put("UnitNumbers", slotConfigs.saveNumbers());
         tag.putInt("QuestIron", ironProgress);
         tag.putInt("QuestLowestY", lowestY);
         tag.putInt(KILLS_TAG, kills);
@@ -1747,6 +1764,7 @@ public class HiveHeart extends Mob {
         dragonDefeated = tag.getBoolean("QuestDragon");
         teams.load(tag.getList("Teams", net.minecraft.nbt.Tag.TAG_COMPOUND));
         slotConfigs.load(tag.getList("SlotConfigs", net.minecraft.nbt.Tag.TAG_COMPOUND));
+        slotConfigs.loadNumbers(tag.getList("UnitNumbers", net.minecraft.nbt.Tag.TAG_COMPOUND));
         ironProgress = tag.getInt("QuestIron");
         lowestY = tag.contains("QuestLowestY") ? tag.getInt("QuestLowestY") : Integer.MAX_VALUE;
         kills = tag.getInt(KILLS_TAG);

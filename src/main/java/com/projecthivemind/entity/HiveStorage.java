@@ -25,8 +25,7 @@ public class HiveStorage extends SimpleContainer {
 
     /** The most of this item a slot holds. */
     public int limitFor(ItemStack stack) {
-        int base = stack.getMaxStackSize();
-        return base > 1 ? base * Math.max(1, multiplier.getAsInt()) : base;
+        return com.projecthivemind.EvolveTask.stackLimit(stack, multiplier.getAsInt());
     }
 
     @Override

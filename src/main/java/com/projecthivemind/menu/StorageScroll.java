@@ -28,6 +28,8 @@ import net.minecraft.world.item.ItemStack;
 public final class StorageScroll {
     public static final int COLUMNS = 9;
     public static final int MAX_VISIBLE = 54;
+    /** The most slots the window shows in the compact inventory: three rows. */
+    public static final int COMPACT_VISIBLE = 27;
 
     private final DataSlot position = DataSlot.standalone();
     /** How many slots there are to scroll through: all of them, or only those the search matches. */
@@ -35,6 +37,8 @@ public final class StorageScroll {
     private final int total;
     /** The most slots the window shows at once (a window of three rows for the scout page, six for the hive's own storage). */
     private final int maxVisible;
+    /** Whether the compact inventory is open: the window is three rows, whatever its usual size. */
+    private boolean compact;
     private final Container view;
     @Nullable
     private final Window window;
@@ -58,7 +62,7 @@ public final class StorageScroll {
             this.view = new SimpleContainer(Math.min(total, maxVisible)) {
                 @Override
                 public int getMaxStackSize(net.minecraft.world.item.ItemStack stack) {
-                    return stack.getMaxStackSize() > 1 ? 1024 : stack.getMaxStackSize();
+                    return 1024;
                 }
             };
         }
@@ -90,8 +94,25 @@ public final class StorageScroll {
         return total;
     }
 
+    /** How many slots of the window are in use: its usual size, or three rows in the compact inventory. */
+    public int shownSlots() {
+        return Math.min(total, compact ? Math.min(maxVisible, COMPACT_VISIBLE) : maxVisible);
+    }
+
+    /** Switch the window between its usual size and the compact three rows (the server resizes the real window; the client only needs the size). */
+    public void setCompact(boolean on) {
+        if (compact == on) {
+            return;
+        }
+        compact = on;
+        if (window != null) {
+            window.size = shownSlots();
+            scrollTo(position.get());
+        }
+    }
+
     public int visibleRows() {
-        return rows(Math.min(total, maxVisible));
+        return rows(shownSlots());
     }
 
     /** How many rows there are to scroll through: the whole storage, or what the search matches. */
@@ -148,7 +169,7 @@ public final class StorageScroll {
     /** A view of part of the real storage, starting at a movable offset, and only of the slots a search matches. */
     private static final class Window implements Container {
         private final SimpleContainer backing;
-        private final int size;
+        private int size;
         private int offset;
         private String search = "";
         /** The slots of the storage the search matches, in order; null while there is no search (every slot shows). */

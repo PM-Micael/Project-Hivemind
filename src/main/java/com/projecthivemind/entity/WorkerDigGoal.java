@@ -89,6 +89,13 @@ public class WorkerDigGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        // Digging progress is added once per call of tick(): a goal is only ticked every other game tick unless it asks for every one,
+        // which would halve the speed of the formula a player digs with.
+        return true;
+    }
+
+    @Override
     public boolean canContinueToUse() {
         return canUse();
     }

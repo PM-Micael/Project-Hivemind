@@ -42,6 +42,13 @@ public class HiveHeartRenderer extends EntityRenderer<HiveHeart> {
                 for (int z = -reach; z <= reach; z++) {
                     // The blocks inside are never seen.
                     boolean inside = Math.abs(x) < reach && Math.abs(z) < reach && y > 0 && y < height - 1;
+                    if (width >= 3) {
+                        // A bulb: a full-size base that narrows into a dome, shell only.
+                        inside = !inOrb(x, y, z, reach, height)
+                                || (inOrb(x + 1, y, z, reach, height) && inOrb(x - 1, y, z, reach, height)
+                                        && inOrb(x, y + 1, z, reach, height) && inOrb(x, y - 1, z, reach, height)
+                                        && inOrb(x, y, z + 1, reach, height) && inOrb(x, y, z - 1, reach, height));
+                    }
                     if (inside) {
                         continue;
                     }
@@ -59,6 +66,22 @@ public class HiveHeartRenderer extends EntityRenderer<HiveHeart> {
             }
         }
         super.render(heart, entityYaw, partialTick, poseStack, buffer, packedLight);
+    }
+
+    /**
+     * Whether a block (y counted from the base) is part of the bulb: the bottom layer keeps the full square of the Heart's size, and the
+     * layers above narrow along a dome until the top. Below the base counts as ground, so the underside is never drawn.
+     */
+    private static boolean inOrb(int x, int y, int z, int reach, int height) {
+        if (y < 0 || y == 0) {
+            return Math.abs(x) <= reach && Math.abs(z) <= reach;
+        }
+        if (y >= height) {
+            return false;
+        }
+        float ratio = (float) y / height;
+        float limit = (reach + 0.5F) * Mth.sqrt(1.0F - ratio * ratio);
+        return x * x + z * z <= limit * limit;
     }
 
     @Override

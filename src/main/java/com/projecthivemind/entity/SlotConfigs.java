@@ -2,7 +2,9 @@ package com.projecthivemind.entity;
 
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import javax.annotation.Nullable;
 
@@ -13,8 +15,8 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 
 /**
- * The settings of the hive's units, kept by place in the list of their kind (Soldier 1, Soldier 2...) and not by the individual unit. When a
- * unit dies the ones after it move up a number, and the settings stay with the numbers: each unit takes on the settings of the number it now
+ * lives, and nobody moves up when another dies. When a unit dies its settings are kept under its number, and the unit that takes its place is
+ * made with the number and the settings of the one it replaces. Saved with the Heart.
  * has, and the unit that replaces the lost one is made with the settings of the number it takes. Saved with the Heart.
  */
 public final class SlotConfigs {
@@ -23,6 +25,72 @@ public final class SlotConfigs {
     }
 
     private final Map<UnitKind, Map<Integer, Config>> byKind = new EnumMap<>(UnitKind.class);
+    /** The number (from 0) of each living unit among its kind. */
+    private final Map<UUID, Integer> numbers = new HashMap<>();
+
+    /** The unit's number, or -1 if it has none yet. */
+    public int numberOf(UUID unit) {
+        return numbers.getOrDefault(unit, -1);
+    }
+
+    public void setNumber(UUID unit, int number) {
+        numbers.put(unit, number);
+    }
+
+    public void forget(UUID unit) {
+        numbers.remove(unit);
+    }
+
+    /** Forget the numbers of units that are not among these any more. */
+    public void keepOnly(java.util.Collection<UUID> living) {
+        numbers.keySet().retainAll(living);
+    }
+
+    /** The lowest number that none of these units (other than {@code except}) has. */
+    public int lowestFree(List<UUID> kindUnits, UUID except) {
+        java.util.Set<Integer> taken = new java.util.HashSet<>();
+        for (UUID other : kindUnits) {
+            if (!other.equals(except) && numbers.containsKey(other)) {
+                taken.add(numbers.get(other));
+            }
+        }
+        int number = 0;
+        while (taken.contains(number)) {
+            number++;
+        }
+        return number;
+    }
+
+    /** True if one of these units (other than {@code except}) has this number. */
+    public boolean isTaken(List<UUID> kindUnits, UUID except, int number) {
+        for (UUID other : kindUnits) {
+            if (!other.equals(except) && numbers.getOrDefault(other, -1) == number) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public ListTag saveNumbers() {
+        ListTag list = new ListTag();
+        numbers.forEach((id, number) -> {
+            CompoundTag tag = new CompoundTag();
+            tag.putUUID("Id", id);
+            tag.putInt("Number", number);
+            list.add(tag);
+        });
+        return list;
+    }
+
+    public void loadNumbers(ListTag list) {
+        numbers.clear();
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag tag = list.getCompound(i);
+            if (tag.hasUUID("Id")) {
+                numbers.put(tag.getUUID("Id"), tag.getInt("Number"));
+            }
+        }
+    }
 
     public void put(UnitKind kind, int index, Config config) {
         byKind.computeIfAbsent(kind, ignored -> new HashMap<>()).put(index, config);

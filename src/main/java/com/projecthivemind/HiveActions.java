@@ -871,9 +871,9 @@ public final class HiveActions {
         if (heart == null) {
             return;
         }
-        List<UUID> numbered = HivemindManager.get(player).units().getOrDefault(UnitKind.SCOUT, List.of());
+        ServerPlayer numberOwner = player;
         List<Mob> scouts = new ArrayList<>(commandable(player, level, request.unitIds(), UnitKind.SCOUT));
-        scouts.sort(java.util.Comparator.comparingInt(scout -> numbered.indexOf(scout.getUUID())));
+        scouts.sort(java.util.Comparator.comparingInt(scout -> HivemindManager.slotNumber(numberOwner, UnitKind.SCOUT, scout.getUUID())));
         for (Mob scout : scouts) {
             ItemStack hand = heart.scoutHeld();
             if (hand.isEmpty()) {

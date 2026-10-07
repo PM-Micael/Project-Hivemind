@@ -24,6 +24,7 @@ import com.projecthivemind.network.OpenHiveMenuPayload;
 import com.projecthivemind.network.SetUnitTeamPayload;
 import com.projecthivemind.network.FocusTeamPayload;
 import com.projecthivemind.network.ReturnToBasePayload;
+import com.projecthivemind.network.ReinforcePayload;
 import com.projecthivemind.network.ReturnToHeartPayload;
 import com.projecthivemind.network.BuildTowerPayload;
 import com.projecthivemind.network.BuildBridgePayload;
@@ -189,6 +190,7 @@ public final class CommonEvents {
         registrar.playToClient(SyncActionsPayload.TYPE, SyncActionsPayload.STREAM_CODEC, ClientPayloads::onSyncActions);
         registrar.playToServer(ToggleInventoryModePayload.TYPE, ToggleInventoryModePayload.STREAM_CODEC, ServerPayloads::onToggleInventoryMode);
         registrar.playToServer(ReturnToHeartPayload.TYPE, ReturnToHeartPayload.STREAM_CODEC, ServerPayloads::onReturnToHeart);
+        registrar.playToServer(ReinforcePayload.TYPE, ReinforcePayload.STREAM_CODEC, ServerPayloads::onReinforce);
         registrar.playToClient(SyncHivemindPayload.TYPE, SyncHivemindPayload.STREAM_CODEC, ClientPayloads::onSync);
     }
 

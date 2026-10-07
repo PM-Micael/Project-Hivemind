@@ -1,6 +1,7 @@
 package com.projecthivemind.network;
 
 import com.projecthivemind.HiveActions;
+import com.projecthivemind.HivePortals;
 import com.projecthivemind.HivemindManager;
 import com.projecthivemind.ScoutItems;
 import com.projecthivemind.menu.HiveMenu;
@@ -76,7 +77,8 @@ public final class ServerPayloads {
     public static void onSetMenuView(SetMenuViewPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
                 && menu.containerId == payload.containerId()) {
-            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL | HiveMenu.GROUP_TRASH);
+            menu.visibleGroups = payload.groups() & (HiveMenu.GROUP_STORAGE | HiveMenu.GROUP_CRAFT | HiveMenu.GROUP_FURNACE | HiveMenu.GROUP_BREWING | HiveMenu.GROUP_GEAR | HiveMenu.GROUP_ENCHANT | HiveMenu.GROUP_JUKEBOX | HiveMenu.GROUP_CARTOGRAPHY | HiveMenu.GROUP_ANVIL | HiveMenu.GROUP_TRASH | HiveMenu.GROUP_COMPACT);
+            menu.setCompact((payload.groups() & HiveMenu.GROUP_COMPACT) != 0);
         }
     }
 
@@ -308,6 +310,12 @@ public final class ServerPayloads {
     public static void onReturnToHeart(ReturnToHeartPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.returnToHeart(player);
+        }
+    }
+
+    public static void onReinforce(ReinforcePayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivePortals.reinforce(player);
         }
     }
 

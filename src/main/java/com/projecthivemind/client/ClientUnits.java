@@ -30,6 +30,12 @@ public final class ClientUnits {
         return ids;
     }
 
+    /** The number a unit has among its kind (Soldier 3 is 3), as the server last said, or 0 if unknown. */
+    public static int numberOf(int entityId) {
+        SyncUnitsPayload.Entry entry = entry(entityId);
+        return entry == null ? 0 : entry.number();
+    }
+
     /** Everything the server last said about the units, in the order it listed them. */
     public static List<SyncUnitsPayload.Entry> all() {
         return units;

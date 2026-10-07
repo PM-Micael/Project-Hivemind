@@ -34,8 +34,8 @@ public final class PortalNetwork {
     /** Where the units come through: a portal, or null for the Hive Heart itself. */
     @Nullable
     private GlobalPos target;
-    /** A unit waiting to come through: its kind, and the settings it had (so it comes back as it was). */
-    public record Pending(UnitKind kind, @Nullable SlotConfigs.Config config) {
+    /** A unit waiting to come through: its kind, the settings it had and its number (so it comes back as it was, as the same unit). */
+    public record Pending(UnitKind kind, @Nullable SlotConfigs.Config config, int slot) {
     }
 
     private final List<Pending> queue = new ArrayList<>();
@@ -132,6 +132,7 @@ public final class PortalNetwork {
         for (Pending unit : queue) {
             CompoundTag entry = new CompoundTag();
             entry.putInt("Kind", unit.kind().ordinal());
+            entry.putInt("Slot", unit.slot());
             if (unit.config() != null) {
                 entry.putInt("Flags", unit.config().flags());
                 entry.putIntArray("Radii", unit.config().radii());
@@ -169,7 +170,7 @@ public final class PortalNetwork {
             if (ordinal >= 0 && ordinal < UnitKind.values().length) {
                 SlotConfigs.Config config = entry.contains("Flags")
                         ? new SlotConfigs.Config(entry.getInt("Flags"), entry.getIntArray("Radii"), entry.getString("Fill"), entry.getString("Compost")) : null;
-                queue.add(new Pending(UnitKind.values()[ordinal], config));
+                queue.add(new Pending(UnitKind.values()[ordinal], config, entry.contains("Slot") ? entry.getInt("Slot") : -1));
             }
         }
         ticksToNext = tag.getInt("Next");

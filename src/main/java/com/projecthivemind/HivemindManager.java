@@ -382,7 +382,7 @@ public final class HivemindManager {
     private static Component unitName(ServerLevel level, HiveHeart heart, UnitKind kind, UUID id) {
         Component kindName = Component.translatable("unit." + ProjectHivemind.MODID + "." + kind.name().toLowerCase(java.util.Locale.ROOT));
         ServerPlayer owner = heart.ownerId() == null || level.getServer() == null ? null : level.getServer().getPlayerList().getPlayer(heart.ownerId());
-        int number = owner == null ? 0 : get(owner).units().getOrDefault(kind, List.of()).indexOf(id) + 1;
+        int number = owner == null ? 0 : slotNumber(owner, kind, id) + 1;
         return number <= 0 ? kindName : Component.translatable("screen.projecthivemind.unit.numbered", kindName, number);
     }
 
@@ -589,21 +589,41 @@ public final class HivemindManager {
         if (heart == null || !(mob instanceof HiveUnit unit)) {
             return;
         }
-        int index = get(owner).units().getOrDefault(unit.kind(), List.of()).indexOf(mob.getUUID());
+        int index = slotNumber(owner, unit.kind(), mob.getUUID());
         if (index >= 0) {
             heart.slotConfigs().put(unit.kind(), index, captureConfig(unit));
         }
     }
 
-    /** Give every unit of this kind the settings of the number it has now. */
-    private static void reapplyConfigs(ServerPlayer owner, HiveHeart heart, UnitKind kind) {
-        List<UUID> units = get(owner).units().getOrDefault(kind, List.of());
-        for (int i = 0; i < units.size(); i++) {
-            SlotConfigs.Config config = heart.slotConfigs().get(kind, i);
-            if (config != null && findUnit(owner, units.get(i)) instanceof HiveUnit unit) {
-                applyConfig(unit, config);
+    /**
+     * Give every unit of the owner that has no number yet one (units from before the numbers were kept get theirs from their place in the
+     * list), and forget the numbers of units that are gone.
+     */
+    private static void ensureNumbers(ServerPlayer owner, HiveHeart heart) {
+        HivemindData data = get(owner);
+        heart.slotConfigs().keepOnly(data.allUnits());
+        for (UnitKind kind : UnitKind.values()) {
+            List<UUID> list = data.units().getOrDefault(kind, List.of());
+            for (UUID id : list) {
+                if (heart.slotConfigs().numberOf(id) < 0) {
+                    heart.slotConfigs().setNumber(id, heart.slotConfigs().lowestFree(list, id));
+                }
             }
         }
+    }
+
+    /**
+     * The number (from 0) a unit has among its kind, or -1 if it is not one of the owner's units. It keeps that number for as long as it lives:
+     * when another unit dies nobody moves up, and the unit that replaces it takes its number.
+     */
+    public static int slotNumber(ServerPlayer owner, UnitKind kind, UUID id) {
+        HiveHeart heart = findHeart(owner);
+        List<UUID> list = get(owner).units().getOrDefault(kind, List.of());
+        if (heart == null) {
+            return list.indexOf(id);
+        }
+        ensureNumbers(owner, heart);
+        return list.contains(id) ? heart.slotConfigs().numberOf(id) : -1;
     }
 
     /** The player moved one of their units into a team, or out of all of them (team -1). Only teams the hive's level has, and not the units that work alone. */
@@ -627,7 +647,9 @@ public final class HivemindManager {
         ServerLevel camera = owner.serverLevel();
         List<SyncUnitsPayload.Entry> entries = new ArrayList<>();
         for (UnitKind kind : UnitKind.values()) {
-            for (UUID id : get(owner).units().getOrDefault(kind, List.of())) {
+            List<UUID> ordered = new ArrayList<>(get(owner).units().getOrDefault(kind, List.of()));
+            ordered.sort(java.util.Comparator.comparingInt(unitId -> slotNumber(owner, kind, unitId)));
+            for (UUID id : ordered) {
                 if (findUnit(owner, id) instanceof Mob mob && entries.size() < SyncUnitsPayload.MAX_ENTRIES) {
                     ServerLevel level = (ServerLevel) mob.level();
                     HiveUnit unit = mob instanceof HiveUnit found ? found : null;
@@ -637,7 +659,8 @@ public final class HivemindManager {
                     Component text = task != null ? task : job == null || heart == null ? Component.empty() : describeJob(level, heart, job);
                     boolean paused = job != null && !job.equals(unit.action());
                     entries.add(new SyncUnitsPayload.Entry(mob.getId(), kind.ordinal(), text,
-                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart == null ? -1 : heart.teams().teamOf(mob.getUUID())) | (level != camera ? SyncUnitsPayload.Entry.AWAY : 0),
+                            SyncUnitsPayload.Entry.flags(paused, unit == null || unit.resumeJob(), heart == null ? -1 : heart.teams().teamOf(mob.getUUID())) | (level != camera ? SyncUnitsPayload.Entry.AWAY : 0)
+                                    | ((slotNumber(owner, kind, id) + 1) << SyncUnitsPayload.Entry.NUMBER_SHIFT),
                             new SyncUnitsPayload.Vitals(mob.getHealth(), mob.getMaxHealth()), taskOf(mob)));
                 }
             }
@@ -810,7 +833,7 @@ public final class HivemindManager {
 
     /**
      * The settings a unit made at the Heart starts with, for those of its kind that have them: attack hostile mobs in the
-     * hive area, clear grass, flatten the area (with dirt), fell trees, pick up items inside the border, and channel on
+     * hive area, clear grass, fell trees, pick up items inside the border, and channel on
      * crops and saplings. Scouts, workers and soldiers all stay inside the border. (Workers do not run from hostile mobs unless the player turns that on.)
      */
     public static SlotConfigs.Config heartDefaults(UnitKind kind) {
@@ -821,11 +844,11 @@ public final class HivemindManager {
                 return new SlotConfigs.Config(scout.flags(), scout.radii(), "", "");
             }
             case WORKER -> {
-                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, false, false, false, true, false, 16);
+                com.projecthivemind.WorkerBehavior worker = new com.projecthivemind.WorkerBehavior(false, 8, false, 8, false, true, false, true, false, false, false, true, false, 16, true);
                 return new SlotConfigs.Config(worker.flags(), worker.radii(), itemName(net.minecraft.world.item.Items.DIRT), "");
             }
             case SOLDIER -> {
-                com.projecthivemind.SoldierBehavior soldier = new com.projecthivemind.SoldierBehavior(false, true, true, false);
+                com.projecthivemind.SoldierBehavior soldier = new com.projecthivemind.SoldierBehavior(false, true, true, false, true);
                 return new SlotConfigs.Config(soldier.flags(), soldier.radii(), "", "");
             }
             case COLLECTOR -> {
@@ -840,17 +863,28 @@ public final class HivemindManager {
 
     /** Make one unit beside the Heart, each kind on its own side. */
     public static void createUnitAtHeart(ServerPlayer player, HiveHeart heart, UnitKind kind, @Nullable SlotConfigs.Config config) {
+        createUnitAtHeart(player, heart, kind, config, -1);
+    }
+
+    /** The same for a unit that is to have this number (from 0), or -1 for the lowest free one. */
+    public static void createUnitAtHeart(ServerPlayer player, HiveHeart heart, UnitKind kind, @Nullable SlotConfigs.Config config, int slot) {
         // Stand each kind on a different side of the heart, just outside its body (which grows with the level).
         double reach = HiveHeart.widthAt(heart.visualLevel()) / 2.0D + 1.0D;
         double x = heart.getX() + (kind == UnitKind.WORKER || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SOLDIER ? -reach : 0.0D);
         double z = heart.getZ() + (kind == UnitKind.COLLECTOR || kind == UnitKind.FEEDER ? reach : kind == UnitKind.SCOUT ? -reach : 0.0D);
-        // Made at the Heart (new, a replacement, or summoned there) a unit starts with the hive's default settings, unless it was given its own.
-        createUnitAt(player, heart, kind, (ServerLevel) heart.level(), x, heart.getY(), z, config != null ? config : heartDefaults(kind), -1);
+        // Made at the Heart a unit has the settings of its number (those of the unit it replaces), or its own if it was given some, or the hive's defaults.
+        createUnitAt(player, heart, kind, (ServerLevel) heart.level(), x, heart.getY(), z, config, -1, slot);
     }
 
     /** Make one unit at this place (in any dimension), with no cap checks: callers have already decided it should exist. */
     public static void createUnitAt(ServerPlayer player, HiveHeart heart, UnitKind kind, ServerLevel level, double x, double y, double z,
             @Nullable SlotConfigs.Config config, int team) {
+        createUnitAt(player, heart, kind, level, x, y, z, config, team, -1);
+    }
+
+    /** The same for a unit that is to have this number (from 0), or -1 for the lowest free one. */
+    public static void createUnitAt(ServerPlayer player, HiveHeart heart, UnitKind kind, ServerLevel level, double x, double y, double z,
+            @Nullable SlotConfigs.Config config, int team, int slot) {
 
         Mob unit = switch (kind) {
             case SCOUT -> ModEntities.HIVE_SCOUT.get().create(level);
@@ -884,21 +918,24 @@ public final class HivemindManager {
 
         // Summoning a unit costs the hive 2 saturation (a saturation point is 4 exhaustion, as in the game's own food).
         heart.food().payForUnit();
+        ensureNumbers(player, heart);
         set(player, get(player).withUnit(kind, unit.getUUID()));
-        // The new unit takes the settings of the number it has: those the lost unit of that number had.
-        int number = get(player).units().getOrDefault(kind, List.of()).size() - 1;
-        // A summoned unit comes back with its own settings, and its number keeps them.
-        if (config != null) {
-            heart.slotConfigs().put(kind, number, config);
+        // The unit takes the number it was made for (a unit coming back through a portal), or else the lowest number that is free: that of the
+        // unit it replaces. Nobody else changes number.
+        List<UUID> ofKind = get(player).units().getOrDefault(kind, List.of());
+        int number = slot >= 0 && !heart.slotConfigs().isTaken(ofKind, unit.getUUID(), slot) ? slot : heart.slotConfigs().lowestFree(ofKind, unit.getUUID());
+        heart.slotConfigs().setNumber(unit.getUUID(), number);
+        // And the settings that number had: those the lost unit left, or those it came back with, or the hive's defaults for a number that is new.
+        SlotConfigs.Config settings = config != null ? config : heart.slotConfigs().get(kind, number);
+        if (settings == null) {
+            settings = heartDefaults(kind);
         }
+        heart.slotConfigs().put(kind, number, settings);
         // A unit that is not made to work alone starts in the team of the place it came from: the Heart's, or the portal's.
         if (team >= 0 && !kind.passive()) {
             heart.teams().join(unit.getUUID(), Math.min(team, heart.teamCount() - 1));
         }
-        SlotConfigs.Config remembered = config != null ? config : heart.slotConfigs().get(kind, number);
-        if (remembered != null) {
-            applyConfig((HiveUnit) unit, remembered);
-        }
+        applyConfig((HiveUnit) unit, settings);
         sync(player);
     }
 
@@ -1528,7 +1565,7 @@ public final class HivemindManager {
         }
         LAST_HURT_NOTICE.put(unit.getUUID(), now);
         UnitKind kind = hiveUnit.kind();
-        int number = get(owner).units().getOrDefault(kind, List.of()).indexOf(unit.getUUID()) + 1;
+        int number = slotNumber(owner, kind, unit.getUUID()) + 1;
         Component name = Component.translatable("screen.projecthivemind.unit.numbered",
                 Component.translatable("unit." + ProjectHivemind.MODID + "." + kind.name().toLowerCase(java.util.Locale.ROOT)), Math.max(1, number));
         int distance = (int) owner.position().distanceTo(unit.position());
@@ -1566,23 +1603,20 @@ public final class HivemindManager {
         }
         // The settings stay with the numbers: make sure each number's settings are remembered (a unit never edited has not been), then, once this
         // one is out of the list, every unit after it takes the settings of its new number.
+        // The unit's number and settings are kept: whatever takes its place (the Heart's replacement, or a portal bringing it back) is that number
+        // again, with those settings. Nobody else changes number.
+        int number = -1;
         if (heart != null) {
-            List<UUID> before = get(owner).units().getOrDefault(hiveUnit.kind(), List.of());
-            for (int i = 0; i < before.size(); i++) {
-                // (The unit that is dying no longer counts as alive to the lookup, so it is taken from here.)
-                HiveUnit other = before.get(i).equals(unit.getUUID()) ? hiveUnit : findUnit(owner, before.get(i)) instanceof HiveUnit found ? found : null;
-                if (other != null && !heart.slotConfigs().has(hiveUnit.kind(), i)) {
-                    heart.slotConfigs().put(hiveUnit.kind(), i, captureConfig(other));
-                }
+            number = slotNumber(owner, hiveUnit.kind(), unit.getUUID());
+            if (number >= 0) {
+                heart.slotConfigs().put(hiveUnit.kind(), number, captureConfig(hiveUnit));
             }
+            heart.slotConfigs().forget(unit.getUUID());
         }
         set(owner, get(owner).withoutUnit(hiveUnit.kind(), unit.getUUID()));
         // A portal set to resummon brings its own team's dead back through it, ahead of the Heart making replacements.
         if (heart != null && heart.isAlive() && !summoned && deadTeam >= 0) {
-            HivePortals.resummonDeath(owner, heart, hiveUnit.kind(), deadTeam);
-        }
-        if (heart != null) {
-            reapplyConfigs(owner, heart, hiveUnit.kind());
+            HivePortals.resummonDeath(owner, heart, hiveUnit.kind(), deadTeam, number);
         }
         sync(owner);
     }

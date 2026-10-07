@@ -114,7 +114,7 @@ public final class UnitHover {
     public static Component nameOf(UnitKind kind, int entityId) {
         Component kindName = Component.translatable("unit.projecthivemind." + kind.name().toLowerCase(Locale.ROOT));
         List<Integer> ofKind = ClientUnits.ofKind(kind);
-        int index = ofKind.indexOf(entityId);
-        return index < 0 ? kindName : Component.translatable("screen.projecthivemind.unit.numbered", kindName, index + 1);
+        int number = ClientUnits.numberOf(entityId);
+        return number <= 0 ? kindName : Component.translatable("screen.projecthivemind.unit.numbered", kindName, number);
     }
 }

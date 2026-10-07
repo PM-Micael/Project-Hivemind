@@ -52,11 +52,12 @@ public enum EvolveTask {
     EXPERIENCE_BOTTLE(Items.EXPERIENCE_BOTTLE, 31, Reward.XP_TRICKLE),
     SEA_LANTERN(Items.SEA_LANTERN, 32, Reward.GUARDIAN_BEAM),
     CRAFTER(Items.CRAFTER, 33, Reward.RECIPE_MEMORY),
-    CAKE(Items.CAKE, 34, Reward.CHEAP_ACTIONS);
+    CAKE(Items.CAKE, 34, Reward.CHEAP_ACTIONS),
+    ENDER_EYE(Items.ENDER_EYE, 35, Reward.REINFORCEMENTS);
 
     /** What a task gives. */
     public enum Reward {
-        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, RESPAWN, CARTOGRAPHY, ANVIL, LIGHT, SWIFT_SOLDIERS, SLOW_ENEMIES, UNDYING, XP_TRICKLE, GUARDIAN_BEAM, RECIPE_MEMORY, CHEAP_ACTIONS, ABSORPTION, GOLEM, FIRE_PROOF, REDSTONE
+        CRAFTING, FURNACE, BREWING, STACK_SIZE, SHULKER_TURRET, THORNS, ENCHANTING, DEFENCE, SONIC_BOOM, POISON, WITHER, MUSIC, ENDER_PEACE, RESPAWN, CARTOGRAPHY, ANVIL, LIGHT, SWIFT_SOLDIERS, SLOW_ENEMIES, UNDYING, XP_TRICKLE, GUARDIAN_BEAM, RECIPE_MEMORY, CHEAP_ACTIONS, ABSORPTION, GOLEM, FIRE_PROOF, REDSTONE, REINFORCEMENTS
     }
 
     private final Item item;
@@ -125,14 +126,25 @@ public enum EvolveTask {
         return ENDER_PEARL.doneIn(doneMask) ? 100 : 200;
     }
 
-    /** How many full stacks a storage slot holds, with these tasks done: 1 to begin with, and one more for each task that gives stack size. */
-    public static int stackMultiplier(long doneMask) {
-        int multiplier = 1;
+    /** The last hive level that gives an extra stack: each level from 2 to this one adds one. */
+    public static final int LAST_STACK_LEVEL = 6;
+    /** What a slot holds of an item that does not stack on its own (tools, armor, potions) when it is exactly the same, before the multiplier. */
+    public static final int UNSTACKABLE_BASE = 16;
+
+    /** How many full stacks a storage slot holds, with these tasks done and at this hive level: 1 to begin with, one more for each task that gives stack size, and one for each hive level from 2 to 6. */
+    public static int stackMultiplier(long doneMask, int hiveLevel) {
+        int multiplier = 1 + Math.max(0, Math.min(hiveLevel, LAST_STACK_LEVEL) - 1);
         for (EvolveTask task : values()) {
             if (task.reward == Reward.STACK_SIZE && task.doneIn(doneMask)) {
                 multiplier++;
             }
         }
         return multiplier;
+    }
+
+    /** The most of this item one storage slot holds: its usual stack size, or for things that do not stack, a fixed number of identical ones, times the multiplier. */
+    public static int stackLimit(ItemStack stack, int multiplier) {
+        int base = stack.getMaxStackSize();
+        return (base > 1 ? base : UNSTACKABLE_BASE) * Math.max(1, multiplier);
     }
 }

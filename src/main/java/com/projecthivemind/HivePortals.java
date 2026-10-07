@@ -127,7 +127,7 @@ public final class HivePortals {
      * countdown ticking, instead of the Heart making a replacement. Returns false when it does not apply (no such portal, not set, or the
      * network is busy summoning somewhere else), and the Heart replaces the unit as usual.
      */
-    public static boolean resummonDeath(ServerPlayer owner, HiveHeart heart, UnitKind kind, int team) {
+    public static boolean resummonDeath(ServerPlayer owner, HiveHeart heart, UnitKind kind, int team, int slot) {
         PortalNetwork network = heart.portals();
         network.useInterval(com.projecthivemind.EvolveTask.spawnIntervalTicks(heart.evolveMask()));
         if (team < 0 || team >= network.portals().size() || !java.util.Arrays.asList(PortalNetwork.SUMMON_ORDER).contains(kind)) {
@@ -137,7 +137,7 @@ public final class HivePortals {
         if (!network.resummon().contains(portal) || (network.summoning() && !portal.equals(network.target()))) {
             return false;
         }
-        PortalNetwork.Pending pending = new PortalNetwork.Pending(kind, summonConfig(kind, false));
+        PortalNetwork.Pending pending = new PortalNetwork.Pending(kind, slot < 0 ? null : heart.slotConfigs().get(kind, slot), slot);
         if (network.summoning()) {
             network.addToSummoning(pending);
         } else {
@@ -157,20 +157,6 @@ public final class HivePortals {
 
     // ---- summoning ----
 
-    /** What a summoned unit comes back with: at the Heart the hive's default settings (see HivemindManager#heartDefaults); at a portal nothing is ticked. */
-    private static com.projecthivemind.entity.SlotConfigs.Config summonConfig(UnitKind kind, boolean atHeart) {
-        return atHeart ? HivemindManager.heartDefaults(kind) : blankConfig(kind);
-    }
-
-    /** Settings with nothing ticked: no flags, the default radii, no items. */
-    private static com.projecthivemind.entity.SlotConfigs.Config blankConfig(UnitKind kind) {
-        int[] radii = switch (kind) {
-            case SCOUT -> ScoutBehavior.DEFAULT.radii();
-            case WORKER -> WorkerBehavior.DEFAULT.radii();
-            default -> new int[4];
-        };
-        return new com.projecthivemind.entity.SlotConfigs.Config(0, radii, "", "");
-    }
 
     /**
      * The player confirmed summoning these units to a portal (an index of the list) or the Heart (-1). They die, and are queued to come
@@ -208,7 +194,7 @@ public final class HivePortals {
         List<PortalNetwork.Pending> kinds = new ArrayList<>();
         for (Mob mob : units) {
             HiveUnit unit = (HiveUnit) mob;
-            kinds.add(new PortalNetwork.Pending(unit.kind(), summonConfig(unit.kind(), target == null)));
+            kinds.add(new PortalNetwork.Pending(unit.kind(), HivemindManager.captureConfig(unit), HivemindManager.slotNumber(player, unit.kind(), mob.getUUID())));
             SUMMONED.add(mob.getUUID());
         }
         // The queue first, so that the hive does not make its own replacements for the units that are about to die.
@@ -225,6 +211,43 @@ public final class HivePortals {
             HivemindManager.cameraAbove(player, player.server.getLevel(target.dimension()), target.pos().getX() + 0.5D, target.pos().getY() + 2.0D, target.pos().getZ() + 0.5D);
         }
         sync(player, heart);
+    }
+
+    /**
+     * Instant reinforcements (the Eye of Ender task): every soldier the player has, in any dimension, is teleported to the Heart and
+     * stands in a ring around it. Needs the hive stage and the task done.
+     */
+    public static void reinforce(ServerPlayer player) {
+        HiveHeart heart = HivemindManager.findHeart(player);
+        if (heart == null || HivemindManager.get(player).stage() != HivemindStage.HIVE
+                || !com.projecthivemind.EvolveTask.ENDER_EYE.doneIn(heart.evolveMask()) || !(heart.level() instanceof ServerLevel heartLevel)) {
+            return;
+        }
+        double reach = HiveHeart.widthAt(heart.visualLevel()) / 2.0D + 1.5D;
+        int moved = 0;
+        for (java.util.UUID id : HivemindManager.get(player).allUnits()) {
+            for (ServerLevel level : player.server.getAllLevels()) {
+                if (level.getEntity(id) instanceof Mob mob && mob.isAlive() && mob instanceof HiveUnit unit
+                        && unit.kind() == UnitKind.SOLDIER && player.getUUID().equals(unit.ownerId())) {
+                    // A ring around the Heart, a wider one for every eight soldiers.
+                    double angle = moved * (Math.PI * 2.0D / 8.0D);
+                    double radius = reach + moved / 8;
+                    double x = heart.getX() + Math.cos(angle) * radius;
+                    double z = heart.getZ() + Math.sin(angle) * radius;
+                    mob.getNavigation().stop();
+                    if (level == heartLevel) {
+                        mob.teleportTo(x, heart.getY(), z);
+                    } else {
+                        mob.teleportTo(heartLevel, x, heart.getY(), z, java.util.Set.of(), mob.getYRot(), 0.0F);
+                    }
+                    heartLevel.sendParticles(net.minecraft.core.particles.ParticleTypes.PORTAL, x, heart.getY() + 1.0D, z, 12, 0.3D, 0.5D, 0.3D, 0.1D);
+                    moved++;
+                    break;
+                }
+            }
+        }
+        heartLevel.playSound(null, heart.blockPosition(), SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 1.0F, 1.0F);
+        player.displayClientMessage(Component.translatable("message.projecthivemind.reinforced", moved), true);
     }
 
     /** Where a unit comes through: the portal's top, or null if the summoning is at the Heart (or the portal is gone). */
@@ -276,10 +299,10 @@ public final class HivePortals {
                 PortalNetwork.Pending next = network.queue().remove(0);
                 if (spot != null && heart.getServer().getLevel(spot.dimension()).isLoaded(spot.pos())) {
                     ServerLevel level = heart.getServer().getLevel(spot.dimension());
-                    HivemindManager.createUnitAt(owner, heart, next.kind(), level, spot.pos().getX() + 0.5D, spot.pos().getY() + 1.0D, spot.pos().getZ() + 0.5D, next.config(), network.portals().indexOf(spot));
+                    HivemindManager.createUnitAt(owner, heart, next.kind(), level, spot.pos().getX() + 0.5D, spot.pos().getY() + 1.0D, spot.pos().getZ() + 0.5D, next.config(), network.portals().indexOf(spot), next.slot());
                 } else {
                     // At the Heart, or the portal has been taken down: they come through the Heart.
-                    HivemindManager.createUnitAtHeart(owner, heart, next.kind(), next.config());
+                    HivemindManager.createUnitAtHeart(owner, heart, next.kind(), next.config(), next.slot());
                 }
                 network.setTicksToNext(network.interval());
                 if (network.queue().isEmpty()) {

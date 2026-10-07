@@ -64,7 +64,7 @@ public class GatherAtHeartGoal extends Goal {
             return "no Heart in this dimension";
         }
         if (!goal.enabled.getAsBoolean()) {
-            return "wander is on";
+            return "stay at the Heart is off, or wander is on";
         }
         if (unit.action() != null) {
             return "has an order: " + unit.action().kind();

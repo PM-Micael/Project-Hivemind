@@ -6,6 +6,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import javax.annotation.Nullable;
 
@@ -13,6 +14,7 @@ import com.projecthivemind.FeederBehavior;
 import com.projecthivemind.HiveArea;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.ai.goal.Goal;
@@ -67,6 +69,26 @@ public class FeederChannelGoal extends Goal {
     /** The last tick the channelled plant got older, for telling a plant that grows from one that cannot. */
     private int lastAdvanceTick;
     private final Map<BlockPos, Integer> ignored = new HashMap<>();
+    /** The plant this feeder has claimed, so that no other feeder channels on it too. */
+    @Nullable
+    private GlobalPos claimed;
+
+    /** Who is channelling on which plant, and until when (it is renewed every tick, so a feeder that dies or unloads lets go on its own). */
+    private record Claim(UUID owner, long until) {
+    }
+
+    private static final Map<GlobalPos, Claim> CLAIMS = new HashMap<>();
+    private static final int CLAIM_TICKS = 40;
+
+    private boolean claimedByOther(BlockPos pos) {
+        Claim claim = CLAIMS.get(GlobalPos.of(feeder.level().dimension(), pos));
+        return claim != null && claim.until() > feeder.level().getGameTime() && !claim.owner().equals(feeder.getUUID());
+    }
+
+    private void claim(BlockPos pos) {
+        claimed = GlobalPos.of(feeder.level().dimension(), pos);
+        CLAIMS.put(claimed, new Claim(feeder.getUUID(), feeder.level().getGameTime() + CLAIM_TICKS));
+    }
 
     public FeederChannelGoal(HiveFeeder feeder) {
         this.feeder = feeder;
@@ -95,6 +117,9 @@ public class FeederChannelGoal extends Goal {
         nextScan = feeder.tickCount + SCAN_INTERVAL;
         ignored.values().removeIf(until -> until <= feeder.tickCount);
         target = findGrowing(heart);
+        if (target != null) {
+            claim(target);
+        }
         return target != null;
     }
 
@@ -119,6 +144,13 @@ public class FeederChannelGoal extends Goal {
 
     @Override
     public void stop() {
+        if (claimed != null) {
+            Claim claim = CLAIMS.get(claimed);
+            if (claim != null && claim.owner().equals(feeder.getUUID())) {
+                CLAIMS.remove(claimed);
+            }
+            claimed = null;
+        }
         feeder.getNavigation().stop();
         target = null;
     }
@@ -140,7 +172,7 @@ public class FeederChannelGoal extends Goal {
                 }
                 for (int y = origin.getY() - HEIGHT; y <= origin.getY() + HEIGHT; y++) {
                     pos.set(x, y, z);
-                    if (channelable(level.getBlockState(pos)) && !ignored.containsKey(pos)) {
+                    if (channelable(level.getBlockState(pos)) && !ignored.containsKey(pos) && !claimedByOther(pos)) {
                         growing.add(pos.immutable());
                     }
                 }
@@ -155,6 +187,7 @@ public class FeederChannelGoal extends Goal {
         if (target == null || !(feeder.level() instanceof ServerLevel level)) {
             return;
         }
+        claim(target);
         Vec3 center = Vec3.atCenterOf(target);
         Vec3 hover = new Vec3(center.x, target.getY() + HOVER_HEIGHT, center.z);
         if (feeder.position().distanceToSqr(hover) > CHANNEL_DISTANCE_SQR) {

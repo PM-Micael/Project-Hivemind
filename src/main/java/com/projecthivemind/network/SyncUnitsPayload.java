@@ -70,6 +70,13 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
                 Task.STREAM_CODEC, Entry::task,
                 Entry::new);
 
+        /** The number the unit has among its kind (Soldier 3 is 3), kept in the bits above the team's; 0 if not told. */
+        public int number() {
+            return flags >>> NUMBER_SHIFT;
+        }
+
+        public static final int NUMBER_SHIFT = 16;
+
         public boolean paused() {
             return (flags & PAUSED) != 0;
         }
@@ -80,7 +87,7 @@ public record SyncUnitsPayload(List<Entry> units) implements CustomPacketPayload
 
         /** The team the unit is in (0 for the first), or -1 for none. */
         public int teamIndex() {
-            return (flags >> TEAM_SHIFT) - 1;
+            return ((flags >> TEAM_SHIFT) & 0xFF) - 1;
         }
 
         public boolean team() {

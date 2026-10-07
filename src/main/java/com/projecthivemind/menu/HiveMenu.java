@@ -109,6 +109,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     public static final int SCOUT_ARMOR_Y = 152;
     /** A three-row window onto the hive storage beside the scout armor (group {@link #GROUP_SCOUT_STORAGE}): where it is, and how many slots. */
     public static final int GROUP_SCOUT_STORAGE = 2048;
+    /** Not a group of slots: the screen showing is the compact inventory (storage in three rows, and the crafting grid). */
+    public static final int GROUP_COMPACT = 1 << 20;
+    /** Where the compact inventory puts its slots (panel coordinates): the storage, the crafting grid and its result. */
+    public static final int COMPACT_STORAGE_X = 8;
+    public static final int COMPACT_STORAGE_Y = 92;
+    public static final int COMPACT_GRID_X = 8;
+    public static final int COMPACT_GRID_Y = 20;
+    public static final int COMPACT_RESULT_X = 82;
+    public static final int COMPACT_RESULT_Y = 38;
     public static final int SCOUT_INV_COLUMNS = 9;
     public static final int SCOUT_INV_SLOTS = 27;
     public static final int SCOUT_INV_X = 140;
@@ -834,6 +843,24 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
     }
 
+    /**
+     * Client and server: lay the menu out for the compact inventory (the storage in three rows and the crafting grid beside it) or put it back. The
+     * storage window is three rows while it is on, so slots after them hold nothing and are not shown.
+     */
+    public void setCompact(boolean on) {
+        scroll.setCompact(on);
+        for (Slot slot : this.slots) {
+            int index = slot.getContainerSlot();
+            if (slot instanceof GridSlot grid) {
+                grid.setOrigin((on ? COMPACT_GRID_X : GRID_X) + (index % GRID_SIZE) * 18, (on ? COMPACT_GRID_Y : GRID_Y) + (index / GRID_SIZE) * 18);
+            } else if (slot instanceof HiveSlot hive && hive.group == GROUP_STORAGE) {
+                hive.setOrigin((on ? COMPACT_STORAGE_X : STORAGE_X) + (index % STORAGE_COLUMNS) * 18, (on ? COMPACT_STORAGE_Y : STORAGE_Y) + (index / STORAGE_COLUMNS) * 18);
+            } else if (slot instanceof HiveResultSlot result) {
+                result.setOrigin(on ? COMPACT_RESULT_X : RESULT_X, on ? COMPACT_RESULT_Y : RESULT_Y);
+            }
+        }
+    }
+
     /** The food slot, so the screen can show what goes in it when it is empty. */
     public Slot foodSlot() {
         return this.slots.get(foodIndex);
@@ -1322,7 +1349,8 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private class HiveSlot extends Slot implements StationSlot {
         private final int group;
         /** Where the slot sits when its station is at the top of the scrolling list, and whether the screen has scrolled it out of view. */
-        private final int baseY;
+        private int baseX;
+        private int baseY;
         private boolean clipped;
 
         HiveSlot(Container container, int index, int x, int y) {
@@ -1332,7 +1360,16 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         HiveSlot(Container container, int index, int x, int y, int group) {
             super(container, index, x, y);
             this.group = group;
+            this.baseX = x;
             this.baseY = y;
+        }
+
+        /** Move the slot's home (the compact inventory lays the slots out differently). */
+        void setOrigin(int x, int y) {
+            this.baseX = x;
+            this.baseY = y;
+            this.x = x;
+            this.y = y;
         }
 
         @Override
@@ -1360,14 +1397,14 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
             if ((STATION_GROUPS & group) != 0) {
                 return (visibleGroups & GROUP_STORAGE) != 0 && unlocked(group) && !clipped;
             }
-            return routed();
+            return routed() && (group != GROUP_STORAGE || getContainerSlot() < scroll.shownSlots());
         }
 
         /** In the hive's storage a stack of anything stackable holds as many full stacks as the evolution tasks give. */
         @Override
         public int getMaxStackSize(ItemStack stack) {
             int base = super.getMaxStackSize(stack);
-            return (group == GROUP_STORAGE || group == GROUP_SCOUT_STORAGE) && stack.getMaxStackSize() > 1 ? stack.getMaxStackSize() * com.projecthivemind.EvolveTask.stackMultiplier(evolveMask()) : base;
+            return group == GROUP_STORAGE || group == GROUP_SCOUT_STORAGE ? com.projecthivemind.EvolveTask.stackLimit(stack, com.projecthivemind.EvolveTask.stackMultiplier(evolveMask(), level())) : base;
         }
 
         /** With a search on, the storage slots after the last match are not real slots: nothing can be put in them. */
@@ -1411,12 +1448,18 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     }
 
     private class HiveResultSlot extends ResultSlot implements StationSlot {
-        private final int baseY;
+        private int baseY;
         private boolean clipped;
 
         HiveResultSlot(Player player, CraftingContainer craftSlots, Container container, int index, int x, int y) {
             super(player, craftSlots, container, index, x, y);
             this.baseY = y;
+        }
+
+        void setOrigin(int x, int y) {
+            this.baseY = y;
+            this.x = x;
+            this.y = y;
         }
 
         @Override
