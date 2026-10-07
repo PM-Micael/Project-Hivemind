@@ -124,10 +124,52 @@ public final class HiveConstructions {
 
     /** A worker found its construction complete: it is done, and the owner is told, once. */
     public static void markDone(HiveHeart heart, UUID worker) {
+        markDone(heart, worker, null);
+    }
+
+    /**
+     * A worker finished the bridge or tunnel stretch it was given ({@code finished}, null if not a bridge). An endless tunnel is not done then: its next
+     * stretch is added, once, whichever worker finishes first (a worker that finished a stretch that has been replaced already just carries on with the new one).
+     */
+    public static void markDone(HiveHeart heart, UUID worker, @Nullable com.projecthivemind.build.BridgeJob finished) {
         Construction construction = heart.constructions().of(worker);
-        if (construction != null) {
-            complete(heart, construction);
+        if (construction == null) {
+            return;
         }
+        if (construction.endless() && construction.kind() == Construction.Kind.BRIDGE) {
+            // Another worker has already added the next stretch: this one picks it up on its own.
+            if (finished != null && construction.bridge() != finished) {
+                return;
+            }
+            if (extendTunnel(heart, construction)) {
+                return;
+            }
+        }
+        complete(heart, construction);
+    }
+
+    /** How long each stretch added to an endless tunnel is. */
+    private static final int ENDLESS_STRETCH = 16;
+
+    /**
+     * An endless tunnel carries on: the next stretch starts where the last one ended, in the same direction and size, with the same block for its
+     * floor. The stretch that is done stays protected from flattening. False when there is no room (the end of the world), and the tunnel is done.
+     */
+    private static boolean extendTunnel(HiveHeart heart, Construction construction) {
+        com.projecthivemind.build.BridgeJob old = construction.bridge();
+        MinecraftServer server = heart.getServer();
+        ServerLevel level = server == null || old == null || !old.isTunnel() ? null : server.getLevel(construction.dimension());
+        if (level == null) {
+            return false;
+        }
+        net.minecraft.core.Direction along = old.tunnelDirection();
+        BlockPos start = old.dest().relative(along);
+        if (!level.isInWorldBounds(start.relative(along, ENDLESS_STRETCH - 1))) {
+            return false;
+        }
+        heart.constructions().keep(construction);
+        construction.extendTunnel(com.projecthivemind.build.BridgeJob.tunnel(start, along, ENDLESS_STRETCH, old.deck(), old.tunnelSize()));
+        return true;
     }
 
     /** The construction is whole: its block shows green, its workers stop, and the owner is told. */

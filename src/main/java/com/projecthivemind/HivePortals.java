@@ -39,6 +39,11 @@ public final class HivePortals {
     private static final Set<java.util.UUID> SUMMONED = new java.util.HashSet<>();
 
     /** True (once) for a unit that was killed to be summoned. */
+    /** Mark a unit that is about to be killed by the player (not by an enemy): its death costs the hive nothing. */
+    public static void markFree(java.util.UUID unit) {
+        SUMMONED.add(unit);
+    }
+
     public static boolean consumeSummoned(java.util.UUID unit) {
         return SUMMONED.remove(unit);
     }
@@ -55,24 +60,40 @@ public final class HivePortals {
     // ---- placing ----
 
     /**
-     * A scout has come to place a portal on this face of this block. At the limit, the oldest portal is taken down first (the player
-     * has already agreed to that). Returns false if there is no room for it.
+     * A scout (its number, from 0) has come to place a portal on this face of this block. Every scout has a portal of its own: if this one already has
+     * one, that one is taken down and the new one takes its place in the list (the player has already agreed to that). Portals that belong to no
+     * scout (from before they were kept) are taken down, oldest first, when there is no room. Returns false if the portal cannot go there.
      */
-    public static boolean place(ServerLevel level, HiveHeart heart, BlockPos clicked, Direction face) {
+    public static boolean place(ServerLevel level, HiveHeart heart, BlockPos clicked, Direction face, int scoutNumber) {
         BlockPos target = clicked.relative(face);
         BlockState existing = level.getBlockState(target);
         if (max(heart) <= 0 || !existing.canBeReplaced() || !existing.getFluidState().isEmpty()) {
             return false;
         }
         PortalNetwork network = heart.portals();
-        while (network.portals().size() >= Math.max(1, max(heart))) {
-            remove(level.getServer(), network.portals().remove(0));
+        GlobalPos placed = GlobalPos.of(level.dimension(), target);
+        GlobalPos mine = network.portalOf(scoutNumber);
+        if (mine != null) {
+            // Swapped: the new portal is that scout's, in the place of its old one in the list, with the old one's settings.
+            int index = network.portals().indexOf(mine);
+            remove(level.getServer(), mine);
+            level.setBlock(target, ModBlocks.HIVE_PORTAL.get().defaultBlockState(), 3);
+            network.portals().set(index, placed);
+            if (network.resummon().remove(mine)) {
+                network.resummon().add(placed);
+            }
+        } else {
+            while (network.portals().size() >= Math.max(1, max(heart))) {
+                remove(level.getServer(), network.portals().remove(0));
+            }
+            level.setBlock(target, ModBlocks.HIVE_PORTAL.get().defaultBlockState(), 3);
+            network.portals().add(placed);
         }
-        level.setBlock(target, ModBlocks.HIVE_PORTAL.get().defaultBlockState(), 3);
-        network.portals().add(GlobalPos.of(level.dimension(), target));
+        network.setOwner(placed, scoutNumber);
         level.playSound(null, target, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 1.0F, 0.6F);
         return true;
     }
+
 
     /** The player confirmed deleting a portal (an index of the list): its block is taken down. */
     public static void delete(ServerPlayer player, int index) {
@@ -322,7 +343,7 @@ public final class HivePortals {
         List<SyncPortalsPayload.Portal> portals = new ArrayList<>();
         for (GlobalPos portal : network.portals()) {
             if (portals.size() < SyncPortalsPayload.MAX_ENTRIES) {
-                portals.add(new SyncPortalsPayload.Portal(portal.dimension().location().toString(), portal.pos(), network.resummon().contains(portal)));
+                portals.add(new SyncPortalsPayload.Portal(portal.dimension().location().toString(), portal.pos(), network.resummon().contains(portal), network.ownerOf(portal)));
             }
         }
         int target = SyncPortalsPayload.NONE;

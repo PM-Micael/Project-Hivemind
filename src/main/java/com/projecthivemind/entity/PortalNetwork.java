@@ -28,6 +28,8 @@ public final class PortalNetwork {
     public static final int SUMMON_INTERVAL_TICKS = 200;
 
     private final List<GlobalPos> portals = new ArrayList<>();
+    /** Which scout (its number, from 0) each portal belongs to: a scout has one portal, and placing another replaces it. A portal made before this was kept has none. */
+    private final java.util.Map<GlobalPos, Integer> owners = new java.util.HashMap<>();
     /** Portals set to bring back the units of their own team when they die (see HivePortals#resummonDeath). */
     private final java.util.Set<GlobalPos> resummon = new java.util.HashSet<>();
     private boolean summoning;
@@ -43,6 +45,25 @@ public final class PortalNetwork {
 
     public List<GlobalPos> portals() {
         return portals;
+    }
+
+    public int ownerOf(GlobalPos portal) {
+        return owners.getOrDefault(portal, -1);
+    }
+
+    public void setOwner(GlobalPos portal, int scoutNumber) {
+        owners.put(portal, scoutNumber);
+    }
+
+    /** The portal that belongs to this scout, or null. */
+    @Nullable
+    public GlobalPos portalOf(int scoutNumber) {
+        for (GlobalPos portal : portals) {
+            if (owners.getOrDefault(portal, -1) == scoutNumber) {
+                return portal;
+            }
+        }
+        return null;
     }
 
     public java.util.Set<GlobalPos> resummon() {
@@ -116,7 +137,9 @@ public final class PortalNetwork {
         CompoundTag tag = new CompoundTag();
         ListTag list = new ListTag();
         for (GlobalPos portal : portals) {
-            list.add(writePos(portal));
+            CompoundTag saved = writePos(portal);
+            saved.putInt("Owner", owners.getOrDefault(portal, -1));
+            list.add(saved);
         }
         tag.put("Portals", list);
         ListTag resummonList = new ListTag();
@@ -148,10 +171,14 @@ public final class PortalNetwork {
 
     public void load(CompoundTag tag) {
         portals.clear();
+        owners.clear();
         for (Tag raw : tag.getList("Portals", Tag.TAG_COMPOUND)) {
             GlobalPos pos = readPos((CompoundTag) raw);
             if (pos != null) {
                 portals.add(pos);
+                if (((CompoundTag) raw).contains("Owner") && ((CompoundTag) raw).getInt("Owner") >= 0) {
+                    owners.put(pos, ((CompoundTag) raw).getInt("Owner"));
+                }
             }
         }
         resummon.clear();

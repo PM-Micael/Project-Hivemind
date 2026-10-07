@@ -262,7 +262,15 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
     private static final int DATA_REDSTONE_PERCENT = DATA_REDSTONE + 1;
     /** The fuel the furnace is kept filled with: the item's number in the registry plus one, 0 for none. */
     private static final int DATA_FURNACE_AUTOFUEL = DATA_REDSTONE_PERCENT + 1;
-    public static final int DATA_COUNT = DATA_FURNACE_AUTOFUEL + 1;
+    /** The Heart tab's honey setting: the food level at or below which the hive drinks honey. */
+    private static final int DATA_HEART_HONEY = DATA_FURNACE_AUTOFUEL + 1;
+    /** The Heart tab's other settings: when it eats from the food slot, and whether it drinks honey first. */
+    private static final int DATA_HEART_SLOT = DATA_HEART_HONEY + 1;
+    private static final int DATA_HEART_HONEY_FIRST = DATA_HEART_SLOT + 1;
+    /** Whether the furnace burns lava from the hive's fluids. */
+    private static final int DATA_FURNACE_LAVA = DATA_HEART_HONEY_FIRST + 1;
+    private static final int DATA_HEART_PERFECT = DATA_FURNACE_LAVA + 1;
+    public static final int DATA_COUNT = DATA_HEART_PERFECT + 1;
 
     /** What the next spawning interval will do for a kind of unit. */
     public static final int STATUS_IDLE = 0;
@@ -565,6 +573,21 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
                 }
                 if (index == DATA_REDSTONE) {
                     return heart.redstoneFlags();
+                }
+                if (index == DATA_HEART_PERFECT) {
+                    return heart.perfectEating() ? 1 : 0;
+                }
+                if (index == DATA_FURNACE_LAVA) {
+                    return heart.furnace().useLava() ? 1 : 0;
+                }
+                if (index == DATA_HEART_SLOT) {
+                    return heart.slotBelow();
+                }
+                if (index == DATA_HEART_HONEY_FIRST) {
+                    return heart.honeyFirst() ? 1 : 0;
+                }
+                if (index == DATA_HEART_HONEY) {
+                    return heart.honeyBelow();
                 }
                 if (index == DATA_FURNACE_AUTOFUEL) {
                     net.minecraft.world.item.Item chosen = heart.furnace().autoFuel();
@@ -977,7 +1000,7 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         return slot.index - fluidStart == FLUID_COLUMNS * 2;
     }
 
-    /** True once the hive has consumed a cauldron: it keeps fluids, on the Fluids tab. */
+    /** True once the hive has researched anything that collects a fluid (a cauldron, a sponge, a bee nest or a bottle o' enchanting): the Fluids tab is there. */
     /** Server side: the Fluids tab's drain button (after the player confirmed): every meter is emptied. */
     public void drainFluids() {
         if (heart != null && hasFluids()) {
@@ -1013,8 +1036,56 @@ public class HiveMenu extends AbstractContainerMenu implements SpectatorClickabl
         }
     }
 
+    /** True once the hive has consumed a bee nest: feeders make honey, and the Heart can drink it. */
+    public boolean hasHoney() {
+        return com.projecthivemind.EvolveTask.BEE_NEST.doneIn(evolveMask());
+    }
+
+    /** The food level at or below which the hive drinks honey (0 for never). */
+    public int heartHoneyBelow() {
+        return data.get(DATA_HEART_HONEY);
+    }
+
+    public int heartSlotBelow() {
+        return data.get(DATA_HEART_SLOT);
+    }
+
+    public boolean heartHoneyFirst() {
+        return data.get(DATA_HEART_HONEY_FIRST) != 0;
+    }
+
+    /** Server side: the Heart tab's eating settings. */
+    public boolean heartPerfectEating() {
+        return data.get(DATA_HEART_PERFECT) != 0;
+    }
+
+    public void setHeartEating(int honeyBelow, int slotBelow, boolean honeyFirst, boolean perfect) {
+        if (heart != null) {
+            heart.setEatingSettings(honeyBelow, slotBelow, honeyFirst, perfect);
+        }
+    }
+
+    /** Server side: the Heart tab's honey setting. */
+    public void setHeartHoneyBelow(int below) {
+        if (heart != null) {
+            heart.setHoneyBelow(below);
+        }
+    }
+
+    public boolean furnaceUseLava() {
+        return data.get(DATA_FURNACE_LAVA) != 0;
+    }
+
+    /** Server side: the furnace burns lava from the hive's fluids (once the hive has a furnace and a cauldron). */
+    public void setFurnaceUseLava(boolean on) {
+        if (heart != null && hasFurnace() && hasFluids()) {
+            heart.furnace().setUseLava(on);
+        }
+    }
+
     public boolean hasFluids() {
-        return com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask());
+        return com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask()) || com.projecthivemind.EvolveTask.SPONGE.doneIn(evolveMask()) || com.projecthivemind.EvolveTask.BEE_NEST.doneIn(evolveMask())
+                || com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask());
     }
 
     /** The column the Fluids tab starts from. */

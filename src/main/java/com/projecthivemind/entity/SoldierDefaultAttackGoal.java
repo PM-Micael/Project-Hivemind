@@ -50,14 +50,14 @@ public class SoldierDefaultAttackGoal extends Goal {
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
-    /** Idle, and not selected. */
+    /** Idle, and not selected. The Heart is the hive's wherever the soldier is, so a team in the Nether still defends itself. */
     private boolean mayAct(@Nullable HiveHeart heart) {
         return heart != null && soldier.action() == null && !heart.isUnitSelected(soldier.getId());
     }
 
     @Override
     public boolean canUse() {
-        HiveHeart heart = soldier.findLocalHeart();
+        HiveHeart heart = soldier.findHeart();
         if (!mayAct(heart) || soldier.tickCount < nextScanTick) {
             return false;
         }
@@ -70,7 +70,7 @@ public class SoldierDefaultAttackGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        HiveHeart heart = soldier.findLocalHeart();
+        HiveHeart heart = soldier.findHeart();
         if (!mayAct(heart) || target == null || !target.isAlive()) {
             return false;
         }
@@ -85,7 +85,7 @@ public class SoldierDefaultAttackGoal extends Goal {
     public void start() {
         soldier.resetCombat();
         soldier.setAggressive(true);
-        HiveHeart heart = soldier.findLocalHeart();
+        HiveHeart heart = soldier.findHeart();
         if (heart != null && target != null) {
             heart.assignFight(soldier.getUUID(), target.getUUID(), soldier.level().getGameTime());
         }
@@ -95,7 +95,7 @@ public class SoldierDefaultAttackGoal extends Goal {
     @Override
     public void stop() {
         soldier.setAggressive(false);
-        HiveHeart fightHeart = soldier.findLocalHeart();
+        HiveHeart fightHeart = soldier.findHeart();
         if (fightHeart != null) {
             fightHeart.releaseFight(soldier.getUUID());
         }
@@ -111,7 +111,7 @@ public class SoldierDefaultAttackGoal extends Goal {
             soldier.pursue(target);
             // Counted on this mob for as long as it keeps at it: renewed every second.
             if (soldier.tickCount % 20 == 0) {
-                HiveHeart heart = soldier.findLocalHeart();
+                HiveHeart heart = soldier.findHeart();
                 if (heart != null) {
                     heart.assignFight(soldier.getUUID(), target.getUUID(), soldier.level().getGameTime());
                 }
@@ -248,6 +248,10 @@ public class SoldierDefaultAttackGoal extends Goal {
      * scout is inside the hive border.
      */
     private boolean settingsApply(HiveHeart heart) {
+        // The hive area is where the Heart is: in another dimension (the Nether, with a team) the settings have no area to apply to, but the team still defends itself.
+        if (heart.level() != soldier.level()) {
+            return false;
+        }
         if (!soldier.behavior().any()) {
             return false;
         }

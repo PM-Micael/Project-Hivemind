@@ -124,8 +124,9 @@ public final class FluidContainers {
             return false;
         }
         for (Entry entry : TABLE) {
-            if (entry.empty().test(stack)) {
-                return entry.fluid().equals(fluid);
+            // Any entry that fits this container and fluid will do: the table has several for one empty container (a bucket fills with water, lava or milk).
+            if (entry.empty().test(stack) && entry.fluid().equals(fluid)) {
+                return true;
             }
         }
         IFluidHandlerItem handler = handlerOf(stack);

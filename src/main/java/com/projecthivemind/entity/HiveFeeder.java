@@ -83,6 +83,8 @@ public class HiveFeeder extends Bee implements HiveUnit {
         this.goalSelector.addGoal(1, new FeederTillGoal(this));
         this.goalSelector.addGoal(2, new FeederChannelGoal(this));
         this.goalSelector.addGoal(2, new FeederCompostGoal(this));
+        // After those: once the hive has a bee nest, gather pollen for honey.
+        this.goalSelector.addGoal(3, new FeederPollenGoal(this));
         // The last thing it does, when idle: hover in the Heart.
         this.goalSelector.addGoal(6, new GatherAtHeartGoal(this, () -> true));
     }
@@ -241,5 +243,30 @@ public class HiveFeeder extends Bee implements HiveUnit {
         behavior = FeederBehavior.from(tag.getInt("Flags"), new int[4]);
         net.minecraft.resources.ResourceLocation compostId = tag.contains("CompostItem") ? net.minecraft.resources.ResourceLocation.tryParse(tag.getString("CompostItem")) : null;
         setCompostItem(compostId == null ? null : net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(compostId).orElse(null));
+    }
+
+    /** The hive's units make none of the noises of the mob they are built on: no groaning, no hurt or death sounds. */
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getAmbientSound() {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getHurtSound(net.minecraft.world.damagesource.DamageSource source) {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getDeathSound() {
+        return null;
+    }
+
+    /** A feeder is silent altogether: that also stops the bee's buzzing, which the game plays by the bee being quiet or not. */
+    @Override
+    public boolean isSilent() {
+        return true;
     }
 }

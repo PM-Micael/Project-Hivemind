@@ -253,8 +253,12 @@ public final class TowerBuild {
         if (placement.stair()) {
             return state.getBlock() instanceof StairBlock && state.getValue(StairBlock.FACING) == placement.facing();
         }
-        // A wall block is only built where there is nothing else: any other block already there (stone, dirt, a cave wall...) is left as it is and counts as
+        // In a tower (going up) a wall block goes where nothing else is: any other block already there (dirt, stone, a tree...) is in the way, and is mined out
+        // before the wall block is put in. In a shaft (going down) the rock around it is the wall: it is left as it is and counts as
         // done. Air, liquid and plants that a block replaces are still to be filled.
+        if (plan.direction() != TowerDirection.DOWN) {
+            return set.isWallBlock(state);
+        }
         return set.isWallBlock(state) || (!state.isAir() && !state.canBeReplaced() && state.getFluidState().isEmpty());
     }
 

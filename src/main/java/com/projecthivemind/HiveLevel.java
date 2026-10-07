@@ -34,9 +34,9 @@ public record HiveLevel(int level, float maxHealth, int storageSlots, int crafti
         }
     }
 
-    /** How many hive portals the hive may have standing at once: none before level 2, one from then on. */
+    /** How many hive portals the hive may have standing at once: none before level 2, then one for each scout it may have. */
     public int maxPortals() {
-        return level >= HiveLevels.PORTAL_LEVEL ? 1 : 0;
+        return level >= HiveLevels.PORTAL_LEVEL ? cap(UnitKind.SCOUT) : 0;
     }
 
     /** How many teams the hive has: one for the Heart, and one for each portal it may have. */

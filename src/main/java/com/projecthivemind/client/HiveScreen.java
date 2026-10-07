@@ -102,7 +102,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int WOODWORK_ROW = 11;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE, FLUIDS
+        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE, FLUIDS, HEART
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -118,11 +118,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button evolveTab;
     private Button redstoneTab;
     private Button fluidsTab;
+    private Button heartTab;
+    private EditBox heartHoneyBox;
+    private EditBox heartSlotBox;
+    private Checkbox heartHoneyFirst;
+    private Checkbox heartPerfect;
     private Button fluidLeft;
     private Button fluidRight;
     private Button fluidPull;
     private Button fluidDrain;
     private SeedButton furnaceFuelButton;
+    private Checkbox furnaceLavaBox;
+    private boolean furnaceLavaFilling;
     /** The enchanting station's list of what the hive can enchant with: a search box, and rows that the mouse wheel scrolls. */
     private static final int ENCHANT_ROWS = 5;
     private EditBox enchantSearch;
@@ -185,6 +192,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Checkbox fellTrees;
     private Checkbox workerFlee;
     private Checkbox useComposter;
+    private Checkbox gatherPollen;
     private SeedButton compostButton;
     /** How far the unit page's settings are scrolled up, in pixels; and how far the widgets have been moved for it so far. */
     private int behaviorScroll;
@@ -247,6 +255,18 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         evolveTab = tabButton(4, Items.DRAGON_EGG, "screen.projecthivemind.hive.tab_evolve", Tab.EVOLVE);
         redstoneTab = tabButton(5, Items.REDSTONE, "screen.projecthivemind.hive.tab_redstone", Tab.REDSTONE);
         fluidsTab = tabButton(6, Items.CAULDRON, "screen.projecthivemind.hive.tab_fluids", Tab.FLUIDS);
+        heartTab = tabButton(7, Items.HONEY_BOTTLE, "screen.projecthivemind.hive.tab_heart", Tab.HEART);
+        heartSlotBox = heartBox("screen.projecthivemind.heart.slot", HEART_SLOT_Y);
+        heartHoneyBox = heartBox("screen.projecthivemind.heart.honey", HEART_HONEY_Y);
+        heartHoneyFirst = addRenderableWidget(Checkbox.builder(Component.translatable("screen.projecthivemind.heart.honey_first"), font)
+                .onValueChange((checkbox, value) -> sendHeartSettings()).build());
+        heartHoneyFirst.setPosition(leftPos + HEART_X, topPos + HEART_FIRST_Y);
+        heartHoneyFirst.visible = false;
+        heartPerfect = addRenderableWidget(Checkbox.builder(Component.translatable("screen.projecthivemind.heart.perfect"), font)
+                .tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.heart.perfect.tooltip")))
+                .onValueChange((checkbox, value) -> sendHeartSettings()).build());
+        heartPerfect.setPosition(leftPos + HEART_X, topPos + HEART_PERFECT_Y);
+        heartPerfect.visible = false;
         fluidLeft = addRenderableWidget(Button.builder(Component.literal("<"), button -> scrollFluids(-1)).bounds(leftPos + 8, topPos + HiveMenu.FLUID_METER_Y + 11, 20, 20).build());
         fluidRight = addRenderableWidget(Button.builder(Component.literal(">"), button -> scrollFluids(1)).bounds(leftPos + imageWidth - 28, topPos + HiveMenu.FLUID_METER_Y + 11, 20, 20).build());
         fluidPull = addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.fluids.pull"), button -> PacketDistributor.sendToServer(new com.projecthivemind.network.PullFluidsPayload(menu.containerId)))
@@ -309,6 +329,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 () -> new ItemStack(menu.furnaceAutoFuel()), button -> openFurnaceFuelPicker()));
         furnaceFuelButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.furnace_fuel.tooltip")));
         furnaceFuelButton.visible = false;
+        furnaceLavaBox = addRenderableWidget(Checkbox.builder(Component.translatable("screen.projecthivemind.furnace_lava"), font)
+                .tooltip(Tooltip.create(Component.translatable("screen.projecthivemind.furnace_lava.tooltip")))
+                .onValueChange((box, value) -> {
+                    if (!furnaceLavaFilling) {
+                        PacketDistributor.sendToServer(new com.projecthivemind.network.SetFurnaceLavaPayload(menu.containerId, value));
+                    }
+                }).build());
+        furnaceLavaBox.setPosition(leftPos + HiveMenu.FURNACE_FUEL_X, topPos + HiveMenu.FURNACE_FUEL_Y + 26);
+        furnaceLavaBox.visible = false;
         storageSearch = addRenderableWidget(new EditBox(font, leftPos + HiveMenu.STORAGE_X + 46, topPos + LABEL_Y - 2, 112, 12,
                 Component.translatable("screen.projecthivemind.hive.search")));
         storageSearch.setHint(Component.translatable("screen.projecthivemind.hive.search"));
@@ -400,6 +429,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         redstoneTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0)) * TAB_STEP);
         fluidsTab.visible = menu.hasFluids();
         fluidsTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0) + (redstoneTab.visible ? 1 : 0)) * TAB_STEP);
+        heartTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0) + (redstoneTab.visible ? 1 : 0) + (fluidsTab.visible ? 1 : 0)) * TAB_STEP);
     }
 
     /** A button that shows the head of a unit's mob model where a label would be. */
@@ -579,6 +609,13 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         if (furnaceFuelButton != null) {
             furnaceFuelButton.visible = stationInView(Station.FURNACE);
+            boolean lavaShown = stationInView(Station.FURNACE) && menu.hasFluids();
+            furnaceLavaBox.visible = lavaShown;
+            if (lavaShown && furnaceLavaBox.selected() != menu.furnaceUseLava()) {
+                furnaceLavaFilling = true;
+                furnaceLavaBox.onPress();
+                furnaceLavaFilling = false;
+            }
         }
         if (clearTrashButton != null) {
             clearTrashButton.visible = stationInView(Station.TRASH);
@@ -738,6 +775,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         evolveTab.active = newTab != Tab.EVOLVE;
         redstoneTab.active = newTab != Tab.REDSTONE;
         fluidsTab.active = newTab != Tab.FLUIDS;
+        heartTab.active = newTab != Tab.HEART;
+        heartSlotBox.visible = newTab == Tab.HEART;
+        heartHoneyBox.visible = newTab == Tab.HEART;
+        heartHoneyFirst.visible = newTab == Tab.HEART;
+        heartPerfect.visible = newTab == Tab.HEART;
         storageSearch.visible = newTab == Tab.HIVE || newTab == Tab.FLUIDS;
         if (newTab == Tab.FLUIDS) {
             storageSearch.setX(leftPos + HiveMenu.FLUID_STORAGE_X);
@@ -980,6 +1022,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             showTab(Tab.HIVE, unitPage);
         }
         updateTabButtons();
+        updateHeartWidgets();
         boolean scrollableFluids = tab == Tab.FLUIDS && menu.fluidColumnCount() > HiveMenu.FLUID_COLUMNS;
         fluidPull.visible = tab == Tab.FLUIDS;
         fluidDrain.visible = tab == Tab.FLUIDS;
@@ -1028,6 +1071,17 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     }
 
     /** Killing a unit cannot be undone, so the player is asked first. Whatever the answer, this screen is shown again. */
+    private void askToKillAllUnits() {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.KillAllUnitsPayload());
+            }
+            minecraft.setScreen(this);
+        }, Component.translatable("screen.projecthivemind.portals.kill_all_title"), Component.translatable("screen.projecthivemind.portals.kill_all_message"),
+                CommonComponents.GUI_YES, CommonComponents.GUI_NO));
+    }
+
     private void askToKillUnit() {
         int unit = viewedUnit;
         if (unit < 0) {
@@ -1245,6 +1299,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         channelSaplings = behaviorBox(feederWidgets, 1, "screen.projecthivemind.behavior.channel_saplings", this::sendFeederBehavior);
         useBoneMeal = behaviorBox(feederWidgets, 2, "screen.projecthivemind.behavior.use_bone_meal", this::sendFeederBehavior);
         useComposter = behaviorBox(feederWidgets, 3, "screen.projecthivemind.behavior.use_composter", this::sendFeederBehavior);
+        gatherPollen = behaviorBox(feederWidgets, 4, "screen.projecthivemind.behavior.gather_pollen", this::sendFeederBehavior);
         compostButton = addRenderableWidget(new SeedButton(leftPos + imageWidth - 12 - 22, topPos + BEHAVIOR_TOP + 3 * BEHAVIOR_ROW - 2, 20, 20,
                 this::currentCompost, button -> openCompostPicker()));
         compostButton.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.behavior.use_composter.tooltip")));
@@ -1360,6 +1415,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 setChecked(channelSaplings, feeder.channelSaplings());
                 setChecked(useBoneMeal, feeder.useBoneMeal());
                 setChecked(useComposter, feeder.useComposter());
+                setChecked(gatherPollen, feeder.gatherPollen());
             }
             case COLLECTOR -> {
                 // The tasks come with the unit list; the tick box is a setting.
@@ -1403,7 +1459,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // The bone meal tick belongs to channelling: it can only be changed while that is ticked.
         useBoneMeal.active = channelCrops.selected() || channelSaplings.selected();
         if (canSend()) {
-            FeederBehavior behavior = new FeederBehavior(channelCrops.selected(), useBoneMeal.selected(), channelSaplings.selected(), useComposter.selected());
+            FeederBehavior behavior = new FeederBehavior(channelCrops.selected(), useBoneMeal.selected(), channelSaplings.selected(), useComposter.selected(), gatherPollen.selected());
             sendBehavior(behavior.flags(), behavior.radii());
         }
     }
@@ -1563,6 +1619,78 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                     : menu.isFluidTopSlot(hoveredSlot) ? "screen.projecthivemind.fluids.top" : "screen.projecthivemind.fluids.bottom"),
                     mouseX, mouseY);
         }
+    }
+
+    // ---- the Heart tab: settings of the Heart itself ----
+
+    private static final int HEART_X = 20;
+    private static final int HEART_SLOT_Y = 84;
+    private static final int HEART_HONEY_Y = 110;
+    private static final int HEART_FIRST_Y = 136;
+    private static final int HEART_PERFECT_Y = 160;
+
+    /** A box for a food level (0 to 19) next to its label, on the Heart tab. */
+    private EditBox heartBox(String labelKey, int y) {
+        EditBox box = addRenderableWidget(new EditBox(font, leftPos + HEART_X + font.width(Component.translatable(labelKey)) + 8, topPos + y - 3, 30, 14,
+                Component.translatable(labelKey)));
+        box.setMaxLength(2);
+        box.setFilter(text -> text.isEmpty() || text.chars().allMatch(Character::isDigit));
+        box.setResponder(text -> {
+            if (!text.isEmpty() && box.isFocused()) {
+                sendHeartSettings();
+            }
+        });
+        box.visible = false;
+        return box;
+    }
+
+    private static int foodLevelIn(EditBox box, int otherwise) {
+        return box.getValue().isEmpty() ? otherwise : Math.min(19, Integer.parseInt(box.getValue()));
+    }
+
+    private void sendHeartSettings() {
+        if (heartFilling) {
+            return;
+        }
+        PacketDistributor.sendToServer(new com.projecthivemind.network.SetHeartSettingsPayload(menu.containerId,
+                foodLevelIn(heartHoneyBox, menu.heartHoneyBelow()), foodLevelIn(heartSlotBox, menu.heartSlotBelow()), heartHoneyFirst.selected(), heartPerfect.selected()));
+    }
+
+    /** True while the Heart tab's widgets are being filled from what the server said, so that filling them does not send it back. */
+    private boolean heartFilling;
+
+    private void renderHeartPage(GuiGraphics graphics) {
+        int honeyColor = menu.hasHoney() ? 0xE0E0E0 : 0x707070;
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.heart.slot"), HEART_X, HEART_SLOT_Y + 1, 0xE0E0E0, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.heart.honey"), HEART_X, HEART_HONEY_Y + 1, honeyColor, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.heart.help"), HEART_X, HEART_PERFECT_Y + 26, 0x909090, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.heart.help2"), HEART_X, HEART_PERFECT_Y + 38, 0x909090, false);
+        if (!menu.hasHoney()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.heart.needs_bee_nest"), HEART_X, HEART_PERFECT_Y + 54, 0xC08080, false);
+        }
+    }
+
+    /** Keep the Heart tab's widgets showing what the server says, unless the player is typing in one. */
+    private void updateHeartWidgets() {
+        heartHoneyBox.active = menu.hasHoney();
+        heartHoneyFirst.active = menu.hasHoney();
+        if (tab != Tab.HEART) {
+            return;
+        }
+        heartFilling = true;
+        if (!heartHoneyBox.isFocused() && !heartHoneyBox.getValue().equals(String.valueOf(menu.heartHoneyBelow()))) {
+            heartHoneyBox.setValue(String.valueOf(menu.heartHoneyBelow()));
+        }
+        if (!heartSlotBox.isFocused() && !heartSlotBox.getValue().equals(String.valueOf(menu.heartSlotBelow()))) {
+            heartSlotBox.setValue(String.valueOf(menu.heartSlotBelow()));
+        }
+        if (heartPerfect.selected() != menu.heartPerfectEating()) {
+            heartPerfect.onPress();
+        }
+        if (heartHoneyFirst.selected() != menu.heartHoneyFirst()) {
+            heartHoneyFirst.onPress();
+        }
+        heartFilling = false;
     }
 
     // ---- the Redstone tab: what the Heart gives and takes through hive relays ----
@@ -1927,6 +2055,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case EVOLVE -> renderEvolve(graphics);
             case REDSTONE -> renderRedstone(graphics);
             case FLUIDS -> renderFluids(graphics);
+            case HEART -> renderHeartPage(graphics);
             default -> renderHiveLabels(graphics);
         }
     }
@@ -2101,16 +2230,16 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
 
     /** How many rows of the Completed list fit under its heading. */
     private int evolveVisibleRows() {
-        return Math.max(1, (imageHeight - 12 - evolveDoneTop()) / 20);
+        return Math.max(1, (imageHeight - 12 - evolveDoneTop()) / EVOLVE_STEP);
     }
 
-    /** How many rows the Completed list has in all. */
+    /** How many rows the Completed list has in all: the icons are laid out in rows like the tasks to do. */
     private int evolveDoneRows() {
         int done = 0;
         for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
             done += task.doneIn(menu.evolveMask()) ? 1 : 0;
         }
-        return done;
+        return (done + evolveColumns() - 1) / evolveColumns();
     }
 
     /** One task's icon on the Evolve tab: whether it is done, whether the hive can do it now, and where it is (in the panel's own coordinates). */
@@ -2157,10 +2286,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         }
         for (com.projecthivemind.EvolveTask task : com.projecthivemind.EvolveTask.values()) {
             if (task.doneIn(mask)) {
-                // One to a row. Only the rows in view are there.
-                int row = done;
+                // Side by side like the tasks to do, and only the rows in view are there.
+                int row = done / evolveColumns();
                 if (row >= evolveScroll && row < evolveScroll + evolveVisibleRows()) {
-                    icons.add(new EvolveIcon(task, true, false, UNIT_LIST_X, evolveDoneTop() + (row - evolveScroll) * 20));
+                    icons.add(new EvolveIcon(task, true, false, UNIT_LIST_X + (done % evolveColumns()) * EVOLVE_STEP, evolveDoneTop() + (row - evolveScroll) * EVOLVE_STEP));
                 }
                 done++;
             }
@@ -2173,7 +2302,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         // A thin bar beside the Completed list when it has more rows than fit.
         if (evolveDoneRows() > evolveVisibleRows()) {
             int top = evolveDoneTop();
-            int height = evolveVisibleRows() * 20;
+            int height = evolveVisibleRows() * EVOLVE_STEP;
             int thumb = Math.max(10, height * evolveVisibleRows() / evolveDoneRows());
             int thumbY = top + (height - thumb) * evolveScroll / (evolveDoneRows() - evolveVisibleRows());
             graphics.fill(imageWidth - 8, top, imageWidth - 6, top + height, 0x44000000);
@@ -2196,11 +2325,6 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             graphics.fill(icon.x() - 1, icon.y() - 1, icon.x() + 17, icon.y() + 17, icon.ready() ? 0xFF55FF55 : SLOT_EDGE);
             graphics.fill(icon.x(), icon.y(), icon.x() + 16, icon.y() + 16, icon.ready() ? 0xFF2E6B2E : SLOT_FILL);
             graphics.renderItem(new ItemStack(icon.task().item()), icon.x(), icon.y());
-            if (icon.done()) {
-                // What it gave, to the right of it.
-                graphics.drawString(font, Component.translatable("screen.projecthivemind.evolve.reward." + icon.task().name().toLowerCase(Locale.ROOT)),
-                        icon.x() + 24, icon.y() + 4, 0xA0E0A0, false);
-            }
         }
     }
 
@@ -2221,7 +2345,12 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
                 ItemStack stack = new ItemStack(icon.task().item());
                 if (icon.done()) {
-                    graphics.renderTooltip(font, stack, mouseX, mouseY);
+                    // A completed task: the item, and what it gave (the text is wrapped to fit).
+                    java.util.List<net.minecraft.util.FormattedCharSequence> lines = new java.util.ArrayList<>();
+                    lines.add(stack.getHoverName().getVisualOrderText());
+                    lines.addAll(font.split(Component.translatable("screen.projecthivemind.evolve.reward." + icon.task().name().toLowerCase(Locale.ROOT))
+                            .withStyle(net.minecraft.ChatFormatting.GREEN), 220));
+                    graphics.renderTooltip(font, lines, mouseX, mouseY);
                 } else {
                     java.util.List<Component> lines = new java.util.ArrayList<>();
                     lines.add(stack.getHoverName());
@@ -2478,11 +2607,19 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 unitButtons.add(addRenderableWidget(instant));
             }
             y += 30;
+            // At the bottom of the list: kill all the units, for when one has been lost somewhere (after asking).
+            Button killAll = Button.builder(Component.translatable("screen.projecthivemind.portals.kill_all").withStyle(net.minecraft.ChatFormatting.RED),
+                    button -> askToKillAllUnits()).bounds(x, topPos + imageHeight - 30, 130, 20).build();
+            killAll.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.portals.kill_all.tooltip")));
+            unitButtons.add(addRenderableWidget(killAll));
             for (int i = 0; i < ClientPortals.portals().size() && y + 22 <= topPos + imageHeight - 10; i++) {
                 int index = i;
                 SyncPortalsPayload.Portal portal = ClientPortals.portals().get(i);
-                Component label = Component.translatable("screen.projecthivemind.portals.entry", i + 1, dimensionName(portal.dimension()),
-                        portal.pos().getX(), portal.pos().getY(), portal.pos().getZ());
+                Component label = portal.owner() >= 0
+                        ? Component.translatable("screen.projecthivemind.portals.entry_owner", portal.owner() + 1, dimensionName(portal.dimension()),
+                                portal.pos().getX(), portal.pos().getY(), portal.pos().getZ())
+                        : Component.translatable("screen.projecthivemind.portals.entry", i + 1, dimensionName(portal.dimension()),
+                                portal.pos().getX(), portal.pos().getY(), portal.pos().getZ());
                 unitButtons.add(addRenderableWidget(Button.builder(label, button -> openSummonPage(index)).bounds(x, y, PORTAL_LABEL_WIDTH, 20).build()));
                 // Then: fly the camera to the portal.
                 Button go = Button.builder(Component.translatable("screen.projecthivemind.portals.go"), button -> {

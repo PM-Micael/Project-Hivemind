@@ -249,6 +249,12 @@ public final class ServerPayloads {
             HivemindManager.setUnitBehavior(player, payload.unitId(), payload.flags(), payload.radii());
         }
     }
+    public static void onKillAllUnits(com.projecthivemind.network.KillAllUnitsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            HivemindManager.killAllUnits(player);
+        }
+    }
+
     public static void onKillUnit(KillUnitPayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivemindManager.killUnit(player, payload.unitId());
@@ -332,6 +338,20 @@ public final class ServerPayloads {
                 && menu.containerId == payload.containerId()) {
             menu.drainFluids();
             menu.broadcastChanges();
+        }
+    }
+
+    public static void onSetHeartSettings(com.projecthivemind.network.SetHeartSettingsPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setHeartEating(payload.honeyBelow(), payload.slotBelow(), payload.honeyFirst(), payload.perfect());
+        }
+    }
+
+    public static void onSetFurnaceLava(com.projecthivemind.network.SetFurnaceLavaPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player && player.containerMenu instanceof HiveMenu menu
+                && menu.containerId == payload.containerId()) {
+            menu.setFurnaceUseLava(payload.on());
         }
     }
 

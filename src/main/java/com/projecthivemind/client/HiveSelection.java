@@ -76,6 +76,9 @@ public final class HiveSelection {
     private static Vec3 cameraPosition = Vec3.ZERO;
     private static boolean haveCamera;
     /** The selection as the server was last told it. */
+    /** The scout being controlled and counted as selected, and whether it was selected before the control began. */
+    private static int controlledId = -1;
+    private static boolean selectedBeforeControl;
     private static Set<Integer> lastSentSelection = Set.of();
 
     private HiveSelection() {
@@ -119,6 +122,21 @@ public final class HiveSelection {
         // Any screen, or leaving hive mode, dismisses the context menu.
         if (ContextMenu.isOpen() && !HiveCamera.controlling(minecraft)) {
             ContextMenu.close();
+        }
+
+        // A scout the player is controlling counts as selected for as long as it is controlled (and is not left selected afterwards unless it was before).
+        var controlled = ClientControl.scout();
+        if (controlled != null) {
+            if (controlledId != controlled.getId()) {
+                controlledId = controlled.getId();
+                selectedBeforeControl = ClientSelection.isSelected(controlledId);
+            }
+            ClientSelection.select(controlledId);
+        } else if (controlledId >= 0) {
+            if (!selectedBeforeControl) {
+                ClientSelection.deselect(controlledId);
+            }
+            controlledId = -1;
         }
 
         Set<Integer> alive = new HashSet<>();

@@ -108,9 +108,30 @@ public final class HiveFluids {
         return XP.equals(fluid) ? XP_CAPACITY : CAPACITY;
     }
 
-    /** The fluids that have a meter, in order. */
+    /** Which fluids the hive may keep: honey once it has a bee nest, experience once it has a bottle o' enchanting, the others (water, lava, milk, modded ones) once it has a cauldron or a sponge. Set from the Heart. */
+    private boolean honeyAccess;
+    private boolean xpAccess;
+    private boolean otherAccess;
+
+    public void setAccess(boolean honey, boolean xp, boolean other) {
+        this.xpAccess = xp;
+        this.honeyAccess = honey;
+        this.otherAccess = other;
+    }
+
+    public boolean accessible(ResourceLocation fluid) {
+        return HONEY.equals(fluid) ? honeyAccess : XP.equals(fluid) ? xpAccess : otherAccess;
+    }
+
+    /** The fluids that have a meter and that the hive may keep, in order. */
     public List<ResourceLocation> fluids() {
-        return new ArrayList<>(amounts.keySet());
+        List<ResourceLocation> list = new ArrayList<>();
+        for (ResourceLocation id : amounts.keySet()) {
+            if (accessible(id)) {
+                list.add(id);
+            }
+        }
+        return list;
     }
 
     /** Empty every meter. Returns how many fluids had something in them. */
@@ -125,8 +146,20 @@ public final class HiveFluids {
         return emptied;
     }
 
+    /** Take this much of a fluid out of the hive, if there is that much: true if it was taken. */
+    public boolean take(ResourceLocation fluid, int units) {
+        if (amount(fluid) < units) {
+            return false;
+        }
+        amounts.merge(fluid, -units, Integer::sum);
+        return true;
+    }
+
     /** Put this much of a fluid in the hive (it gets a meter if it has none); returns how much went in, which is less than asked when the meter is nearly full. */
     public int add(ResourceLocation fluid, int units) {
+        if (!accessible(fluid)) {
+            return 0;
+        }
         int room = capacity(fluid) - amount(fluid);
         int taken = Math.max(0, Math.min(units, room));
         if (taken <= 0) {
@@ -143,7 +176,7 @@ public final class HiveFluids {
 
     /** How many columns there are: one for each fluid, and the extra one for a new fluid. */
     public int columns() {
-        return amounts.size() + 1;
+        return fluids().size() + (otherAccess ? 1 : 0);
     }
 
     /** The slots of this column (the last one is the extra column), or null if there is none. */
@@ -152,7 +185,8 @@ public final class HiveFluids {
         if (index < 0 || index >= columns()) {
             return null;
         }
-        return index == amounts.size() ? fresh : cells.get(fluids().get(index));
+        List<ResourceLocation> list = fluids();
+        return index == list.size() ? fresh : cells.get(list.get(index));
     }
 
     /**
@@ -167,7 +201,7 @@ public final class HiveFluids {
                 continue;
             }
             FluidContainers.Drain drain = FluidContainers.drain(stack, null, Integer.MAX_VALUE);
-            if (drain == null) {
+            if (drain == null || !accessible(drain.fluid())) {
                 continue;
             }
             Cells column = cells.getOrDefault(drain.fluid(), fresh);
@@ -201,10 +235,13 @@ public final class HiveFluids {
         int part = 0;
         FluidContainers.Drain drain = FluidContainers.drain(stack, null, Integer.MAX_VALUE);
         if (drain != null) {
+            if (!accessible(drain.fluid())) {
+                return 0;
+            }
             column = cells.getOrDefault(drain.fluid(), fresh);
         } else {
             part = 1;
-            for (ResourceLocation id : amounts.keySet()) {
+            for (ResourceLocation id : fluids()) {
                 if (FluidContainers.canHold(stack, id)) {
                     column = cells.get(id);
                     break;
@@ -244,10 +281,13 @@ public final class HiveFluids {
         busy = true;
         try {
             ResourceLocation key = column.key();
+            if ((key == null && !otherAccess) || (key != null && !accessible(key))) {
+                return;
+            }
             // Full containers in the top slot, one at a time, while the meter has room and the output window can take what is left of them.
             for (int guard = 0; guard < OUTPUT_LIMIT && !column.getItem(0).isEmpty(); guard++) {
                 FluidContainers.Drain drain = FluidContainers.drain(column.getItem(0), key, key == null ? CAPACITY : capacity(key) - amount(key));
-                if (drain == null || drain.units() > capacity(drain.fluid()) - amount(drain.fluid()) || !canOutput(drain.emptied())) {
+                if (drain == null || !accessible(drain.fluid()) || drain.units() > capacity(drain.fluid()) - amount(drain.fluid()) || !canOutput(drain.emptied())) {
                     break;
                 }
                 amounts.merge(drain.fluid(), drain.units(), Integer::sum);
@@ -293,7 +333,10 @@ public final class HiveFluids {
     /** A short text that changes whenever the amounts or the fluids do, so that the screen is only told when it has to be. */
     public String signature() {
         StringBuilder text = new StringBuilder();
-        amounts.forEach((id, amount) -> text.append(id).append('=').append(amount).append(';'));
+        text.append(honeyAccess).append(xpAccess).append(otherAccess).append('|');
+        for (ResourceLocation id : fluids()) {
+            text.append(id).append('=').append(amount(id)).append(';');
+        }
         return text.toString();
     }
 

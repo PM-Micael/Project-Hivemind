@@ -26,7 +26,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 public class BuildTunnelScreen extends Screen {
     private static final int WIDTH = 270;
-    private static final int HEIGHT = 212;
+    private static final int HEIGHT = 250;
     private static final String[] SIZE_NAMES = {"1x2", "2x2", "3x3", "5x5"};
     private static final Direction[] WAYS = {Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST};
 
@@ -43,6 +43,10 @@ public class BuildTunnelScreen extends Screen {
     private final Button[] wayButtons = new Button[WAYS.length];
     private Button blockButton;
     private Button buildButton;
+    private Button endlessButton;
+    private final java.util.List<Button> lengthButtons = new java.util.ArrayList<>();
+    /** The tunnel goes on until it is cancelled: a new stretch is dug whenever the last is done. */
+    private boolean endless;
 
     public BuildTunnelScreen(List<Integer> workers, BlockPos site) {
         super(Component.translatable("screen.projecthivemind.tunnel.title"));
@@ -65,6 +69,7 @@ public class BuildTunnelScreen extends Screen {
         this.size = Math.max(1, Math.min(BridgeJob.TUNNEL_SIZE_COUNT, config.getInt("TunnelSize")));
         this.length = Math.max(BridgeJob.TUNNEL_MIN_LENGTH, Math.min(BridgeJob.TUNNEL_MAX_LENGTH, config.getInt("Length")));
         this.way = Direction.from2DDataValue(config.getInt("Direction") & 3);
+        this.endless = config.getBoolean("Endless");
     }
 
     @Nullable
@@ -101,11 +106,15 @@ public class BuildTunnelScreen extends Screen {
         for (int i = 0; i < changes.length; i++) {
             int change = changes[i];
             int x = i < 2 ? left + 12 + i * (step + 4) : left + 12 + 2 * (step + 4) + 90 + 4 + (i - 2) * (step + 4);
-            addRenderableWidget(Button.builder(Component.literal(change > 0 ? "+" + change : String.valueOf(change)), button -> {
+            lengthButtons.add(addRenderableWidget(Button.builder(Component.literal(change > 0 ? "+" + change : String.valueOf(change)), button -> {
                 length = Math.max(BridgeJob.TUNNEL_MIN_LENGTH, Math.min(BridgeJob.TUNNEL_MAX_LENGTH, length + change));
                 refresh();
-            }).bounds(x, top + 148, step, 20).build());
+            }).bounds(x, top + 148, step, 20).build()));
         }
+        endlessButton = addRenderableWidget(Button.builder(Component.empty(), button -> {
+            endless = !endless;
+            refresh();
+        }).bounds(left + 12, top + 172, full, 20).build());
         buildButton = addRenderableWidget(Button.builder(Component.translatable(editing != null ? "screen.projecthivemind.construction.save" : "screen.projecthivemind.tunnel.build"), button -> {
             if (editing != null) {
                 CompoundTag tag = new CompoundTag();
@@ -113,9 +122,10 @@ public class BuildTunnelScreen extends Screen {
                 tag.putInt("TunnelSize", size);
                 tag.putInt("Length", length);
                 tag.putInt("Direction", way.get2DDataValue());
+                tag.putBoolean("Endless", endless);
                 PacketDistributor.sendToServer(new com.projecthivemind.network.UpdateConstructionPayload(editing, tag));
             } else {
-                PacketDistributor.sendToServer(new BuildTunnelPayload(workers, site, way.get2DDataValue(), size, length,
+                PacketDistributor.sendToServer(new BuildTunnelPayload(workers, site, way.get2DDataValue() | (endless ? 4 : 0), size, length,
                         BuiltInRegistries.ITEM.getKey(block).toString()));
             }
             onClose();
@@ -128,6 +138,11 @@ public class BuildTunnelScreen extends Screen {
     /** Put the choices on the buttons: the chosen size and direction are the ones that cannot be pressed. */
     private void refresh() {
         blockButton.setMessage(Component.translatable("screen.projecthivemind.tunnel.block", block.getDescription()));
+        endlessButton.setMessage(Component.translatable(endless ? "screen.projecthivemind.tunnel.endless.on" : "screen.projecthivemind.tunnel.endless.off"));
+        endlessButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.projecthivemind.tunnel.endless.tooltip")));
+        for (Button lengthButton : lengthButtons) {
+            lengthButton.active = !endless;
+        }
         for (int i = 0; i < sizeButtons.length; i++) {
             sizeButtons[i].active = i + 1 != size;
         }
@@ -159,7 +174,7 @@ public class BuildTunnelScreen extends Screen {
         Component shown = Component.translatable("screen.projecthivemind.tunnel.blocks", length);
         int step = (WIDTH - 24 - 3 * 4 - 90) / 4;
         graphics.drawCenteredString(font, shown, left + 12 + 2 * (step + 4) + 45, top + 154, 0xFFFFFF);
-        graphics.drawString(font, Component.translatable("screen.projecthivemind.tunnel.note"), left + 12, top + 176, 0x909090, false);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.tunnel.note"), left + 12, top + 200, 0x909090, false);
     }
 
     @Override

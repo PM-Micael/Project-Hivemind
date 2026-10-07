@@ -92,7 +92,7 @@ public class ScoutPortalGoal extends Goal {
             if (problem != null || !com.projecthivemind.Dehydrators.place(level, heart, pos, face)) {
                 owner.displayClientMessage(Component.translatable(problem != null ? problem : "message.projecthivemind.dehydrator_no_room"), true);
             }
-        } else if (!HivePortals.place(level, heart, pos, face)) {
+        } else if (!HivePortals.place(level, heart, pos, face, com.projecthivemind.HivemindManager.slotNumber(owner, com.projecthivemind.UnitKind.SCOUT, scout.getUUID()))) {
             owner.displayClientMessage(Component.translatable("message.projecthivemind.portal_no_room"), true);
         } else {
             HivePortals.sync(owner, heart);

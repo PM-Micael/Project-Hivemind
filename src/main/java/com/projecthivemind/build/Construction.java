@@ -58,6 +58,8 @@ public final class Construction {
     private int towerMaterials;
     private final Set<UUID> workers = new LinkedHashSet<>();
     private boolean done;
+    /** A tunnel that goes on being dug (a new stretch is added whenever the last is done) until it is finished or cancelled. */
+    private boolean endless;
     /** The ground columns this construction uses, with a margin round them (see {@link #footprint}); worked out when first asked for. */
     @Nullable
     private Set<Long> footprint;
@@ -112,6 +114,20 @@ public final class Construction {
     @Nullable
     public TowerBuild tower() {
         return tower;
+    }
+
+    public boolean endless() {
+        return endless;
+    }
+
+    public void setEndless(boolean endless) {
+        this.endless = endless;
+    }
+
+    /** An endless tunnel's next stretch takes over from the one that is done. */
+    public void extendTunnel(BridgeJob next) {
+        this.bridge = next;
+        this.footprint = null;
     }
 
     public boolean done() {
@@ -213,6 +229,7 @@ public final class Construction {
                     tag.putInt("TunnelSize", bridge.tunnelSize());
                     tag.putInt("Length", bridge.tunnelLength());
                     tag.putInt("Direction", bridge.tunnelDirection().get2DDataValue());
+                    tag.putBoolean("Endless", endless);
                 }
                 if (bridge.fence() != null) {
                     tag.putString("Fence", BuiltInRegistries.ITEM.getKey(bridge.fence()).toString());
@@ -263,6 +280,7 @@ public final class Construction {
                     }
                     Direction way = Direction.from2DDataValue(tag.getInt("Direction") & 3);
                     bridge = BridgeJob.tunnel(bridge.start(), way, length, deck, size);
+                    endless = tag.getBoolean("Endless");
                     footprint = null;
                     done = false;
                     break;
@@ -318,6 +336,7 @@ public final class Construction {
         tag.put("Anchor", NbtUtils.writeBlockPos(anchor));
         tag.putInt("Kind", kind.ordinal());
         tag.putBoolean("Done", done);
+        tag.putBoolean("Endless", endless);
         ListTag list = new ListTag();
         workers.forEach(id -> list.add(NbtUtils.createUUID(id)));
         tag.put("Workers", list);
@@ -366,6 +385,7 @@ public final class Construction {
             }
         }
         construction.done = tag.getBoolean("Done");
+        construction.endless = tag.getBoolean("Endless");
         for (Tag entry : tag.getList("Workers", Tag.TAG_INT_ARRAY)) {
             construction.workers.add(NbtUtils.loadUUID(entry));
         }

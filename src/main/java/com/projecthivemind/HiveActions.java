@@ -389,6 +389,8 @@ public final class HiveActions {
         BlockPos behind = site.relative(along.getOpposite(), 3);
         BlockPos anchor = HiveConstructions.findAnchor(level, heart, behind.getX(), behind.getZ(), reserved);
         com.projecthivemind.build.Construction construction = com.projecthivemind.build.Construction.ofBridge(level.dimension(), anchor, job);
+        // Bit 2 of the direction: the tunnel is endless, a new stretch is dug whenever the last is done.
+        construction.setEndless((request.direction() & 4) != 0);
         HiveConstructions.place(level, heart, construction);
         HiveConstructions.assign(player, heart, construction, nearest(workers, Vec3.atCenterOf(site), construction.maxWorkers()));
         player.displayClientMessage(Component.translatable("message.projecthivemind.tunnel_started"), true);
@@ -872,7 +874,9 @@ public final class HiveActions {
             player.displayClientMessage(Component.translatable("message.projecthivemind.no_scouts_use"), true);
             return;
         }
-        if (!request.confirmed() && heart.portals().portals().size() >= HivePortals.max(heart)) {
+        // The scout already has a portal (it is swapped), or there is no room for one more: the player is asked first.
+        int scoutNumber = HivemindManager.slotNumber(player, UnitKind.SCOUT, scouts.get(0).getUUID());
+        if (!request.confirmed() && (heart.portals().portalOf(scoutNumber) != null || heart.portals().portals().size() >= HivePortals.max(heart))) {
             PacketDistributor.sendToPlayer(player, new com.projecthivemind.network.ConfirmPortalPayload(request));
             return;
         }

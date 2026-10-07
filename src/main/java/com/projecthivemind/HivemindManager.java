@@ -420,6 +420,28 @@ public final class HivemindManager {
     }
 
     /** The player confirmed Kill unit on a unit's page: the unit dies (and is replaced by the hive in its next spawning interval, if below the cap). */
+    /**
+     * The player confirmed killing all their units: every unit that is loaded is killed (their deaths cost the Heart nothing), and the Heart makes new
+     * ones as usual. Units in chunks that are not loaded cannot be reached; the player is told how many.
+     */
+    public static void killAllUnits(ServerPlayer player) {
+        if (get(player).stage() != HivemindStage.HIVE) {
+            return;
+        }
+        int killed = 0;
+        int missing = 0;
+        for (UUID id : List.copyOf(get(player).allUnits())) {
+            if (findUnit(player, id) instanceof Mob mob && mob.isAlive()) {
+                HivePortals.markFree(id);
+                mob.kill();
+                killed++;
+            } else {
+                missing++;
+            }
+        }
+        player.displayClientMessage(Component.translatable(missing > 0 ? "message.projecthivemind.kill_all_missing" : "message.projecthivemind.kill_all", killed, missing), true);
+    }
+
     public static void killUnit(ServerPlayer player, int unitId) {
         if (get(player).stage() == HivemindStage.HIVE && findById(player, unitId) instanceof Mob mob && mob.isAlive()
                 && mob instanceof HiveUnit unit && player.getUUID().equals(unit.ownerId())) {
@@ -855,7 +877,7 @@ public final class HivemindManager {
                 return new SlotConfigs.Config(1, new int[4], "", "");
             }
             default -> {
-                com.projecthivemind.FeederBehavior feeder = new com.projecthivemind.FeederBehavior(true, false, true, false);
+                com.projecthivemind.FeederBehavior feeder = new com.projecthivemind.FeederBehavior(true, false, true, false, true);
                 return new SlotConfigs.Config(feeder.flags(), feeder.radii(), "", "");
             }
         }

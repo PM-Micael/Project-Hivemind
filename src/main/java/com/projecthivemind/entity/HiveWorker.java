@@ -441,9 +441,10 @@ public class HiveWorker extends Skeleton implements HiveUnit {
         }
         if (next == null) {
             putAwayFlint();
+            com.projecthivemind.build.BridgeJob finishedJob = bridge;
             bridge = null;
             if (heart.constructions().of(this.getUUID()) != null) {
-                com.projecthivemind.HiveConstructions.markDone(heart, this.getUUID());
+                com.projecthivemind.HiveConstructions.markDone(heart, this.getUUID(), finishedJob);
             } else if (heart.getServer() != null && heart.ownerId() != null) {
                 // A bridge from before there were construction blocks: told as it was.
                 net.minecraft.server.level.ServerPlayer owner = heart.getServer().getPlayerList().getPlayer(heart.ownerId());
@@ -1063,5 +1064,24 @@ public class HiveWorker extends Skeleton implements HiveUnit {
             heartId = tag.getUUID(HEART_TAG);
         }
         gearVersion = tag.getInt(GEAR_VERSION_TAG);
+    }
+
+    /** The hive's units make none of the noises of the mob they are built on: no groaning, no hurt or death sounds. */
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getAmbientSound() {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getHurtSound(net.minecraft.world.damagesource.DamageSource source) {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getDeathSound() {
+        return null;
     }
 }

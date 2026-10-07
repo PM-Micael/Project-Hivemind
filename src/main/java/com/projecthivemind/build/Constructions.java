@@ -85,6 +85,20 @@ public final class Constructions {
         kept.computeIfAbsent(construction.dimension(), dimension -> new java.util.HashSet<>()).addAll(construction.footprint());
     }
 
+    /** True if this column is ground a construction (under way or kept) uses: neither flattening nor the creep touches it. */
+    public boolean isProtected(ResourceKey<Level> dimension, int x, int z) {
+        long key = com.projecthivemind.HiveConstructions.columnKey(x, z);
+        if (kept.getOrDefault(dimension, java.util.Set.of()).contains(key)) {
+            return true;
+        }
+        for (Construction construction : list) {
+            if (construction.dimension().equals(dimension) && construction.footprint().contains(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Every ground column in this dimension that flattening must leave alone: those of constructions under way, and of the sites kept. */
     public java.util.Set<Long> protectedColumns(ResourceKey<Level> dimension) {
         java.util.Set<Long> columns = new java.util.HashSet<>(kept.getOrDefault(dimension, java.util.Set.of()));

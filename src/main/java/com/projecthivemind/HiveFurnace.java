@@ -43,9 +43,22 @@ public final class HiveFurnace {
     /** The fuel the player chose to keep the fuel slot filled with from the hive's storage, or null for none. */
     @javax.annotation.Nullable
     private Item autoFuel;
+    /** Burn lava from the hive's fluids instead of fuel: a bucket of it (taken from the lava meter) burns as long as a lava bucket does, with no bucket involved. */
+    private boolean useLava;
 
     public SimpleContainer items() {
         return items;
+    }
+
+    /** How long a bucket of lava burns, in ticks (20000: a lava bucket as fuel). */
+    public static final int LAVA_BURN_TICKS = 20000;
+
+    public boolean useLava() {
+        return useLava;
+    }
+
+    public void setUseLava(boolean on) {
+        this.useLava = on;
     }
 
     public int litTime() {
@@ -145,11 +158,11 @@ public final class HiveFurnace {
     }
 
     /** One tick of smelting, the way a furnace block does it. Call every server tick while the furnace exists. */
-    public void tick(ServerLevel level) {
+    public void tick(ServerLevel level, HiveFluids fluids) {
         ItemStack input = items.getItem(INPUT);
         ItemStack fuel = items.getItem(FUEL);
         // Nothing to do, and nothing burning: skip the recipe lookup entirely.
-        if (litTime <= 0 && (input.isEmpty() || fuel.isEmpty()) && cookingProgress <= 0) {
+        if (litTime <= 0 && (input.isEmpty() || (fuel.isEmpty() && !useLava)) && cookingProgress <= 0) {
             return;
         }
 
@@ -159,7 +172,11 @@ public final class HiveFurnace {
         RecipeHolder<SmeltingRecipe> recipe = recipeFor(level, input).orElse(null);
         boolean smeltable = recipe != null && canSmelt(level, recipe);
 
-        if (litTime <= 0 && smeltable && !fuel.isEmpty()) {
+        if (litTime <= 0 && smeltable && useLava && fluids.take(HiveFluids.LAVA, HiveFluids.BUCKET)) {
+            // A bucket of lava from the hive's meter: it burns for as long as a lava bucket does, and leaves nothing behind.
+            litTime = LAVA_BURN_TICKS;
+            litDuration = LAVA_BURN_TICKS;
+        } else if (litTime <= 0 && smeltable && !fuel.isEmpty()) {
             int burn = fuel.getBurnTime(RecipeType.SMELTING);
             if (burn > 0) {
                 litTime = burn;
@@ -207,6 +224,7 @@ public final class HiveFurnace {
         tag.putInt(LIT_DURATION_TAG, litDuration);
         tag.putInt(COOK_TAG, cookingProgress);
         tag.putInt(COOK_TOTAL_TAG, cookingTotal);
+        tag.putBoolean("UseLava", useLava);
         if (autoFuel != null) {
             tag.putString("AutoFuel", BuiltInRegistries.ITEM.getKey(autoFuel).toString());
         }
@@ -222,6 +240,7 @@ public final class HiveFurnace {
         litDuration = tag.getInt(LIT_DURATION_TAG);
         cookingProgress = tag.getInt(COOK_TAG);
         cookingTotal = tag.contains(COOK_TOTAL_TAG) ? tag.getInt(COOK_TOTAL_TAG) : 200;
+        useLava = tag.getBoolean("UseLava");
         ResourceLocation fuelId = tag.contains("AutoFuel") ? ResourceLocation.tryParse(tag.getString("AutoFuel")) : null;
         autoFuel = fuelId == null ? null : BuiltInRegistries.ITEM.getOptional(fuelId).orElse(null);
     }

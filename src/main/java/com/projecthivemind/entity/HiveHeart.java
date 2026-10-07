@@ -129,6 +129,13 @@ public class HiveHeart extends Mob {
     private final HiveFurnace furnace = new HiveFurnace();
     /** The fluids the hive keeps, usable once a cauldron has been consumed on the Evolve tab. */
     private final com.projecthivemind.HiveFluids fluids = new com.projecthivemind.HiveFluids();
+    /** The hive drinks honey from its honey meter when its food is at or below this (0 for never): the Heart tab's first setting. */
+    private int honeyBelow = 18;
+    /** The hive eats from its food slot when its food is at or below this (0 for never; 18 is as soon as a drumstick is missing), and whether it drinks honey before the food slot. */
+    private int slotBelow = 18;
+    private boolean honeyFirst;
+    /** Eat only at the moment none of the food would be wasted (the Heart tab's other levels are then not looked at). */
+    private boolean perfectEating;
     /** The brewing stand built into the Heart, usable once a brewing stand has been consumed on the Evolve tab. */
     private final HiveBrewing brewing = new HiveBrewing();
     /** The portals standing and the summoning going on (from level 2). */
@@ -623,13 +630,8 @@ public class HiveHeart extends Mob {
      * minute, on the owner's experience bar.
      */
     private void giveBottleExperience() {
-        if (this.ownerId == null || this.getServer() == null) {
-            return;
-        }
-        net.minecraft.server.level.ServerPlayer owner = this.getServer().getPlayerList().getPlayer(this.ownerId);
-        if (owner != null) {
-            HivemindManager.giveHiveExperience(owner, this, 3 + this.random.nextInt(5) + this.random.nextInt(5));
-        }
+        // The experience of a bottle o' enchanting goes into the hive's experience meter (it is lost if the meter is full), not to the player's bar.
+        fluids().add(com.projecthivemind.HiveFluids.XP, 3 + this.random.nextInt(5) + this.random.nextInt(5));
     }
 
     /** The Heart is gone: no enemy stays slowed for it. */
@@ -762,7 +764,7 @@ public class HiveHeart extends Mob {
     }
 
     /**
-     * The Heart a dehydrator at this place gives its fluid to, with both the sponge and the cauldron tasks done (or null): the nearest one in the same
+     * The Heart a dehydrator at this place gives its fluid to, with the sponge task done (or null): the nearest one in the same
      * dimension, or if there is none there, any. A dehydrator does not have to be inside a hive border.
      */
     @Nullable
@@ -787,9 +789,9 @@ public class HiveHeart extends Mob {
         return nearest != null ? nearest : elsewhere;
     }
 
-    /** True if the hive has consumed a sponge (scouts can place dehydrators) and a cauldron (there is somewhere to put what they drain). */
+    /** True if the hive has consumed a sponge: scouts can place dehydrators (what they drain goes to the hive's fluids, which the sponge opens up). */
     public boolean dehydratorsAllowed() {
-        return com.projecthivemind.EvolveTask.SPONGE.doneIn(evolveMask) && com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask);
+        return com.projecthivemind.EvolveTask.SPONGE.doneIn(evolveMask);
     }
 
     /** The Heart whose border a relay at this place is in, with the redstone task done (or null). */
@@ -1080,7 +1082,7 @@ public class HiveHeart extends Mob {
             }
         }
         if (com.projecthivemind.EvolveTask.FURNACE.doneIn(evolveMask) && this.level() instanceof ServerLevel serverLevel) {
-            furnace.tick(serverLevel);
+            furnace.tick(serverLevel, fluids);
             if (this.tickCount % 20 == 0) {
                 furnace.refuel(storage);
             }
@@ -1328,7 +1330,38 @@ public class HiveHeart extends Mob {
         return scoutHand;
     }
 
+    public int honeyBelow() {
+        return honeyBelow;
+    }
+
+    public int slotBelow() {
+        return slotBelow;
+    }
+
+    public boolean perfectEating() {
+        return perfectEating;
+    }
+
+    public boolean honeyFirst() {
+        return honeyFirst;
+    }
+
+    /** The Heart tab's settings (each food level kept between 0 and 19). */
+    public void setEatingSettings(int honey, int slot, boolean honeyPriority, boolean perfect) {
+        this.perfectEating = perfect;
+        setHoneyBelow(honey);
+        this.slotBelow = Math.max(0, Math.min(19, slot));
+        this.honeyFirst = honeyPriority;
+    }
+
+    public void setHoneyBelow(int below) {
+        this.honeyBelow = Math.max(0, Math.min(19, below));
+    }
+
     public com.projecthivemind.HiveFluids fluids() {
+        // Which fluids the hive may keep depends on what it has researched: honey with the bee nest, experience with the bottle o' enchanting, the others with the cauldron or the sponge.
+        fluids.setAccess(com.projecthivemind.EvolveTask.BEE_NEST.doneIn(evolveMask), com.projecthivemind.EvolveTask.EXPERIENCE_BOTTLE.doneIn(evolveMask),
+                com.projecthivemind.EvolveTask.CAULDRON.doneIn(evolveMask) || com.projecthivemind.EvolveTask.SPONGE.doneIn(evolveMask));
         return fluids;
     }
 
@@ -1438,7 +1471,8 @@ public class HiveHeart extends Mob {
                     fillEmpty = false;
                 }
             }
-            if (level.hasChunkAt(pos) && level.isInWorldBounds(pos)) {
+            // Ground that a construction uses (a tower, a shaft, a bridge, a staircase: under way or finished) is left as it is.
+            if (level.hasChunkAt(pos) && level.isInWorldBounds(pos) && !constructions().isProtected(level.dimension(), pos.getX(), pos.getZ())) {
                 creepInto(level, pos, fillEmpty);
             }
         }
@@ -1711,6 +1745,10 @@ public class HiveHeart extends Mob {
         tag.putInt(AGE_TAG, ageTicks);
         tag.put(FURNACE_TAG, furnace.save(registryAccess()));
         tag.put("HiveFluidsData", fluids.save(registryAccess()));
+        tag.putInt("HoneyBelow", honeyBelow);
+        tag.putInt("SlotBelow", slotBelow);
+        tag.putBoolean("HoneyFirst", honeyFirst);
+        tag.putBoolean("PerfectEating", perfectEating);
         tag.put("HiveBrewing", brewing.save(registryAccess()));
         tag.put("PortalNetwork", portals.save());
         net.minecraft.nbt.ListTag spots = new net.minecraft.nbt.ListTag();
@@ -1844,6 +1882,10 @@ public class HiveHeart extends Mob {
         if (tag.contains("HiveBrewing")) {
             brewing.load(tag.getCompound("HiveBrewing"), registryAccess());
         }
+        honeyBelow = tag.contains("HoneyBelow") ? Math.max(0, Math.min(19, tag.getInt("HoneyBelow"))) : 18;
+        slotBelow = tag.contains("SlotBelow") ? Math.max(0, Math.min(19, tag.getInt("SlotBelow"))) : 18;
+        honeyFirst = tag.getBoolean("HoneyFirst");
+        perfectEating = tag.getBoolean("PerfectEating");
         if (tag.contains("HiveFluidsData")) {
             fluids.load(tag.getCompound("HiveFluidsData"), registryAccess());
         }

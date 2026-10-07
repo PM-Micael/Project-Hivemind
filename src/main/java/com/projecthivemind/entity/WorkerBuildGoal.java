@@ -28,7 +28,8 @@ import net.minecraft.world.phys.Vec3;
 public class WorkerBuildGoal extends Goal {
     private static final double SPEED = 1.0D;
     private static final int REPATH_INTERVAL = 10;
-    private static final int PLACE_INTERVAL = 6;
+    /** Goal ticks between one block placed and the next (a goal ticks every other game tick, so this is 4 game ticks, 0.2 seconds: it used to be 6, 0.6 seconds). Digging is paced separately and is not touched. */
+    private static final int PLACE_INTERVAL = 2;
     /** Digging a block out is quicker than building one in. */
     private static final int DIG_INTERVAL = 3;
     /** How often a worker with nothing to do looks for something. */

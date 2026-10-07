@@ -401,4 +401,23 @@ public class HiveSoldier extends Zombie implements HiveUnit {
         }
         gearVersion = tag.getInt(GEAR_VERSION_TAG);
     }
+
+    /** The hive's units make none of the noises of the mob they are built on: no groaning, no hurt or death sounds. */
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getAmbientSound() {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getHurtSound(net.minecraft.world.damagesource.DamageSource source) {
+        return null;
+    }
+
+    @javax.annotation.Nullable
+    @Override
+    protected net.minecraft.sounds.SoundEvent getDeathSound() {
+        return null;
+    }
 }

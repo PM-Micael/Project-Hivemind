@@ -56,6 +56,9 @@ public class DehydratorBlockEntity extends BlockEntity {
     private static final int MAX_BLOCKS = 256;
     /** How many of the nearest sources it tries to find a way towards before it gives up. */
     private static final int TARGET_TRIES = 16;
+    /** Keeps the chunks around the dehydrator loaded while it works (the chunk it is in and the ones next to it), looked after again every cycle. */
+    private static final net.minecraft.server.level.TicketType<net.minecraft.world.level.ChunkPos> TICKET =
+            net.minecraft.server.level.TicketType.create("projecthivemind_dehydrator", Comparator.comparingLong(net.minecraft.world.level.ChunkPos::toLong), 60);
 
     /** The trail, oldest first: the last one is the head. */
     private final Set<BlockPos> blocks = new LinkedHashSet<>();
@@ -110,6 +113,9 @@ public class DehydratorBlockEntity extends BlockEntity {
     }
 
     private void work(ServerLevel level, BlockPos self) {
+        // One chunk each way around it stays loaded while it works, so that it can go on when nobody is near.
+        net.minecraft.world.level.ChunkPos home = new net.minecraft.world.level.ChunkPos(self);
+        level.getChunkSource().addRegionTicket(TICKET, home, 3, home);
         if (finishing >= 0) {
             if (--finishing <= 0) {
                 level.sendParticles(ParticleTypes.CLOUD, self.getX() + 0.5D, self.getY() + 0.5D, self.getZ() + 0.5D, 8, 0.3D, 0.3D, 0.3D, 0.02D);
@@ -193,9 +199,14 @@ public class DehydratorBlockEntity extends BlockEntity {
             finish(level);
             return;
         }
+        // It tries to stay in its own chunk: sources there come first, and it only goes after the others when none are left in it.
+        List<BlockPos> inHome = sources.stream().filter(source -> new net.minecraft.world.level.ChunkPos(source).equals(home)).toList();
+        if (!inHome.isEmpty()) {
+            sources = new ArrayList<>(inHome);
+        }
         sources.sort(Comparator.comparingDouble(source -> source.distSqr(head)));
         for (int i = 0; i < Math.min(TARGET_TRIES, sources.size()); i++) {
-            BlockPos step = stepTowards(level, head, sources.get(i));
+            BlockPos step = stepTowards(level, head, sources.get(i), home);
             if (step != null) {
                 level.setBlock(step, ModBlocks.DEHYDRATED_CREEP.get().defaultBlockState(), Block.UPDATE_ALL);
                 blocks.add(step);
@@ -206,18 +217,30 @@ public class DehydratorBlockEntity extends BlockEntity {
         finish(level);
     }
 
-    /** The block next to the head (in the 3x3x3) that is nearer to the target than the head is and can be turned into creep, the nearest of them; or null. */
+    /** Ground that a construction of the hive uses is not turned into creep. */
+    private boolean protectedByConstruction(BlockPos pos) {
+        HiveHeart heart = level == null ? null : HiveHeart.dehydratorHeartAt(level, pos);
+        return heart != null && heart.constructions().isProtected(level.dimension(), pos.getX(), pos.getZ());
+    }
+
+    /** The block next to the head (in the 3x3x3) that is nearer to the target than the head is and can be turned into creep, the nearest of them and one in the home chunk by preference; or null. */
     @Nullable
-    private BlockPos stepTowards(ServerLevel level, BlockPos head, BlockPos target) {
-        double best = head.distSqr(target);
+    private BlockPos stepTowards(ServerLevel level, BlockPos head, BlockPos target, net.minecraft.world.level.ChunkPos home) {
+        double limit = head.distSqr(target);
+        double best = Double.MAX_VALUE;
         BlockPos choice = null;
         for (BlockPos near : BlockPos.betweenClosed(head.offset(-1, -1, -1), head.offset(1, 1, 1))) {
-            if (blocks.contains(near) || !level.isLoaded(near) || !convertible(level, near)) {
+            if (blocks.contains(near) || !level.isLoaded(near) || !convertible(level, near) || protectedByConstruction(near)) {
                 continue;
             }
             double distance = near.distSqr(target);
-            if (distance < best) {
-                best = distance;
+            if (distance >= limit) {
+                continue;
+            }
+            // A step that stays in the dehydrator's own chunk beats any step out of it.
+            double score = distance + (new net.minecraft.world.level.ChunkPos(near).equals(home) ? 0.0D : 1.0E6D);
+            if (score < best) {
+                best = score;
                 choice = near.immutable();
             }
         }

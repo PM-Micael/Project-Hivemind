@@ -168,7 +168,16 @@ public final class HiveFood {
         }
 
         if (heart.tickCount % EAT_INTERVAL == 0) {
-            eatFromSlot(heart);
+            // In the order the Heart tab says: the food slot first, or the honey.
+            if (heart.perfectEating()) {
+                eatAtBestMoment(heart);
+            } else if (heart.honeyFirst()) {
+                drinkHoney(heart);
+                eatFromSlot(heart);
+            } else {
+                eatFromSlot(heart);
+                drinkHoney(heart);
+            }
         }
     }
 
@@ -238,15 +247,46 @@ public final class HiveFood {
      * When the hive is missing a whole drumstick (2 food points) it eats from the stack in its food slot. What the food
      * does besides feed is not applied, and a food that leaves something behind (a bowl) leaves it in the hive's storage.
      */
-    private void eatFromSlot(HiveHeart heart) {
-        if (foodLevel > 20 - FOOD_MISSING_TO_EAT) {
+    /** What a bottle of honey gives, as a player gets it. */
+    private static final int HONEY_NUTRITION = 6;
+    private static final float HONEY_SATURATION = 1.2F;
+
+    /**
+     * With the bee nest task done, the hive drinks a bottle of honey from its honey meter when its food is at or below the level set on the Heart tab.
+     * The food slot comes first (it is eaten from before this is looked at).
+     */
+    private void drinkHoney(HiveHeart heart) {
+        if (heart.honeyBelow() <= 0 || foodLevel > heart.honeyBelow() || foodLevel >= 20) {
             return;
         }
+        drinkHoneyNow(heart);
+    }
+
+    /** Drink a bottle of honey from the meter now, if the hive has the research and a bottle of it. True if it did. */
+    private boolean drinkHoneyNow(HiveHeart heart) {
+        if (!com.projecthivemind.EvolveTask.BEE_NEST.doneIn(heart.evolveMask()) || !heart.fluids().take(HiveFluids.HONEY, HiveFluids.BUCKET / 3)) {
+            return false;
+        }
+        foodLevel = Mth.clamp(foodLevel + HONEY_NUTRITION, 0, 20);
+        saturation = Mth.clamp(saturation + HONEY_SATURATION, 0.0F, (float) foodLevel);
+        heart.level().playSound(null, heart.blockPosition(), SoundEvents.HONEY_DRINK, SoundSource.NEUTRAL, 0.5F, 1.0F);
+        return true;
+    }
+
+    private void eatFromSlot(HiveHeart heart) {
+        if (heart.slotBelow() <= 0 || foodLevel > heart.slotBelow()) {
+            return;
+        }
+        eatFromSlotNow(heart);
+    }
+
+    /** Eat the food in the food slot now. True if there was some. */
+    private boolean eatFromSlotNow(HiveHeart heart) {
         SimpleContainer slot = heart.foodSlot();
         ItemStack stack = slot.getItem(0);
         FoodProperties food = stack.isEmpty() ? null : stack.getFoodProperties(heart);
         if (food == null) {
-            return;
+            return false;
         }
         eat(food);
         food.usingConvertsTo().ifPresent(leftover -> {
@@ -262,7 +302,35 @@ public final class HiveFood {
         slot.setChanged();
         heart.level().playSound(null, heart.blockPosition(), SoundEvents.GENERIC_EAT, SoundSource.NEUTRAL, 0.5F,
                 heart.level().random.nextFloat() * 0.1F + 0.9F);
+        return true;
     }
+
+    /** Below this food level the hive eats whatever it has, however much would be wasted: it does not wait for a perfect moment while it starves. */
+    private static final int STARVING = 4;
+
+    /** True if this much food and saturation would all be used: the food level does not pass 20, and the saturation does not pass the new food level. */
+    private boolean wastesNothing(int nutrition, float saturationGain) {
+        return foodLevel + nutrition <= 20 && saturation + saturationGain <= foodLevel + nutrition + 0.001F;
+    }
+
+    /**
+     * The Heart tab's "eat at the best moment": the hive eats the food in its slot, or drinks honey, only when none of what it gives would be wasted
+     * (the food it restores fits under 20, and so does the saturation), whatever the levels above say. The one the tab puts first is tried first.
+     */
+    private void eatAtBestMoment(HiveHeart heart) {
+        FoodProperties slotFood = heart.foodSlot().getItem(0).isEmpty() ? null : heart.foodSlot().getItem(0).getFoodProperties(heart);
+        boolean honey = com.projecthivemind.EvolveTask.BEE_NEST.doneIn(heart.evolveMask()) && heart.fluids().amount(HiveFluids.HONEY) >= HiveFluids.BUCKET / 3;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            boolean honeyTurn = (attempt == 0) == heart.honeyFirst();
+            if (honeyTurn && honey && (wastesNothing(HONEY_NUTRITION, HONEY_SATURATION) || foodLevel <= STARVING) && drinkHoneyNow(heart)) {
+                return;
+            }
+            if (!honeyTurn && slotFood != null && (wastesNothing(slotFood.nutrition(), slotFood.saturation()) || foodLevel <= STARVING) && eatFromSlotNow(heart)) {
+                return;
+            }
+        }
+    }
+
 
     public void save(CompoundTag tag) {
         tag.putInt(FOOD_TAG, foodLevel);

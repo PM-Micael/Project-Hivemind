@@ -140,6 +140,39 @@ public final class TowerPlan {
                 }
             }
         }
+        addHeadroom(steps, insideCorner);
+    }
+
+    /**
+     * The room a worker needs to climb the tower: every inside cell (and the door cells in the wall) that holds nothing of the plan, from the ground up to
+     * two rows over the deck, is to be dug out if something fills it (a hillside, a tree), the same way a shaft's hole is.
+     */
+    private void addHeadroom(int steps, int insideCorner) {
+        Set<BlockPos> taken = new HashSet<>();
+        for (Placement placement : placements) {
+            taken.add(placement.pos());
+        }
+        int radius = shape.radius();
+        for (int layer = 0; layer <= steps + 1; layer++) {
+            int y = groundY + layer;
+            for (int x = 0; x < shape.insideSize(); x++) {
+                for (int z = 0; z < shape.insideSize(); z++) {
+                    BlockPos pos = new BlockPos(base.getX() + insideCorner + x, y, base.getZ() + insideCorner + z);
+                    if (taken.add(pos)) {
+                        placements.add(new Placement(pos, Kind.DIG, null, layer));
+                    }
+                }
+            }
+            if (layer <= 1) {
+                // The doors, low in the wall.
+                for (int dz : shape == TowerShape.DOUBLE ? new int[] {radius, -radius} : new int[] {radius}) {
+                    BlockPos pos = new BlockPos(base.getX(), y, base.getZ() + dz);
+                    if (taken.add(pos)) {
+                        placements.add(new Placement(pos, Kind.DIG, null, layer));
+                    }
+                }
+            }
+        }
     }
 
     /**

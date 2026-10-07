@@ -131,6 +131,8 @@ public final class CommonEvents {
         registrar.playToClient(com.projecthivemind.network.SyncFluidsPayload.TYPE, com.projecthivemind.network.SyncFluidsPayload.STREAM_CODEC, ClientPayloads::onSyncFluids);
         registrar.playToServer(com.projecthivemind.network.ScrollFluidsPayload.TYPE, com.projecthivemind.network.ScrollFluidsPayload.STREAM_CODEC, ServerPayloads::onScrollFluids);
         registrar.playToServer(com.projecthivemind.network.PullFluidsPayload.TYPE, com.projecthivemind.network.PullFluidsPayload.STREAM_CODEC, ServerPayloads::onPullFluids);
+        registrar.playToServer(com.projecthivemind.network.SetFurnaceLavaPayload.TYPE, com.projecthivemind.network.SetFurnaceLavaPayload.STREAM_CODEC, ServerPayloads::onSetFurnaceLava);
+        registrar.playToServer(com.projecthivemind.network.SetHeartSettingsPayload.TYPE, com.projecthivemind.network.SetHeartSettingsPayload.STREAM_CODEC, ServerPayloads::onSetHeartSettings);
         registrar.playToServer(com.projecthivemind.network.DrainFluidsPayload.TYPE, com.projecthivemind.network.DrainFluidsPayload.STREAM_CODEC, ServerPayloads::onDrainFluids);
         registrar.playToServer(com.projecthivemind.network.SetFurnaceFuelPayload.TYPE, com.projecthivemind.network.SetFurnaceFuelPayload.STREAM_CODEC, ServerPayloads::onSetFurnaceFuel);
         registrar.playToClient(com.projecthivemind.network.SyncRecipesPayload.TYPE, com.projecthivemind.network.SyncRecipesPayload.STREAM_CODEC, ClientPayloads::onSyncRecipes);
@@ -153,6 +155,7 @@ public final class CommonEvents {
         registrar.playToServer(SetUnitBehaviorPayload.TYPE, SetUnitBehaviorPayload.STREAM_CODEC, ServerPayloads::onSetUnitBehavior);
         registrar.playToServer(CancelJobPayload.TYPE, CancelJobPayload.STREAM_CODEC, ServerPayloads::onCancelJob);
         registrar.playToServer(KillUnitPayload.TYPE, KillUnitPayload.STREAM_CODEC, ServerPayloads::onKillUnit);
+        registrar.playToServer(com.projecthivemind.network.KillAllUnitsPayload.TYPE, com.projecthivemind.network.KillAllUnitsPayload.STREAM_CODEC, ServerPayloads::onKillAllUnits);
         registrar.playToServer(SetJobResumePayload.TYPE, SetJobResumePayload.STREAM_CODEC, ServerPayloads::onSetJobResume);
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);
