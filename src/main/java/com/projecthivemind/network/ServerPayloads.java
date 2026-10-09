@@ -327,6 +327,24 @@ public final class ServerPayloads {
         }
     }
 
+    public static void onLocateStronghold(LocateStrongholdPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HiveLocationActions.locateStronghold(player);
+        }
+    }
+
+    public static void onDeleteLocation(DeleteLocationPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HiveLocationActions.delete(player, payload.index());
+        }
+    }
+
+    public static void onTravelToLocation(TravelToLocationPayload payload, IPayloadContext context) {
+        if (context.player() instanceof ServerPlayer player) {
+            com.projecthivemind.HiveLocationActions.sendScout(player, payload.index(), payload.scoutId());
+        }
+    }
+
     public static void onReinforce(ReinforcePayload payload, IPayloadContext context) {
         if (context.player() instanceof ServerPlayer player) {
             HivePortals.reinforce(player);

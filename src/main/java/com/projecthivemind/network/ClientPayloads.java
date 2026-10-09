@@ -92,6 +92,10 @@ public final class ClientPayloads {
         com.projecthivemind.client.ClientPortals.update(payload);
     }
 
+    public static void onSyncLocations(SyncLocationsPayload payload, IPayloadContext context) {
+        com.projecthivemind.client.ClientLocations.update(payload.locations());
+    }
+
     /** The hive is at its portal limit: let the player choose whether the new portal replaces the oldest. */
     public static void onConfirmPortal(ConfirmPortalPayload payload, IPayloadContext context) {
         Minecraft minecraft = Minecraft.getInstance();

@@ -102,7 +102,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private static final int WOODWORK_ROW = 11;
 
     private enum Tab {
-        HIVE, QUESTS, UNITS, TEAM, PORTALS, EVOLVE, REDSTONE, FLUIDS, HEART
+        HIVE, QUESTS, UNITS, TEAM, PORTALS, LOCATIONS, EVOLVE, REDSTONE, FLUIDS, HEART
     }
 
     /** The order of the row of unit buttons: the same as the command bar's keys, then the collectors. */
@@ -115,6 +115,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private Button questsTab;
     private Button teamTab;
     private Button portalsTab;
+    private Button locationsTab;
     private Button evolveTab;
     private Button redstoneTab;
     private Button fluidsTab;
@@ -256,6 +257,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         redstoneTab = tabButton(5, Items.REDSTONE, "screen.projecthivemind.hive.tab_redstone", Tab.REDSTONE);
         fluidsTab = tabButton(6, Items.CAULDRON, "screen.projecthivemind.hive.tab_fluids", Tab.FLUIDS);
         heartTab = tabButton(7, Items.HONEY_BOTTLE, "screen.projecthivemind.hive.tab_heart", Tab.HEART);
+        locationsTab = tabButton(8, Items.COMPASS, "screen.projecthivemind.hive.tab_locations", Tab.LOCATIONS);
         heartSlotBox = heartBox("screen.projecthivemind.heart.slot", HEART_SLOT_Y);
         heartHoneyBox = heartBox("screen.projecthivemind.heart.honey", HEART_HONEY_Y);
         heartHoneyFirst = addRenderableWidget(Checkbox.builder(Component.translatable("screen.projecthivemind.heart.honey_first"), font)
@@ -424,12 +426,15 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
     private void updateTabButtons() {
         portalsTab.visible = menu.level() >= com.projecthivemind.HiveLevels.PORTAL_LEVEL;
         evolveTab.visible = menu.level() >= com.projecthivemind.HiveLevels.EVOLVE_LEVEL;
-        evolveTab.setX(leftPos + 8 + (portalsTab.visible ? 4 : 3) * TAB_STEP);
         redstoneTab.visible = menu.hasRedstone();
-        redstoneTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0)) * TAB_STEP);
         fluidsTab.visible = menu.hasFluids();
-        fluidsTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0) + (redstoneTab.visible ? 1 : 0)) * TAB_STEP);
-        heartTab.setX(leftPos + 8 + ((portalsTab.visible ? 4 : 3) + (evolveTab.visible ? 1 : 0) + (redstoneTab.visible ? 1 : 0) + (fluidsTab.visible ? 1 : 0)) * TAB_STEP);
+        // The tabs after the first three are packed to the left, skipping those that are not there yet.
+        int slot = 3;
+        for (Button button : new Button[] {portalsTab, locationsTab, evolveTab, redstoneTab, fluidsTab, heartTab}) {
+            if (button.visible) {
+                button.setX(leftPos + 8 + slot++ * TAB_STEP);
+            }
+        }
     }
 
     /** A button that shows the head of a unit's mob model where a label would be. */
@@ -772,6 +777,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         teamTab.active = newTab != Tab.TEAM;
         dragUnit = -1;
         portalsTab.active = newTab != Tab.PORTALS;
+        locationsTab.active = newTab != Tab.LOCATIONS;
         evolveTab.active = newTab != Tab.EVOLVE;
         redstoneTab.active = newTab != Tab.REDSTONE;
         fluidsTab.active = newTab != Tab.FLUIDS;
@@ -794,6 +800,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (newTab == Tab.PORTALS) {
             portalScroll = 0;
             refreshPortals(true);
+        } else if (newTab == Tab.LOCATIONS) {
+            locationTarget = LOCATION_LIST;
+            locationScroll = 0;
+            refreshLocations(true);
         } else if (newTab == Tab.TEAM) {
             shownTeam.clear();
             refreshTeam(true);
@@ -1039,6 +1049,9 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 showTab(Tab.HIVE, unitPage);
             }
         }
+        if (tab == Tab.LOCATIONS) {
+            refreshLocations(false);
+        }
         if (tab == Tab.TEAM) {
             refreshTeam(false);
         }
@@ -1099,10 +1112,10 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
                 CommonComponents.GUI_YES, CommonComponents.GUI_NO));
     }
 
-    /** Whether the page's unit has a job to show: only soldiers and workers do jobs. */
+    /** Whether the page's unit has a job to show: only soldiers, workers and scouts (on a trip) do jobs. */
     @Nullable
     private SyncUnitsPayload.Entry viewedJob() {
-        if (tab != Tab.UNITS || viewedUnit < 0 || (unitPage != UnitKind.SOLDIER && unitPage != UnitKind.WORKER)) {
+        if (tab != Tab.UNITS || viewedUnit < 0 || (unitPage != UnitKind.SOLDIER && unitPage != UnitKind.WORKER && unitPage != UnitKind.SCOUT)) {
             return null;
         }
         SyncUnitsPayload.Entry entry = ClientUnits.entry(viewedUnit);
@@ -2023,6 +2036,11 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             evolveScroll = Math.max(0, Math.min(evolveDoneRows() - evolveVisibleRows(), evolveScroll - (int) Math.signum(scrollY)));
             return true;
         }
+        if (tab == Tab.LOCATIONS && locationTarget == LOCATION_LIST && ClientLocations.all().size() > locationRows()) {
+            locationScroll -= (int) Math.signum(scrollY);
+            refreshLocations(true);
+            return true;
+        }
         if (tab == Tab.PORTALS && portalTarget != PORTAL_LIST && !summonGrid.isEmpty() && mouseX >= leftPos && mouseX < leftPos + imageWidth
                 && mouseY >= topPos + PORTAL_TOP && mouseY < topPos + imageHeight - PORTAL_BUTTONS_HEIGHT) {
             portalScroll -= (int) Math.signum(scrollY);
@@ -2052,6 +2070,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
             case UNITS -> renderUnitPage(graphics);
             case TEAM -> renderTeam(graphics);
             case PORTALS -> renderPortals(graphics);
+            case LOCATIONS -> renderLocations(graphics);
             case EVOLVE -> renderEvolve(graphics);
             case REDSTONE -> renderRedstone(graphics);
             case FLUIDS -> renderFluids(graphics);
@@ -2096,7 +2115,7 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         if (viewed != null) {
             HeartsBar.draw(graphics, BEHAVIOR_X + 4, HEALTH_Y, viewed.health(), viewed.maxHealth());
         }
-        if (unitPage == UnitKind.SOLDIER || unitPage == UnitKind.WORKER) {
+        if (unitPage == UnitKind.SOLDIER || unitPage == UnitKind.WORKER || unitPage == UnitKind.SCOUT) {
             SyncUnitsPayload.Entry entry = ClientUnits.entry(viewedUnit);
             Component job = entry != null && entry.hasJob() ? entry.job().copy().append(entry.paused() ? Component.translatable("screen.projecthivemind.job.paused") : Component.empty())
                     : Component.translatable("screen.projecthivemind.job.none");
@@ -2791,6 +2810,148 @@ public class HiveScreen extends AbstractContainerScreen<HiveMenu> {
         for (String key : new String[] {"rule_follow", "rule_border", "rule_orders"}) {
             graphics.drawString(font, Component.translatable("screen.projecthivemind.team." + key), UNIT_LIST_X, y, 0x909090, false);
             y += 12;
+        }
+    }
+
+    // ---- the Locations tab ----
+
+    /** The Locations tab is on the list of locations (as opposed to the page for choosing a scout to send to one). */
+    private static final int LOCATION_LIST = -1;
+    private static final int LOCATION_ROW = 24;
+    private static final int LOCATION_LABEL_WIDTH = 240;
+    private static final int LOCATION_DELETE_WIDTH = 48;
+
+    /** Where the Locations tab is: the list, or the scout choice for the location with this index. */
+    private int locationTarget = LOCATION_LIST;
+    private int locationScroll;
+    private List<Object> locationKey = List.of();
+
+    /** How many locations fit on the list at once. */
+    private int locationRows() {
+        return Math.max(1, (imageHeight - PORTAL_TOP - 14) / LOCATION_ROW);
+    }
+
+    private static Component locationName(com.projecthivemind.network.SyncLocationsPayload.Location location) {
+        com.projecthivemind.entity.HiveLocations.Kind[] kinds = com.projecthivemind.entity.HiveLocations.Kind.values();
+        String kind = kinds[Math.max(0, Math.min(kinds.length - 1, location.kind()))].name().toLowerCase(Locale.ROOT);
+        return Component.translatable("location.projecthivemind." + kind);
+    }
+
+    private static List<SyncUnitsPayload.Entry> locationScouts() {
+        return ClientUnits.all().stream().filter(entry -> entry.kind() == UnitKind.SCOUT.ordinal()).toList();
+    }
+
+    /** Build what the Locations tab shows, when something it depends on has changed (or when forced). */
+    private void refreshLocations(boolean force) {
+        List<com.projecthivemind.network.SyncLocationsPayload.Location> locations = ClientLocations.all();
+        if (locationTarget >= locations.size()) {
+            locationTarget = LOCATION_LIST;
+        }
+        locationScroll = Math.max(0, Math.min(Math.max(0, locations.size() - locationRows()), locationScroll));
+        boolean eye = com.projecthivemind.EvolveTask.ENDER_EYE.doneIn(menu.evolveMask());
+        List<Object> key = new ArrayList<>(List.of(locationTarget, locationScroll, eye, locations));
+        if (locationTarget != LOCATION_LIST) {
+            for (SyncUnitsPayload.Entry scout : locationScouts()) {
+                key.add(scout.entityId());
+                key.add(scout.hasJob());
+            }
+        }
+        if (!force && key.equals(locationKey)) {
+            return;
+        }
+        locationKey = key;
+        clearUnitButtons();
+        int x = leftPos + UNIT_LIST_X;
+        if (locationTarget == LOCATION_LIST) {
+            if (eye) {
+                // Researching the Eye of Ender gives this button: it saves the stronghold nearest the Hive Heart.
+                SeedButton locate = new SeedButton(leftPos + imageWidth - 12 - 20, topPos + PORTAL_TOP - 30, 20, 20, () -> new ItemStack(Items.ENDER_EYE),
+                        pressed -> PacketDistributor.sendToServer(new com.projecthivemind.network.LocateStrongholdPayload()));
+                locate.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.locations.locate.tooltip")));
+                unitButtons.add(addRenderableWidget(locate));
+            }
+            int y = topPos + PORTAL_TOP;
+            for (int i = locationScroll; i < locations.size() && i < locationScroll + locationRows(); i++) {
+                int index = i;
+                com.projecthivemind.network.SyncLocationsPayload.Location location = locations.get(i);
+                Component label = Component.translatable("screen.projecthivemind.locations.entry", locationName(location), location.pos().getX(), location.pos().getZ());
+                Button entry = Button.builder(label, button -> openLocation(index)).bounds(x, y, LOCATION_LABEL_WIDTH, 20).build();
+                entry.setTooltip(Tooltip.create(Component.translatable("screen.projecthivemind.locations.entry.tooltip")));
+                unitButtons.add(addRenderableWidget(entry));
+                Button delete = Button.builder(Component.translatable("screen.projecthivemind.portals.delete").withStyle(net.minecraft.ChatFormatting.RED),
+                        button -> askToDeleteLocation(index)).bounds(x + LOCATION_LABEL_WIDTH + 4, y, LOCATION_DELETE_WIDTH, 20).build();
+                unitButtons.add(addRenderableWidget(delete));
+                y += LOCATION_ROW;
+            }
+            return;
+        }
+        // Choosing the scout to send: a head for each scout, and a Back button.
+        int target = locationTarget;
+        int columns = portalColumns();
+        List<SyncUnitsPayload.Entry> scouts = locationScouts();
+        for (int i = 0; i < scouts.size(); i++) {
+            SyncUnitsPayload.Entry scout = scouts.get(i);
+            int id = scout.entityId();
+            Component name = Component.translatable("screen.projecthivemind.unit.numbered",
+                    Component.translatable("unit.projecthivemind.scout"), ClientUnits.numberOf(id));
+            Component tip = scout.hasJob() ? name.copy().append(Component.literal(": ")).append(scout.job()) : name;
+            if (scout.away()) {
+                tip = tip.copy().append(Component.translatable("screen.projecthivemind.unit.away_short"));
+            }
+            UnitIconButton button = new UnitIconButton(x + (i % columns) * TEAM_STEP, topPos + PORTAL_TOP + (i / columns) * TEAM_STEP, UNIT_HEAD, UNIT_HEAD,
+                    name, () -> unitEntity(id, UnitKind.SCOUT), UnitKind.SCOUT, () -> false, pressed -> {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.TravelToLocationPayload(target, id));
+                locationTarget = LOCATION_LIST;
+                refreshLocations(true);
+            });
+            button.setTooltip(Tooltip.create(tip));
+            unitButtons.add(addRenderableWidget(button));
+        }
+        unitButtons.add(addRenderableWidget(Button.builder(Component.translatable("screen.projecthivemind.portals.back"), button -> {
+            locationTarget = LOCATION_LIST;
+            refreshLocations(true);
+        }).bounds(x, topPos + imageHeight - 28, 70, 20).build()));
+    }
+
+    private void openLocation(int index) {
+        locationTarget = index;
+        refreshLocations(true);
+    }
+
+    /** Forgetting a location cannot be undone, so the player is asked first. Whatever the answer, this screen is shown again. */
+    private void askToDeleteLocation(int index) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.setScreen(new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                PacketDistributor.sendToServer(new com.projecthivemind.network.DeleteLocationPayload(index));
+            }
+            minecraft.setScreen(this);
+        }, Component.translatable("screen.projecthivemind.locations.delete_title"),
+                Component.translatable("screen.projecthivemind.locations.delete_message"),
+                CommonComponents.GUI_YES, CommonComponents.GUI_NO));
+    }
+
+    private void renderLocations(GuiGraphics graphics) {
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.locations.title"), UNIT_LIST_X, PORTAL_TOP - 28, 0xFFFFFF, false);
+        if (locationTarget == LOCATION_LIST) {
+            List<com.projecthivemind.network.SyncLocationsPayload.Location> locations = ClientLocations.all();
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.locations.count", locations.size(), com.projecthivemind.entity.HiveLocations.MAX),
+                    UNIT_LIST_X, PORTAL_TOP - 16, 0xA0A0A0, false);
+            if (locations.isEmpty()) {
+                boolean eye = com.projecthivemind.EvolveTask.ENDER_EYE.doneIn(menu.evolveMask());
+                graphics.drawString(font, Component.translatable(eye ? "screen.projecthivemind.locations.none_eye" : "screen.projecthivemind.locations.none"),
+                        UNIT_LIST_X, PORTAL_TOP + 4, 0x909090, false);
+            }
+            return;
+        }
+        if (locationTarget >= ClientLocations.all().size()) {
+            return; // the list changed since the last refresh; the next tick goes back to it
+        }
+        com.projecthivemind.network.SyncLocationsPayload.Location location = ClientLocations.all().get(locationTarget);
+        graphics.drawString(font, Component.translatable("screen.projecthivemind.locations.pick", locationName(location), location.pos().getX(), location.pos().getZ()),
+                UNIT_LIST_X, PORTAL_TOP - 16, 0xFFDD55, false);
+        if (locationScouts().isEmpty()) {
+            graphics.drawString(font, Component.translatable("screen.projecthivemind.locations.no_scouts"), UNIT_LIST_X + 4, PORTAL_TOP + 10, 0x909090, false);
         }
     }
 

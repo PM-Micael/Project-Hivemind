@@ -14,6 +14,7 @@ public class HeartTargetGoal extends NearestAttackableTargetGoal<HiveHeart> {
 
     public HeartTargetGoal(Mob mob) {
         super(mob, HiveHeart.class, 10, true, false, other -> other instanceof HiveHeart heart
+                && !EnderPeace.spares(mob, heart)
                 && mob.distanceTo(heart) <= mob.getAttributeValue(Attributes.FOLLOW_RANGE) * factor(heart.visualLevel()));
     }
 

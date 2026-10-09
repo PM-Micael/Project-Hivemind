@@ -80,7 +80,7 @@ public class ScoutUseItemGoal extends Goal {
 
         // Where the item is used: the spot in front of the clicked face.
         Vec3 spot = Vec3.atCenterOf(pos).add(face.getStepX() * 0.5D, face.getStepY() * 0.5D, face.getStepZ() * 0.5D);
-        boolean far = ScoutItems.usedFromAfar(heart.scoutHeld());
+        boolean far = ScoutItems.usedFromAfar(heart.scoutHeld(), level, pos);
         if (!far && scout.getEyePosition().distanceToSqr(spot) > ScoutItems.REACH * ScoutItems.REACH) {
             if (++waitedTicks > GIVE_UP_TICKS) {
                 owner.displayClientMessage(Component.translatable("message.projecthivemind.scout_cannot_reach"), true);

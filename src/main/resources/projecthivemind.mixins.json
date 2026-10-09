@@ -4,7 +4,8 @@
   "package": "com.projecthivemind.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "BaseSpawnerMixin"
+    "BaseSpawnerMixin",
+    "EntitySelectorMixin"
   ],
   "client": [
     "GameRendererMixin"

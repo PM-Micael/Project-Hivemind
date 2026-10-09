@@ -47,6 +47,12 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
     private UUID heartId;
     @Nullable
     private UnitAction action;
+    /** The job this scout is on or has set aside (see HiveUnit#job): a trip to a saved location. Saved. */
+    @Nullable
+    private UnitAction job;
+    private boolean resumeJob = true;
+    /** Carries out the travel job: the legs of the walk, the steering round hostile mobs. */
+    private final ScoutTravel travel = new ScoutTravel();
     /** This unit's own settings, edited from the hive menu's page for its kind. */
     /** The scout's gear mirror, used while it holds a tool from the hive for an order: wear on the copy is charged to the original. */
     private final GearMirror gearMirror = new GearMirror(EquipmentSlot.MAINHAND);
@@ -368,7 +374,8 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
         this.goalSelector.addGoal(1, new LeavePortalGoal(this));
 
         // Above everything else: a unit told to stay inside the hive border does.
-        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam()));
+        // (Not on a trip to a saved location: that goes well past the border.)
+        this.goalSelector.addGoal(0, new StayInsideGoal(this, () -> behavior.stayInside() && !inTeam() && !travelling()));
         // The last thing a unit does: when idle and set to, walk about inside the border.
         this.goalSelector.addGoal(5, new WanderInsideGoal(this, () -> behavior.wander()));
         // After that, when idle inside the border and not wandering: stand in the Heart.
@@ -381,6 +388,11 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
         this.goalSelector.addGoal(1, new WorkerDigGoal(this));
         this.goalSelector.addGoal(1, new ScoutAttackGoal(this));
         this.goalSelector.addGoal(2, new ScoutCollectGoal(this));
+    }
+
+    /** True while this scout is on a trip to a saved location. */
+    private boolean travelling() {
+        return action != null && action.kind() == UnitAction.Kind.TRAVEL;
     }
 
     /** True while this unit is in one of the hive's teams: a team member never has to stay inside the border. */
@@ -491,6 +503,7 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
         if (action != null && action.kind() == UnitAction.Kind.WALK && this.getNavigation().isDone() && !walkProgress.keepWalking(this, action)) {
             action = null;
         }
+        runTravel();
         // Picking up items works whether or not the scout is selected: a selected one takes what it walks over, and
         // one that is not selected walks to items and takes them on arrival.
         HiveHeart heart = findHeart();
@@ -693,8 +706,91 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
     }
 
     @Override
-    public void setAction(@Nullable UnitAction action) {
-        this.action = action;
+    public void setAction(@Nullable UnitAction next) {
+        // A job ending, or being cancelled, ends the job. Giving the scout another order does not: the job is set aside, and
+        // comes back when the scout is let go. Giving it a new job replaces the old one.
+        if (next == null && action != null && action.equals(job)) {
+            job = null;
+        }
+        if (next != null && next.kind().isJob()) {
+            job = next;
+        }
+        if (next != null && next.kind() == UnitAction.Kind.TRAVEL && !next.equals(action)) {
+            travel.reset();
+        }
+        this.action = next;
+    }
+
+    @Nullable
+    @Override
+    public UnitAction job() {
+        return job;
+    }
+
+    @Override
+    public boolean resumeJob() {
+        return resumeJob;
+    }
+
+    @Override
+    public void setResumeJob(boolean resume) {
+        this.resumeJob = resume;
+    }
+
+    @Override
+    public void cancelJob() {
+        UnitAction ended = job;
+        job = null;
+        if (ended != null && ended.equals(action)) {
+            action = null;
+            this.getNavigation().stop();
+        }
+    }
+
+    /** The scout has not got anywhere in a minute: tell the owner, in chat and on the action bar, with a sound. */
+    private void warnStuck(net.minecraft.core.BlockPos target) {
+        ServerPlayer owner = this.ownerId() == null || this.level().getServer() == null ? null
+                : this.level().getServer().getPlayerList().getPlayer(this.ownerId());
+        if (owner == null) {
+            return;
+        }
+        net.minecraft.network.chat.Component message = net.minecraft.network.chat.Component.translatable("message.projecthivemind.locations.stuck",
+                this.getBlockX(), this.getBlockZ(), target.getX(), target.getZ()).withStyle(net.minecraft.ChatFormatting.YELLOW);
+        owner.displayClientMessage(message, false);
+        owner.displayClientMessage(message, true);
+        owner.playNotifySound(SoundEvents.VILLAGER_NO, SoundSource.PLAYERS, 1.0F, 1.0F);
+    }
+
+    /** Carry on with a trip to a saved location, and take a set-aside one up again once the scout is free and the player has let go of it. */
+    private void runTravel() {
+        if (drive != null) {
+            return;
+        }
+        HiveHeart heart = findHeart();
+        if (action == null && job != null && resumeJob && heart != null && !heart.isUnitSelected(this.getId())) {
+            setAction(job);
+        }
+        if (action == null || action.kind() != UnitAction.Kind.TRAVEL) {
+            return;
+        }
+        ScoutTravel.Result result = travel.tick(this, action);
+        if (result == ScoutTravel.Result.GOING) {
+            if (travel.takeStuck() && action.pos() != null) {
+                warnStuck(action.pos());
+            }
+            return;
+        }
+        UnitAction ended = action;
+        setAction(null);
+        this.getNavigation().stop();
+        ServerPlayer owner = this.ownerId() == null || this.level().getServer() == null ? null
+                : this.level().getServer().getPlayerList().getPlayer(this.ownerId());
+        if (owner != null && ended.pos() != null) {
+            owner.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    result == ScoutTravel.Result.ARRIVED ? "message.projecthivemind.locations.arrived" : "message.projecthivemind.locations.failed",
+                    ended.pos().getX(), ended.pos().getZ()), false);
+            com.projecthivemind.HivemindManager.sendUnits(owner);
+        }
     }
 
     @Override
@@ -702,6 +798,12 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
         super.addAdditionalSaveData(tag);
         saveOwner(tag);
         tag.put("Behavior", behavior.save());
+        // The job, and whether the scout was on it, so that it carries on after the game has been closed.
+        if (job != null) {
+            tag.put("Job", job.save());
+            tag.putBoolean("JobActive", job.equals(action));
+        }
+        tag.putBoolean("ResumeJob", resumeJob);
         if (heartId != null) {
             tag.putUUID(HEART_TAG, heartId);
         }
@@ -711,6 +813,11 @@ public class HiveScout extends PathfinderMob implements HiveUnit {
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
         loadOwner(tag);
+        job = tag.contains("Job") ? UnitAction.load(tag.getCompound("Job")) : null;
+        resumeJob = !tag.contains("ResumeJob") || tag.getBoolean("ResumeJob");
+        if (job != null && tag.getBoolean("JobActive")) {
+            action = job;
+        }
         if (tag.hasUUID(HEART_TAG)) {
             heartId = tag.getUUID(HEART_TAG);
         }

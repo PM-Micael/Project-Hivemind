@@ -50,6 +50,14 @@ public final class ScoutItems {
         return stack.is(Items.WRITTEN_BOOK) || stack.is(Items.WRITABLE_BOOK) || stack.is(Items.ENDER_PEARL) || stack.is(Items.ENDER_EYE);
     }
 
+    /**
+     * The same, for an order on this block: an eye of ender is only thrown in the air when the block is not an end portal frame, because
+     * on a frame it is placed in it, which takes the scout standing next to the frame.
+     */
+    public static boolean usedFromAfar(ItemStack stack, net.minecraft.world.level.Level level, BlockPos pos) {
+        return usedFromAfar(stack) && !(stack.is(Items.ENDER_EYE) && level.getBlockState(pos).is(net.minecraft.world.level.block.Blocks.END_PORTAL_FRAME));
+    }
+
     /** True if the scout can do something with this item (otherwise it is only being carried). */
     public static boolean usable(ItemStack stack) {
         return !stack.isEmpty();
@@ -95,7 +103,7 @@ public final class ScoutItems {
         fake.setItemInHand(InteractionHand.MAIN_HAND, held.copy());
 
         InteractionResult result = InteractionResult.PASS;
-        if (!usedFromAfar(held)) {
+        if (!usedFromAfar(held, level, pos)) {
             BlockHitResult hit = new BlockHitResult(hitPoint, face, pos, false);
             result = fake.gameMode.useItemOn(fake, level, fake.getMainHandItem(), InteractionHand.MAIN_HAND, hit);
         }

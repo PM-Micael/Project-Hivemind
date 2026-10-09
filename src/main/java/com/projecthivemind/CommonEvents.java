@@ -160,6 +160,10 @@ public final class CommonEvents {
         registrar.playToServer(ViewUnitPayload.TYPE, ViewUnitPayload.STREAM_CODEC, ServerPayloads::onViewUnit);
         registrar.playToClient(SyncUnitsPayload.TYPE, SyncUnitsPayload.STREAM_CODEC, ClientPayloads::onSyncUnits);
         registrar.playToClient(com.projecthivemind.network.SyncPortalsPayload.TYPE, com.projecthivemind.network.SyncPortalsPayload.STREAM_CODEC, ClientPayloads::onSyncPortals);
+        registrar.playToClient(com.projecthivemind.network.SyncLocationsPayload.TYPE, com.projecthivemind.network.SyncLocationsPayload.STREAM_CODEC, ClientPayloads::onSyncLocations);
+        registrar.playToServer(com.projecthivemind.network.LocateStrongholdPayload.TYPE, com.projecthivemind.network.LocateStrongholdPayload.STREAM_CODEC, ServerPayloads::onLocateStronghold);
+        registrar.playToServer(com.projecthivemind.network.DeleteLocationPayload.TYPE, com.projecthivemind.network.DeleteLocationPayload.STREAM_CODEC, ServerPayloads::onDeleteLocation);
+        registrar.playToServer(com.projecthivemind.network.TravelToLocationPayload.TYPE, com.projecthivemind.network.TravelToLocationPayload.STREAM_CODEC, ServerPayloads::onTravelToLocation);
         registrar.playToClient(com.projecthivemind.network.SyncMusicPayload.TYPE, com.projecthivemind.network.SyncMusicPayload.STREAM_CODEC, ClientPayloads::onSyncMusic);
         registrar.playToClient(com.projecthivemind.network.ConfirmPortalPayload.TYPE, com.projecthivemind.network.ConfirmPortalPayload.STREAM_CODEC, ClientPayloads::onConfirmPortal);
         registrar.playToServer(com.projecthivemind.network.PlacePortalPayload.TYPE, com.projecthivemind.network.PlacePortalPayload.STREAM_CODEC, ServerPayloads::onPlacePortal);
@@ -274,27 +278,14 @@ public final class CommonEvents {
 
 
 
-    /** How long after the hive hits an enderman it may fight back (a mob's revenge time in the game is about this long). */
-    private static final int PROVOKED_TICKS = 200;
-
     /**
-     * Once the hive has consumed a carved pumpkin (an evolution task), endermen do not take its units or its Heart as targets on their own, as they do
-     * not take a player wearing one: not when the units look at them. An enderman the hive has hit first does fight back.
+     * The carved pumpkin evolution (see EnderPeace) is applied where endermen pick their targets. This is the backstop for anything else that
+     * gives an enderman a hive unit or Heart as a target.
      */
     @SubscribeEvent
     static void onEndermanTarget(net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent event) {
-        if (!(event.getEntity() instanceof net.minecraft.world.entity.monster.EnderMan) || event.getNewAboutToBeSetTarget() == null
-                || !(event.getNewAboutToBeSetTarget().level() instanceof net.minecraft.server.level.ServerLevel level)) {
-            return;
-        }
-        net.minecraft.world.entity.LivingEntity target = event.getNewAboutToBeSetTarget();
-        java.util.UUID owner = target instanceof HiveUnit unit ? unit.ownerId() : target instanceof HiveHeart own ? own.ownerId() : null;
-        net.minecraft.server.level.ServerPlayer player = owner == null ? null : level.getServer().getPlayerList().getPlayer(owner);
-        HiveHeart heart = player == null ? null : HivemindManager.findHeart(player);
-        // An enderman the hive has hit is another matter: it may take its attacker as a target, as any mob would.
-        net.minecraft.world.entity.monster.EnderMan enderman = (net.minecraft.world.entity.monster.EnderMan) event.getEntity();
-        boolean provoked = enderman.getLastHurtByMob() == target && enderman.tickCount - enderman.getLastHurtByMobTimestamp() < PROVOKED_TICKS;
-        if (heart != null && !provoked && com.projecthivemind.EvolveTask.CARVED_PUMPKIN.doneIn(heart.evolveMask())) {
+        if (event.getEntity() instanceof net.minecraft.world.entity.monster.EnderMan enderman && event.getNewAboutToBeSetTarget() != null
+                && com.projecthivemind.entity.EnderPeace.spares(enderman, event.getNewAboutToBeSetTarget())) {
             event.setCanceled(true);
         }
     }

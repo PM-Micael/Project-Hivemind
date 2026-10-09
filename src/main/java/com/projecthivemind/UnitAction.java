@@ -38,14 +38,16 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
         /** Placing a hive portal on a face of a block (scouts only): {@code pos} is the block, {@code face} the face it goes on. */
         PORTAL,
         /** Placing a dehydrator on a face of a block (scouts only): {@code pos} is the block it goes against, {@code face} the face it goes on. */
-        DEHYDRATOR;
+        DEHYDRATOR,
+        /** Walking a long way to a saved location on the surface, going round hostile mobs on the way (scouts only): {@code pos} is the spot. Kept at until it arrives or is cancelled. */
+        TRAVEL;
 
         /**
          * Whether this is a job: something a unit keeps at until it is done, like mining a block, fighting a mob or building.
          * Anything else (walking somewhere, one use of a block or item) is an order that only pauses a job.
          */
         public boolean isJob() {
-            return this == DIG || this == ATTACK || this == BUILD || this == GUARD;
+            return this == DIG || this == ATTACK || this == BUILD || this == GUARD || this == TRAVEL;
         }
     }
 
@@ -114,6 +116,11 @@ public record UnitAction(Kind kind, @Nullable BlockPos pos, @Nullable UUID targe
 
     public static UnitAction dehydrator(BlockPos pos, Direction face) {
         return new UnitAction(Kind.DEHYDRATOR, pos, null, face);
+    }
+
+    /** Travel to this spot on the surface, avoiding hostile mobs (scouts). */
+    public static UnitAction travel(BlockPos pos) {
+        return new UnitAction(Kind.TRAVEL, pos, null, null);
     }
 
     public static UnitAction portal(BlockPos pos, Direction face) {

@@ -409,6 +409,11 @@ public final class HivemindManager {
                     return Component.translatable("job.projecthivemind.guard", wardName);
                 }
                 break;
+            case TRAVEL:
+                if (job.pos() != null) {
+                    return Component.translatable("job.projecthivemind.travel", job.pos().getX(), job.pos().getZ());
+                }
+                break;
             case BUILD:
                 com.projecthivemind.build.Construction building = job.pos() == null ? null : heart.constructions().at(level.dimension(), job.pos());
                 return Component.translatable(building != null && building.tower() != null && building.tower().plan().direction() == com.projecthivemind.build.TowerDirection.DOWN
@@ -722,6 +727,7 @@ public final class HivemindManager {
         });
         sendUnits(player);
         HivePortals.sync(player, heart);
+        HiveLocationActions.sync(player, heart);
         sendEnchants(player, heart);
     }
 

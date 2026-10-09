@@ -39,7 +39,7 @@ public final class UnitRelations {
         if (event.getLevel().isClientSide() || !(event.getEntity() instanceof Mob mob) || !(mob instanceof Enemy) || mob instanceof HiveUnit) {
             return;
         }
-        mob.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(mob, LivingEntity.class, 10, true, false, other -> other instanceof HiveUnit));
+        mob.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(mob, LivingEntity.class, 10, true, false, other -> other instanceof HiveUnit && !EnderPeace.spares(mob, other)));
         // The Heart is noticed from further away the bigger it is.
         mob.targetSelector.addGoal(3, new HeartTargetGoal(mob));
     }

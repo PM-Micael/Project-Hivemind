@@ -140,6 +140,8 @@ public class HiveHeart extends Mob {
     private final HiveBrewing brewing = new HiveBrewing();
     /** The portals standing and the summoning going on (from level 2). */
     private final PortalNetwork portals = new PortalNetwork();
+    /** The places the hive knows about, for the Locations tab. */
+    private final HiveLocations locations = new HiveLocations();
     /** Where each of the hive's units was last seen (dimension and chunk), so they can be loaded again after a restart. */
     private final java.util.Map<UUID, com.projecthivemind.HivemindManager.UnitSpot> unitSpots = new java.util.HashMap<>();
     /** The item in the scout's hand, put there from the hive menu. The scout holds a copy, and what it uses comes off this. */
@@ -1377,6 +1379,10 @@ public class HiveHeart extends Mob {
         return portals;
     }
 
+    public HiveLocations locations() {
+        return locations;
+    }
+
     @Nullable
     public com.projecthivemind.HivemindManager.UnitSpot unitSpot(UUID unit) {
         return unitSpots.get(unit);
@@ -1751,6 +1757,7 @@ public class HiveHeart extends Mob {
         tag.putBoolean("PerfectEating", perfectEating);
         tag.put("HiveBrewing", brewing.save(registryAccess()));
         tag.put("PortalNetwork", portals.save());
+        tag.put("HiveLocations", locations.save());
         net.minecraft.nbt.ListTag spots = new net.minecraft.nbt.ListTag();
         for (java.util.Map.Entry<UUID, com.projecthivemind.HivemindManager.UnitSpot> entry : unitSpots.entrySet()) {
             CompoundTag spot = new CompoundTag();
@@ -1878,6 +1885,9 @@ public class HiveHeart extends Mob {
         }
         if (tag.contains("PortalNetwork")) {
             portals.load(tag.getCompound("PortalNetwork"));
+        }
+        if (tag.contains("HiveLocations")) {
+            locations.load(tag.getCompound("HiveLocations"));
         }
         if (tag.contains("HiveBrewing")) {
             brewing.load(tag.getCompound("HiveBrewing"), registryAccess());
